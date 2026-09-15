@@ -1,0 +1,17 @@
+id: laravel-route-needs-test
+title: 라우트를 바꿨는데 테스트 변경 없음
+severity: info
+applies_to:
+  stack: [laravel]
+triggers:
+  when_changed: ["routes/**/*.php"]
+  require_changed: ["tests/**/*Test.php", "tests/**/*.php"]
+context_injection: |
+  라우트가 바뀌었는데 이번 변경에 테스트가 없습니다.
+  엔드포인트를 추가·변경했다면 Feature 테스트를 함께 넣으세요.
+tests:
+  should_match:
+    - ["routes/api.php", "app/Http/Controllers/UserController.php"]
+  should_not_match:
+    - ["routes/api.php", "tests/Feature/UserTest.php"]
+    - ["app/Http/Controllers/UserController.php"]

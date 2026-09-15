@@ -1,0 +1,18 @@
+id: go-no-panic
+title: 라이브러리 코드에서 panic 금지
+severity: error
+applies_to:
+  stack: [go]
+  files: ["**/*.go"]
+  exclude: ["**/*_test.go", "main.go", "cmd/**", "**/vendor/**"]
+triggers:
+  code_regex: '(?<![\w.])panic\s*\('
+context_injection: |
+  panic 대신 error 를 반환해 호출자가 결정하게 하세요.
+  프로세스를 멈춰야 하는 초기화 실패라면 main 이나 cmd/ 에서 처리합니다.
+tests:
+  should_match:
+    - '		panic("unreachable")'
+  should_not_match:
+    - '		return fmt.Errorf("unreachable")'
+    - '	defer recoverPanic()'

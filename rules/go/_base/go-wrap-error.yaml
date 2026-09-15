@@ -1,0 +1,17 @@
+id: go-wrap-error
+title: 에러 래핑에 %w 사용
+severity: warn
+applies_to:
+  stack: [go]
+  files: ["**/*.go"]
+  exclude: ["**/vendor/**"]
+triggers:
+  code_regex: 'fmt\.Errorf\([^)]*%[vs][^)]*\berr\b'
+context_injection: |
+  fmt.Errorf 로 에러를 감쌀 때는 %v 가 아니라 %w 를 쓰세요.
+  그래야 errors.Is / errors.As 로 원인을 판별할 수 있습니다.
+tests:
+  should_match:
+    - '	return fmt.Errorf("load config: %v", err)'
+  should_not_match:
+    - '	return fmt.Errorf("load config: %w", err)'

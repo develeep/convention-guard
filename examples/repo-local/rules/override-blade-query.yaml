@@ -1,0 +1,6 @@
+# 공통 규칙을 통째로 복사하지 않고 필요한 키만 덮어씁니다.
+override: core/laravel-no-query-in-blade
+severity: warn
+applies_to:
+  exclude:
+    - "resources/views/admin/**"

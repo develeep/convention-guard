@@ -1,0 +1,10 @@
+id: go
+tags: [go]
+detect:
+  file: go.mod
+  version_regex: '^go (\d+\.\d+)'
+lint:
+  - cmd: ["golangci-lint", "run", "{files}"]
+    if_exists: golangci-lint
+  - cmd: ["go", "vet", "./..."]
+    if_exists: go

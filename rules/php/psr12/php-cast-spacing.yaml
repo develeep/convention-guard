@@ -1,0 +1,19 @@
+id: php-cast-spacing
+title: 형 변환 괄호 안 공백 금지
+severity: warn
+superseded_by: [pint.json, .php-cs-fixer.php, .php-cs-fixer.dist.php]
+applies_to:
+  stack: [php]
+  files: ["**/*.php"]
+  exclude: ["**/vendor/**"]
+triggers:
+  code_regex: '\(\s+(int|integer|float|double|string|bool|boolean|array|object)\s*\)|\((int|integer|float|double|string|bool|boolean|array|object)\s+\)'
+context_injection: |
+  캐스트 괄호 안에는 공백이 없어야 합니다. 예) $intValue = (int) $input;
+tests:
+  should_match:
+    - '$intValue = ( int )$input;'
+    - '$intValue = (int )$input;'
+  should_not_match:
+    - '$intValue = (int) $input;'
+    - 'function f(int $a)'

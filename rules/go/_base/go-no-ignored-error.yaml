@@ -1,0 +1,17 @@
+id: go-no-ignored-error
+title: 에러를 _ 로 버리지 않기
+severity: warn
+applies_to:
+  stack: [go]
+  files: ["**/*.go"]
+  exclude: ["**/*_test.go", "**/vendor/**"]
+triggers:
+  code_regex: '(^|[\s;])_\s*(,\s*_\s*)*=\s*[\w.]+\('
+context_injection: |
+  에러를 버리고 있습니다. 처리하거나, 의도적으로 무시한다면 왜 안전한지 주석을 남기세요.
+tests:
+  should_match:
+    - '	_ = json.Unmarshal(b, &v)'
+  should_not_match:
+    - '	v, err := json.Marshal(x)'
+    - '	_ = 3'

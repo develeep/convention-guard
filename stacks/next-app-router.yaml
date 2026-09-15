@@ -1,0 +1,4 @@
+id: next-app
+tags: [next-app]
+detect:
+  file: [app/layout.tsx, app/layout.jsx, src/app/layout.tsx, src/app/layout.jsx]

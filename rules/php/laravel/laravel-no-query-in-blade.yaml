@@ -1,0 +1,19 @@
+id: laravel-no-query-in-blade
+title: Blade에서 직접 쿼리 금지
+severity: error
+applies_to:
+  stack: [laravel]
+  files: ["**/*.blade.php"]
+  exclude: ["**/vendor/**"]
+triggers:
+  code_regex: '(\{\{|@php|@if|@foreach).{0,80}\b[A-Z]\w+::(where|all|find|first|get|count|pluck)\s*\('
+context_injection: |
+  뷰에서 쿼리하면 N+1과 테스트 불가 문제가 생깁니다.
+  컨트롤러나 뷰모델에서 조회해 뷰에는 결과만 전달하세요.
+tests:
+  should_match:
+    - "{{ User::where('id', $id)->first()->name }}"
+    - "@foreach (Post::all() as $post)"
+  should_not_match:
+    - "{{ $user->name }}"
+    - "@foreach ($posts as $post)"

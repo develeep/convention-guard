@@ -1,0 +1,18 @@
+# 이 레포에만 있는 규칙. id 는 자동으로 local/ 네임스페이스가 붙습니다.
+id: no-direct-slack-call
+title: Slack 은 NotificationService 경유
+severity: error
+applies_to:
+  stack: [php]
+  files: ["app/**/*.php"]
+  exclude: ["app/Services/NotificationService.php"]
+triggers:
+  code_regex: '(Http::post\s*\(\s*["'']https://hooks\.slack\.com|new\s+SlackClient)'
+context_injection: |
+  Slack 호출은 NotificationService 를 통해서만 합니다.
+  재시도와 rate limit 처리가 거기에 모여 있습니다.
+tests:
+  should_match:
+    - 'Http::post("https://hooks.slack.com/services/T000/B000/xxx", $payload);'
+  should_not_match:
+    - 'app(NotificationService::class)->slack($payload);'

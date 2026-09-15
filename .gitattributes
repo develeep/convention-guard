@@ -1,0 +1,12 @@
+# 이 플러그인의 텍스트 파일은 CRLF 로 고정합니다.
+# 이게 없으면 git 이 체크아웃할 때 core.autocrlf 설정에 따라 조용히 LF 로 돌려놓습니다.
+* text=auto eol=crlf
+
+*.py    text eol=crlf
+*.md    text eol=crlf
+*.json  text eol=crlf
+*.yaml  text eol=crlf
+*.yml   text eol=crlf
+
+*.png   binary
+*.zip   binary

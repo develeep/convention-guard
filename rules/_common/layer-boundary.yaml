@@ -1,0 +1,22 @@
+id: layer-boundary
+title: 계층 경계 위반
+severity: error
+context_line: 계층을 거슬러 import 하지 마세요 (domain -> infra, controller -> repository 직접 접근 등). 기존 파일의 import 방향을 먼저 보고 맞추세요.
+applies_to:
+  stack: ["*"]
+  exclude: ["**/vendor/**", "**/node_modules/**", "**/*.test.*", "**/*_test.go"]
+triggers:
+  review_when: '^\s*(import |use |from |require\()'
+review_prompt: |
+  이번 변경에 추가된 import/use 구문이 이 레포의 계층 경계를 넘는지 판단하세요.
+  먼저 레포 구조를 훑어 실제 계층 규칙이 무엇인지 파악한 뒤 판단해야 합니다
+  (예: domain -> infra 금지, controller -> repository 직접 접근 금지,
+   ui -> 서버 전용 모듈 금지). 레포에 그런 계층이 없다면 위반이 아닙니다.
+  기존 코드가 이미 같은 방향으로 import 하고 있다면 이번 변경의 책임이 아니므로
+  보고하지 마세요.
+tests:
+  should_match:
+    - 'use App\Infrastructure\Redis\Client;'
+    - "import { db } from '@/infra/database';"
+  should_not_match:
+    - '$x = 1;'

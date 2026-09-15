@@ -1,0 +1,20 @@
+id: next-client-hook-needs-directive
+title: 훅을 쓰는데 'use client' 선언 없음
+severity: error
+in_context: true
+context_line: App Router 에서 훅을 쓰는 파일은 첫 줄에 'use client' 를 선언하세요.
+applies_to:
+  stack: [next-app]
+  files: ["app/**/*.{tsx,jsx}", "src/app/**/*.{tsx,jsx}", "components/**/*.{tsx,jsx}"]
+triggers:
+  when_line_added: '\buse(State|Effect|LayoutEffect|Reducer|Ref|Callback|Memo|Context)\s*\('
+  must_contain_in_file: '^\s*[''"]use client[''"]'
+context_injection: |
+  App Router 에서 훅은 클라이언트 컴포넌트에서만 동작합니다.
+  파일 첫 줄에 'use client' 를 선언하거나, 상태가 필요한 부분만 별도 컴포넌트로 분리하세요.
+tests:
+  should_match:
+    - "import { useState } from 'react';\n\nexport function Counter() {\n  const [n, setN] = useState(0);\n}"
+  should_not_match:
+    - "'use client';\n\nimport { useState } from 'react';\n\nexport function Counter() {\n  const [n, setN] = useState(0);\n}"
+    - "export default async function Page() {\n  const data = await getData();\n}"

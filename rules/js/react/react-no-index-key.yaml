@@ -1,0 +1,15 @@
+id: react-no-index-key
+title: 리스트 key 로 인덱스 사용 금지
+severity: warn
+applies_to:
+  stack: [react]
+  files: ["**/*.{tsx,jsx}"]
+triggers:
+  code_regex: 'key=\{\s*(i|idx|index)\s*\}'
+context_injection: |
+  인덱스를 key 로 쓰면 목록이 재정렬될 때 상태가 엉뜁니다. 안정적인 id 를 쓰세요.
+tests:
+  should_match:
+    - '<Row key={index} />'
+  should_not_match:
+    - '<Row key={row.id} />'

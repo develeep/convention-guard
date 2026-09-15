@@ -1,0 +1,4 @@
+id: ts
+tags: [ts]
+detect:
+  file: [tsconfig.json, tsconfig.base.json]

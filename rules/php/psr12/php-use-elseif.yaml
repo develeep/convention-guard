@@ -1,0 +1,17 @@
+id: php-use-elseif
+title: else if 대신 elseif
+severity: warn
+superseded_by: [pint.json, .php-cs-fixer.php, .php-cs-fixer.dist.php]
+applies_to:
+  stack: [php]
+  files: ["**/*.php"]
+  exclude: ["**/vendor/**"]
+triggers:
+  code_regex: '\belse\s+if\s*\('
+context_injection: |
+  제어 키워드가 모두 한 단어로 보이도록 elseif 를 씁니다.
+tests:
+  should_match:
+    - '} else if ($a > $b) {'
+  should_not_match:
+    - '} elseif ($a > $b) {'

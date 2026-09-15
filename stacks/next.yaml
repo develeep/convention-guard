@@ -1,0 +1,6 @@
+id: next
+tags: [js, react, next]
+detect:
+  file: package.json
+  contains: '"next"\s*:'
+  version_regex: '"next"\s*:\s*"[^0-9]*(\d+)'

@@ -1,0 +1,59 @@
+{
+    "preset": "psr12",
+    "rules": {
+        "declare_strict_types": true,
+        "no_closing_tag": true,
+        "full_opening_tag": true,
+        "blank_line_after_opening_tag": true,
+        "indentation_type": true,
+        "elseif": true,
+        "visibility_required": {
+            "elements": ["property", "method", "const"]
+        },
+        "compact_nullable_typehint": true,
+        "cast_spaces": {
+            "space": "single"
+        },
+        "no_spaces_after_function_name": true,
+        "no_spaces_inside_parenthesis": true,
+        "unary_operator_spaces": true,
+        "binary_operator_spaces": {
+            "default": "single_space"
+        },
+        "ternary_operator_spaces": true,
+        "concat_space": {
+            "spacing": "one"
+        },
+        "ordered_imports": {
+            "sort_algorithm": "alpha",
+            "imports_order": ["class", "function", "const"]
+        },
+        "no_unused_imports": true,
+        "single_line_after_imports": true,
+        "braces_position": {
+            "functions_opening_brace": "next_line_unless_newline_at_signature_end",
+            "classes_opening_brace": "next_line_unless_newline_at_signature_end"
+        },
+        "method_argument_space": {
+            "on_multiline": "ensure_fully_multiline"
+        },
+        "return_type_declaration": {
+            "space_before": "none"
+        },
+        "single_trait_insert_per_statement": true,
+        "class_attributes_separation": {
+            "elements": {
+                "method": "one",
+                "property": "one"
+            }
+        },
+        "no_trailing_whitespace": true,
+        "single_blank_line_at_eof": true
+    },
+    "exclude": [
+        "vendor",
+        "storage",
+        "bootstrap/cache",
+        "node_modules"
+    ]
+}

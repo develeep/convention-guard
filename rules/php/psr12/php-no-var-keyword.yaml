@@ -1,0 +1,18 @@
+id: php-no-var-keyword
+title: var 로 프로퍼티 선언 금지
+severity: error
+superseded_by: [pint.json, .php-cs-fixer.php, .php-cs-fixer.dist.php]
+applies_to:
+  stack: [php]
+  files: ["**/*.php"]
+  exclude: ["**/vendor/**"]
+triggers:
+  code_regex: '^\s*var\s+\$'
+context_injection: |
+  var 대신 가시성(private/protected/public)을 명시하세요. 모든 프로퍼티에 필요합니다.
+tests:
+  should_match:
+    - '    var $name;'
+  should_not_match:
+    - '    private string $name;'
+    - '    $var = 1;'

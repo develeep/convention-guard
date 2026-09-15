@@ -1,0 +1,19 @@
+id: php-strict-types-required
+title: 새 PHP 파일에 declare(strict_types=1) 선언
+severity: error
+in_context: true
+context_line: 새 PHP 파일은 여는 태그 다음에 빈 줄 하나를 두고 declare(strict_types=1); 로 시작하세요.
+applies_to:
+  stack: [php]
+  files: ["app/**/*.php", "src/**/*.php", "routes/**/*.php", "tests/**/*.php"]
+  exclude: ["**/vendor/**", "**/*.blade.php", "**/migrations/**"]
+triggers:
+  absent_in_new_file: 'declare\s*\(\s*strict_types\s*=\s*1\s*\)'
+context_injection: |
+  새로 만든 PHP 파일에 declare(strict_types=1); 이 없습니다.
+  여는 태그 다음 줄에 한 줄 띄우고 선언하세요. 공백 없이 정확히 이 형태여야 합니다.
+tests:
+  should_match:
+    - "<?php\n\nnamespace App;\n\nclass Foo {}\n"
+  should_not_match:
+    - "<?php\n\ndeclare(strict_types=1);\n\nnamespace App;\n"

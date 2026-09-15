@@ -1,0 +1,21 @@
+# 플러그인 기본값. 레포별로 .claude/convention-rules/config.yaml 에서 덮어쓸 수 있습니다.
+
+max_rules: 4                 # 한 번에 주입할 error 규칙 상한
+max_warns: 3                 # 차단 시 함께 실어 보낼 warn 상한
+max_blocks_per_session: 2    # 세션당 최대 차단 횟수 (무한 루프 방지)
+once_per_session: true       # 같은 규칙은 세션당 한 번만
+run_linters: true            # 스택별 린터 위임
+lint_timeout: 90
+base_ref: ''                 # 'auto' 로 두면 기본 브랜치와의 merge-base 기준으로도 diff
+skip_if_question: true       # 에이전트가 질문으로 턴을 끝내면 검사 생략
+max_hits_per_rule: 3         # 규칙당 보여줄 위치 개수
+respect_supersede: true      # pint.json 등이 있으면 해당 포맷 규칙 비활성화
+
+# 서브에이전트 판정 (hooks.with-semantic-review.json 을 쓸 때만 의미 있음)
+max_semantic_rules: 2                # 한 번에 판정 맡길 규칙 상한
+max_semantic_reviews_per_session: 1  # 세션당 판정 횟수
+
+# 아래 둘은 plugin.json 의 userConfig 로도 설정할 수 있습니다.
+# 레포 config 에 값이 있으면 그쪽(팀 설정)이 우선합니다.
+block_level: error           # error = 차단 / report = 기록만
+semantic_review: false       # 서브에이전트 심층 판정 (agent 훅 필요)

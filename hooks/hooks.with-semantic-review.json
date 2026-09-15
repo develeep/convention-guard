@@ -1,0 +1,36 @@
+{
+  "description": "결정론 검사(command) + semantic 규칙만 서브에이전트 판정(agent). hooks/hooks.json 을 이 파일로 교체해서 사용합니다.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/collect.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/check.py\"",
+            "timeout": 150,
+            "statusMessage": "컨벤션 검사 중..."
+          },
+          {
+            "type": "agent",
+            "model": "claude-haiku-4-5",
+            "timeout": 180,
+            "statusMessage": "컨벤션 심층 판정 중...",
+            "prompt": "너는 이 레포의 코드 리뷰어다. 아래 순서를 정확히 따르고, 다른 일은 하지 마라.\n\n1단계. 다음 명령을 실행한다. HOOK_INPUT 은 아래 JSON 이다.\n\n   python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/check.py\" --semantic-queue <<'CG_JSON'\n$ARGUMENTS\nCG_JSON\n\n2단계. 출력이 EMPTY 이면 즉시 {} 만 응답하고 끝낸다. 파일을 읽지 마라. 이게 대부분의 경우다.\n\n3단계. JSON 이 나오면 각 item 의 question 에 답하기 위해 candidates 에 적힌 파일을 Read 로 읽고 판단한다. 필요하면 Grep 으로 주변 맥락을 더 본다. repo 필드가 작업 디렉터리다.\n\n4단계. 확신이 있는 위반만 골라 아래 형식으로 응답한다. 확신이 없으면 포함하지 마라. 오탐 하나가 이 시스템 전체의 신뢰를 깎는다. 위반이 하나도 없으면 {} 만 응답한다.\n\n{\"decision\": \"block\", \"reason\": \"■ 심층 판정\\n  [규칙id] 파일:줄 — 무엇이 문제인지와 어떻게 고칠지 한두 줄\"}\n\n응답은 JSON 객체 하나뿐이어야 한다. 설명이나 코드펜스를 붙이지 마라."
+          }
+        ]
+      }
+    ]
+  }
+}
