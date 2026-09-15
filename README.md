@@ -480,22 +480,39 @@ convention-guard/
 
 ### marketplace.json
 
+**필수 필드는 `name` · `owner` · `plugins` 셋입니다.** `owner` 는 객체이고 그 안의 `name` 이
+필수입니다. 빠지면 마켓플레이스 추가 자체가 `owner: Invalid input` 으로 실패합니다.
+
+```json
+{
+  "name": "develeep-convention-guard",
+  "owner": { "name": "shlee" },
+  "plugins": [
+    { "name": "convention-guard", "source": "./" }
+  ]
+}
+```
+
+플러그인 항목은 `name` 과 `source` 가 필수입니다. `source` 형태는 **마켓플레이스 레포와
+플러그인이 같은 레포인지**에 따라 갈립니다.
+
+| 상황 | `source` | 비고 |
+|---|---|---|
+| 이 레포가 곧 플러그인 (현재 설정) | `"./"` | 레포 루트에 `.claude-plugin/` 둘 다 있음 |
+| 한 마켓플레이스에 플러그인 여러 개 | `"./plugins/<이름>"` | 서브디렉터리 경로 |
+| 플러그인이 다른 레포에 | `{"type":"git","url":"...","ref":"v0.5.2"}` | 태그로 버전 고정 |
+| 아티팩트 서버의 zip | `{"type":"archive","url":"...","hash":"sha256:..."}` | 릴리스마다 해시 갱신 필요 |
+
 ```bash
-/plugin marketplace add ORG/convention-guard
+/plugin marketplace add develeep/convention-guard
 /plugin install convention-guard
 ```
 
-`.claude-plugin/marketplace.json` 의 `ORG` 를 실제 조직명으로, `ref` 를 릴리스 태그로
-바꾸세요. `source.type` 은 셋 중 하나입니다.
+수정한 뒤에는 캐시된 마켓플레이스를 갱신해야 반영됩니다.
 
-| type | 언제 | 필수 필드 |
-|---|---|---|
-| `git` | 사내 GitHub/GitLab (권장) | `url`, `ref` |
-| `archive` | 아티팩트 서버의 zip | `url`, `hash` (sha256) |
-| `command` | npm 등으로 설치 | `command` |
-
-`archive` 는 `hash` 가 필수라 릴리스마다 갱신해야 합니다. 태그만 올리면 되는 `git` 이
-사내 배포에는 대체로 편합니다.
+```bash
+/plugin marketplace update develeep-convention-guard
+```
 
 ### userConfig — 설치한 사람이 고르는 것
 
@@ -523,9 +540,9 @@ python3 -m compileall -q scripts       # 문법
 ```
 
 1. `plugin.json` 의 `version` 올리기
-2. `marketplace.json` 의 `source.ref` 를 같은 태그로
-3. `homepage` · `repository` 의 `ORG` 를 실제 값으로 (템플릿 상태입니다)
-4. 태그 푸시
+2. `source` 가 `git` 타입이면 `ref` 를 같은 태그로 (`"./"` 면 불필요)
+3. 태그 푸시
+4. 설치한 쪽에서 `/plugin marketplace update develeep-convention-guard`
 
 ## 함께 오는 스킬 4개
 

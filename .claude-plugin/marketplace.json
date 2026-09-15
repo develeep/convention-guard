@@ -1,21 +1,24 @@
 {
-  "name": "ORG-tools",
-  "displayName": "사내 Claude Code 플러그인",
-  "description": "팀에서 쓰는 Claude Code 플러그인 모음",
+  "name": "develeep-convention-guard",
+  "owner": {
+    "name": "shlee",
+    "email": "seunghoonlee0508@gmail.com"
+  },
   "plugins": [
     {
       "name": "convention-guard",
-      "displayName": "Convention Guard",
-      "description": "루프 완료 시점에 변경분만 검사해 팀 코딩 컨벤션을 피드백합니다.",
-      "author": { "name": "shlee" },
-      "keywords": ["convention", "code-style", "lint", "psr-12"],
-      "license": "MIT",
-      "homepage": "https://github.com/develeep/convention-guard#readme",
-      "source": {
-        "type": "git",
-        "url": "https://github.com/develeep/convention-guard.git",
-        "ref": "v0.5.0"
-      }
+      "source": "./",
+      "description": "루프 완료 시점에 이번 변경분만 검사해 팀 코딩 컨벤션을 피드백합니다. Laravel·Next·Nest·Go 스택 자동 감지.",
+      "author": {
+        "name": "shlee"
+      },
+      "keywords": [
+        "convention",
+        "code-style",
+        "lint",
+        "psr-12"
+      ],
+      "license": "MIT"
     }
   ]
 }
