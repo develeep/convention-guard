@@ -10,10 +10,10 @@
       "author": { "name": "shlee" },
       "keywords": ["convention", "code-style", "lint", "psr-12"],
       "license": "MIT",
-      "homepage": "https://github.com/ORG/convention-guard#readme",
+      "homepage": "https://github.com/develeep/convention-guard#readme",
       "source": {
         "type": "git",
-        "url": "https://github.com/ORG/convention-guard.git",
+        "url": "https://github.com/develeep/convention-guard.git",
         "ref": "v0.5.0"
       }
     }
