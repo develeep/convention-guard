@@ -284,6 +284,17 @@ def load_all(cwd=None, root=None, include_disabled=False):
     if isinstance(repo_exclude, str):
         repo_exclude = [repo_exclude]
 
+    # convention-guard's own config/output paths are never scanned as content.
+    # Before a repo commits .claude/convention-rules/, git sees it as
+    # untracked -- so the whole-file "new file" path treats it as added, and
+    # a rule with no `files` filter (most of them) would then read its own
+    # YAML comments as code. That is how a plain-language note explaining why
+    # a rule was downgraded ends up tripping the very rule it explains.
+    repo_exclude = list(repo_exclude) + [
+        '%s/**' % LOCAL_DIRNAME.replace(os.sep, '/'),
+        '.claude/rules/**',
+    ]
+
     rules = []
     for rid in order:
         rule = by_id.get(rid)
