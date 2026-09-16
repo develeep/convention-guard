@@ -1,0 +1,33 @@
+# 레포에 두는 파일: <repo>/.claude/convention-rules/candidates/<id>.yaml
+#
+# 카탈로그에 없는 이 레포만의 관습을 후보로 만들어 두면, 플러그인 카탈로그와 똑같이
+# survey.py 가 전수조사로 준수율을 재 줍니다. "그렇게 보였다"가 아니라 숫자가 나온 뒤에
+# 채택하는 것이 요점입니다.
+#
+#   python3 scripts/survey.py                                  # 준수율 확인
+#   python3 scripts/survey.py --adopt local-candidate/<id>     # 채택
+#
+# 형식은 규칙 파일과 같고 probe / rationale / covered_by 세 키만 추가됩니다.
+id: local-use-result-helper
+title: 응답은 사내 Result 헬퍼로 감싸기
+severity: warn
+applies_to:
+  stack: ["*"]
+  files: ["app/Http/Controllers/**/*.php"]
+  exclude: ["**/vendor/**"]
+triggers:
+  code_regex: '^\s*return\s+response\s*\(\s*\)->json\s*\('
+context_injection: |
+  이 레포의 컨트롤러는 응답을 Result::ok() / Result::fail() 로 감쌉니다.
+  클라이언트가 기대하는 에러 포맷이 그 헬퍼 안에 있으니 그쪽을 쓰세요.
+probe:
+  conforming: '\bResult::(ok|fail|of)\s*\('
+rationale: 응답 포맷이 한 곳에 모여 있어야 에러 코드 체계를 바꿀 때 컨트롤러를 전수조사하지 않습니다.
+tests:
+  should_match:
+    - '        return response()->json(["data" => $order]);'
+    - '    return response()->json($payload, 201);'
+  should_not_match:
+    - '        return Result::ok($order);'
+    - '        return Result::fail("ORDER_NOT_FOUND");'
+    - '        // response()->json 대신 Result::ok 를 쓰세요'

@@ -1,0 +1,23 @@
+id: laravel-model-mass-assignment
+title: 모델에 $fillable/$guarded 선언 없음
+severity: warn
+applies_to:
+  stack: [laravel]
+  files: ["app/Models/**/*.php"]
+  exclude: ["**/vendor/**"]
+triggers:
+  absent_in_new_file: '^\s*(?:protected|public|private)\s+(?:array\s+)?\$(?:fillable|guarded)\s*='
+context_injection: |
+  모델을 새로 만들었는데 $fillable 도 $guarded 도 없습니다.
+  이 레포는 모델마다 대량 할당 허용 범위를 적어 두는 쪽으로 쓰고 있으니,
+  채울 수 있는 컬럼을 $fillable 에 나열하거나 $guarded 로 막을 컬럼을 명시하세요.
+probe:
+  conforming: '^\s*(?:protected|public|private)\s+(?:array\s+)?\$(?:fillable|guarded)\s*='
+rationale: 대량 할당 범위를 모델에 적어 두지 않으면 폼에 필드 하나 끼워 넣는 것으로 권한 컬럼까지 바뀝니다. 모델을 보면 바로 알 수 있어야 합니다.
+tests:
+  should_match:
+    - "class Order extends Model\n{\n    protected $casts = ['paid_at' => 'datetime'];\n}"
+    - "/**\n * $fillable 은 아직 정하지 않았습니다.\n */\nclass Invoice extends Model\n{\n    public function user()\n    {\n        return $this->belongsTo(User::class);\n    }\n}"
+  should_not_match:
+    - "class User extends Model\n{\n    /** $fillable 은 화이트리스트입니다 */\n    protected $fillable = ['name', 'email'];\n}"
+    - "class Setting extends Model\n{\n    protected $guarded = [];\n}"

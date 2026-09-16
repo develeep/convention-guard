@@ -1,0 +1,24 @@
+id: nest-http-exception
+title: 예외는 HttpException 계열로 던지기
+severity: warn
+applies_to:
+  stack: [nest]
+  files: ["**/*.controller.ts", "**/*.service.ts", "**/*.resolver.ts"]
+  exclude: ["**/node_modules/**", "**/*.spec.ts", "**/*.test.ts"]
+triggers:
+  code_regex: '^(?!\s*(?://|\*)).*?(?<![\w.$])throw\s+new\s+(?:Error|TypeError|RangeError)\s*\('
+context_injection: |
+  원시 Error 를 던지고 있습니다. 이 레포는 `NotFoundException`, `BadRequestException`
+  같은 HttpException 계열로 던지고 있으니 그쪽에 맞추세요. 원시 Error 는 예외 필터를
+  거쳐도 전부 500 으로 나갑니다.
+probe:
+  conforming: 'throw\s+new\s+[A-Z]\w*Exception\s*\('
+rationale: 상태 코드가 예외 타입에 실려 있으면 컨트롤러가 try/catch 로 코드를 번역하지 않아도 되고, 클라이언트가 보는 응답이 일정해집니다.
+tests:
+  should_match:
+    - '      throw new Error("user not found");'
+    - '    if (!order) throw new Error(`order ${id} missing`);'
+  should_not_match:
+    - '      throw new NotFoundException("user not found");'
+    - '      throw new HttpException("upstream failed", 502);'
+    - '      // throw new Error() 대신 BadRequestException 을 쓰세요'

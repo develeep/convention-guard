@@ -22,6 +22,8 @@ SUITES = [
     ('변경 앵커', [os.path.join(HERE, 'test_diff_anchor.py')]),
     ('린터 앵커링', [os.path.join(HERE, 'test_lint_anchor.py')]),
     ('세션 정책', [os.path.join(HERE, 'test_session_policy.py')]),
+    ('규칙 후보 추천', [os.path.join(HERE, 'test_survey.py')]),
+    ('에이전트 문서 생성', [os.path.join(HERE, 'test_agents_doc.py')]),
     ('자체 설정 제외', [os.path.join(HERE, 'test_self_exclude.py')]),
 ]
 

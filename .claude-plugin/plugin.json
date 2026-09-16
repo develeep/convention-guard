@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "convention-guard",
   "displayName": "Convention Guard",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "루프 완료 시점에 이번 변경분만 검사해 팀 코딩 컨벤션을 피드백합니다. 스택 자동 감지(Laravel·Next·Nest·Go), 공통/로컬 규칙 병합, 훅 없이 수동 실행과 CI 연동 지원.",
   "author": {
     "name": "shlee",

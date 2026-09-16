@@ -1,6 +1,6 @@
 ---
 name: convention-setup
-description: 이 레포에 맞는 convention-guard 설정을 만듭니다. 레포 구조·스택·린터·레거시 규모를 실제로 훑어보고 .claude/convention-rules/config.yaml 초안을 씁니다. "컨벤션 설정해줘", "이 레포에 규칙 붙여줘", "convention-guard 세팅", 새 레포에 도입할 때, 규칙이 너무 많이 걸려서 조정이 필요할 때 사용하세요.
+description: 이 레포에 맞는 convention-guard 설정을 만듭니다. 레포 구조·스택·린터·레거시 규모를 실제로 훑어보고, 전수조사로 이 레포가 이미 지키는 컨벤션을 찾아 규칙을 추천하고, config.yaml 과 AGENTS.md 를 씁니다. "컨벤션 설정해줘", "이 레포에 규칙 붙여줘", "convention-guard 세팅", "우리 프로젝트 컨벤션 규칙 추천해줘", "AGENTS.md 만들어줘", 새 레포에 도입할 때 사용하세요.
 ---
 
 # 레포에 맞는 컨벤션 설정 만들기
@@ -115,6 +115,64 @@ base_ref: auto      # 세션 중 커밋한 변경까지 검사하려면
   영구히 이탈하지만, 경로 제외와 강도 조정은 되돌리기 쉽습니다.
 - **`disable` 에는 이유를 주석으로 남기세요.** 6개월 뒤 왜 껐는지 아무도 기억 못 합니다.
 
+## 5-1. 이 레포가 이미 지키는 컨벤션 찾기 (규칙 추천)
+
+사용자가 "규칙도 추천해줘" 라고 하거나, 공통 규칙만으로는 팀 컨벤션이 덜 담긴다고
+판단되면 이 단계를 하세요. **규칙 추천은 새 규칙을 발명하는 게 아니라, 이 레포가 이미
+지키고 있는 것을 굳히는 일**입니다. 92%가 한 방향으로 쓰고 있으면 그건 컨벤션이고 남은
+8%는 회귀입니다. 50:50이면 컨벤션이 아니라 취향 차이이고, 그걸 규칙으로 만들면 오탐으로만
+보입니다.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/survey.py"                 # 추천 목록
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/survey.py" --all-verdicts  # 탈락한 것까지
+```
+
+후보마다 준수/위반 파일 수, 준수율, 판정, 실제 위반 예시가 나옵니다.
+
+| 판정 | 뜻 | 권하는 것 |
+|---|---|---|
+| 이미 100% 준수 | 위반 0건 | 회귀 방지용. `error` 로 켜도 안전합니다 |
+| 추천 | 준수율 ≥80% | `warn` 으로 채택. 위반 몇 건은 `exclude` 하거나 그때그때 고치기 |
+| 합의 필요 | 30~80% | **채택하지 마세요.** 사용자에게 "팀이 갈려 있다"고 알리고 합의를 먼저 |
+| 표본 부족 | 해당 파일 3개 미만 | 판단 보류. 코드가 더 쌓인 뒤 다시 재세요 |
+| 반대 관습 | <30% | 이 레포는 반대로 씁니다. 채택하면 안 됩니다 |
+| 공통 규칙이 이미 덮음 / 이미 채택됨 | — | 할 일 없음 |
+
+**목록을 그대로 다 채택하지 마세요.** 판정과 위반 예시를 사용자에게 보여주고,
+`AskUserQuestion` 으로 무엇을 켤지 고르게 하세요. 도입 첫날에는 3~5개면 충분합니다.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/survey.py" \
+  --adopt candidate/<id1> candidate/<id2> --severity warn
+```
+
+채택하면 후보 파일이 `<repo>/.claude/convention-rules/<id>.yaml` 로 복사되고
+(`local/` 네임스페이스), 픽스처도 함께 따라옵니다. 바로 검증하세요.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/test_rules.py" --repo "$CLAUDE_PROJECT_DIR"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --rule local/ --no-color
+```
+
+전수조사 건수가 예상보다 많으면 그 규칙은 아직 `warn` 입니다. 사용자에게 몇 건인지
+숫자로 보고하세요.
+
+### 카탈로그에 없는 이 레포만의 컨벤션
+
+`survey.py` 는 플러그인 카탈로그(`candidates/**`)를 잽니다. 레포를 훑다가 카탈로그에
+없는 관습을 발견했다면 — 사내 네이밍, 자체 헬퍼 사용법, 팀 전용 에러 처리 —
+후보 파일을 직접 써서 같은 방식으로 **측정한 뒤에만** 제안하세요.
+
+```
+<repo>/.claude/convention-rules/candidates/<id>.yaml
+```
+
+형식은 `${CLAUDE_PLUGIN_ROOT}/candidates/README.md` 에 있습니다. `probe.conforming`
+(정상 패턴)과 `tests` 픽스처가 필수입니다. 쓴 다음 `survey.py` 를 다시 돌려 준수율이
+실제로 높게 나오는지 확인하세요. **"그렇게 보였다"로 규칙을 만들지 마세요 —
+숫자가 없으면 제안하지 않는 게 맞습니다.**
+
 ## 6. 검증하고 설명하기
 
 ```bash
@@ -151,8 +209,42 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/emit_rules.py"            # .claude/rules
 생성물은 커밋하세요. 팀원 리뷰 대상이고, 플러그인을 안 쓰는 사람에게도 문서가 됩니다.
 관리 블록(`<!-- convention-guard:begin -->`) 밖의 수기 내용은 재생성해도 보존됩니다.
 
-`CLAUDE.md` 에 넣고 싶다면 `--claude-md` 를 쓰되, 그쪽은 경로 스코핑이 없어서 매 세션
-전부 로드된다는 점을 사용자에게 알려주세요.
+`.claude/rules/` 는 경로 스코핑이 되는 대신 Claude Code 전용입니다. 팀이 다른 도구도
+쓰거나 사람이 읽을 문서가 필요하면 8번으로 가세요.
+
+## 8. AGENTS.md 쓰기
+
+에이전트가 세션 시작에 읽는 프로젝트 문서입니다. **본문은 `AGENTS.md` 에 두고
+`CLAUDE.md` 는 그걸 가리키게** 합니다 — Claude Code 는 `@AGENTS.md` 를 import 로
+전개하고, 다른 도구는 `AGENTS.md` 를 그대로 읽으므로 내용이 한 곳에만 있습니다.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/emit_rules.py" --agents-md --stdout  # 미리보기
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/emit_rules.py" --agents-md           # 생성
+```
+
+이 명령이 만드는 것은 **관리 블록 안쪽(예방용 규칙 요약)뿐**입니다. 블록 밖은 사람
+소유이고 재생성해도 보존됩니다. 그래서 **문서가 없던 레포라면 블록 밖을 당신이 한 번
+채워주세요.** 추측해서 쓰지 말고 실제로 확인한 것만 적습니다.
+
+| 섹션 | 어디서 알아내는가 |
+|---|---|
+| 프로젝트 한 줄 요약 | README, `composer.json`/`package.json` 의 description |
+| 빌드·테스트·린트 명령 | `package.json` 의 scripts, `composer.json` 의 scripts, `Makefile`, CI 워크플로 |
+| 디렉터리 구조 | 2번에서 파악한 소스 루트·테스트 위치·레거시 구역 |
+| 이 레포에서 하지 말 것 | 생성 코드 직접 수정, 레거시 구역 리팩터링 등 실제로 확인한 것만 |
+
+세 가지 원칙:
+
+- **200줄 아래로.** 길면 전부 묻힙니다. 훅이 이미 잡는 것은 여기 적지 마세요.
+- **명령은 실행해 보고 적으세요.** `npm test` 가 없는데 적혀 있으면 에이전트가 없는
+  명령을 계속 시도합니다.
+- **경로별 상세 규칙은 `.claude/rules/`** 로 보내세요 (7번). AGENTS.md 는 모든 세션에
+  전부 로드됩니다.
+
+이미 `AGENTS.md` 나 `CLAUDE.md` 가 있는 레포라면 블록만 갱신되고 나머지는 그대로입니다.
+`CLAUDE.md` 가 이미 `@AGENTS.md` 를 직접 import 하고 있으면 건드리지 않습니다.
+생성 후 두 파일을 사용자에게 보여주고 커밋을 권하세요.
 
 ## 도입 순서 권고
 
@@ -160,5 +252,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/emit_rules.py"            # .claude/rules
 
 1. 포맷터 설정부터 (`presets/` 복사) — 포맷 규칙 대부분이 자동으로 물러납니다
 2. 2~3주는 `error` 를 최소한으로. `warn` 은 로그만 쌓입니다
-3. 예방 규칙만 `.claude/rules/` 로 내보내기 (5~10개, 그 이상은 묻힙니다)
-4. `rule-tune` 스킬로 수정률을 본 뒤 건강한 규칙만 `error` 로 승격
+3. 추천 규칙은 3~5개만 `warn` 으로 채택 (5-1번). 전수조사 건수를 보고 정하세요
+4. 예방 규칙만 `.claude/rules/` 로 내보내기 (5~10개, 그 이상은 묻힙니다)
+5. `AGENTS.md` 는 200줄 아래로 유지
+6. `rule-tune` 스킬로 수정률을 본 뒤 건강한 규칙만 `error` 로 승격

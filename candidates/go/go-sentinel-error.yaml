@@ -1,0 +1,28 @@
+id: go-sentinel-error
+title: errors.New 는 패키지 레벨 센티널로만
+severity: warn
+applies_to:
+  stack: [go]
+  files: ["**/*.go"]
+  exclude: ["**/vendor/**", "**/*_test.go", "**/*.pb.go"]
+triggers:
+  code_regex: '^(?![ \t]*(?:var\s+)?[Ee]rr[A-Za-z0-9_]+\s*=[^=])(?:[^/"`\n]|/(?![/*])|"[^"\n]*"|`[^`\n]*`)*?\berrors\.New\('
+context_injection: |
+  함수 안에서 errors.New 로 에러를 즉석에서 만들고 있습니다. 이 레포는
+  var ErrNotFound = errors.New("...") 처럼 패키지 레벨 센티널을 선언하고 그것을
+  반환하는 쪽으로 쓰고 있습니다. 문맥을 덧붙일 때는 fmt.Errorf("...: %w", ErrX) 를 쓰세요.
+probe:
+  conforming: '(^[ \t]*(?:var\s+)?[Ee]rr[A-Za-z0-9_]+\s*=\s*errors\.New\(|\berrors\.(?:Is|As)\()'
+rationale: 인라인으로 만든 에러는 호출자가 errors.Is 로 구분할 수 없어 결국 문자열 비교로 흘러갑니다.
+tests:
+  should_match:
+    - '	return errors.New("user not found")'
+    - '	err := errors.New("bad input")'
+    - '		return nil, errors.New("empty id")'
+  should_not_match:
+    - 'var ErrNotFound = errors.New("user not found")'
+    - '	ErrTimeout = errors.New("timeout")'
+    - 'var errClosed = errors.New("closed")'
+    - '	// errors.New 로 만든 센티널만 반환하세요'
+    - '	t.Log("errors.New() 대신 ErrNotFound")'
+    - '	if errors.Is(err, ErrNotFound) {'

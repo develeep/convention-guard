@@ -1,0 +1,24 @@
+id: laravel-config-env-default
+title: config 안의 env() 에 기본값 없음
+severity: warn
+applies_to:
+  stack: [laravel]
+  files: ["config/**/*.php"]
+  exclude: ["**/vendor/**"]
+triggers:
+  code_regex: '^(?!\s*(?:\*|//|#))[^\n]*(?<![\w$>:])env\s*\(\s*([''"])[^''"]*\1\s*\)'
+context_injection: |
+  config 파일의 env() 에 기본값이 없습니다. 환경변수가 빠진 환경에서는 그대로 null 이 되고,
+  그게 런타임 깊은 곳에서 터집니다. env('KEY', '기본값') 처럼 두 번째 인자를 항상 주세요.
+probe:
+  conforming: '(?<![\w$>:])env\s*\(\s*([''"])[^''"]*\1\s*,'
+rationale: config 는 env() 를 쓸 수 있는 유일한 곳이고, 그래서 기본값을 둘 수 있는 유일한 곳입니다. 여기서 비워 두면 배포 환경마다 null 이 다르게 샙니다.
+tests:
+  should_match:
+    - "    'key' => env('STRIPE_KEY'),"
+    - "    'driver' => env('CACHE_DRIVER'),"
+  should_not_match:
+    - "    'key' => env('STRIPE_KEY', ''),"
+    - "    'driver' => env('CACHE_DRIVER', 'file'),"
+    - "    // env('QUEUE_CONNECTION') 처럼 기본값 없이 두지 마세요"
+    - "     * env('APP_KEY') 는 기본값이 없으면 캐시 후 null 입니다"

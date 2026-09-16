@@ -1,0 +1,25 @@
+id: laravel-authorize-via-policy
+title: 컨트롤러에서 권한을 직접 조립
+severity: warn
+applies_to:
+  stack: [laravel]
+  files: ["app/Http/Controllers/**/*.php"]
+  exclude: ["**/vendor/**"]
+triggers:
+  code_regex: '^(?!\s*(?:\*|//|#))[^\n]*(?:->(?:role|roles|is_admin|isAdmin|user_type|permissions?)\s*(?:===?|!==?)|\bin_array\s*\(\s*[^,\n]*->(?:role|roles|user_type)\s*,)'
+context_injection: |
+  역할 문자열을 컨트롤러에서 직접 비교하고 있습니다. 이 레포는 인가를 정책으로 모으는 쪽으로
+  쓰고 있으니 $this->authorize('update', $model) 이나 $user->can(...) 을 쓰고,
+  판단은 Policy/Gate 에 두세요.
+probe:
+  conforming: '\$this->authorize\w*\s*\(|\bGate::(?:allows|denies|authorize|any|none)\s*\(|->(?:can|cannot|cant)\s*\(|[''"]can:'
+rationale: 역할 비교가 액션마다 흩어지면 권한 한 줄 바꿀 때 놓치는 곳이 생깁니다. 정책에 모여 있으면 한 군데만 보면 됩니다.
+tests:
+  should_match:
+    - "        if ($user->role === 'admin') {"
+    - "        if (in_array($request->user()->role, ['admin', 'owner'], true)) {"
+  should_not_match:
+    - "        $this->authorize('update', $order);"
+    - "        if ($request->user()->cannot('update', $order)) {"
+    - "        // $user->role === 'admin' 비교 대신 정책을 쓰세요"
+    - "        $this->middleware('can:update,order');"
