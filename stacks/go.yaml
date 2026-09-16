@@ -4,9 +4,15 @@ detect:
   file: go.mod
   version_regex: '^go (\d+\.\d+)'
 lint:
+  # default output is `file:line:col: message (linter)`, stable across
+  # golangci-lint v1 and v2 -- unlike the --out-format flag, which was renamed
   - cmd: ["golangci-lint", "run", "{files}"]
     if_exists: golangci-lint
     files: ["**/*.go"]
-  - cmd: ["go", "vet", "./..."]
+    parse: unix
+  # vet needs whole packages, but only the packages this change touched:
+  # ./... recompiles the module every turn and reports strangers' errors
+  - cmd: ["go", "vet", "{dirs}"]
     if_exists: go
     files: ["**/*.go"]
+    parse: unix

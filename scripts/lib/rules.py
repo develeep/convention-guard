@@ -322,6 +322,18 @@ def load_all(cwd=None, root=None, include_disabled=False):
 
 # ---------------------------------------------------------------- matching
 
+def stack_ok(rule, tags, versions):
+    """Stack/version gate, independent of any single file.
+
+    Changeset-level triggers (`paired`) have no relpath to test, so they need
+    this half of `applies()` on its own.
+    """
+    stack = rule.get('stack') or []
+    if stack and '*' not in stack and not (set(stack) & set(tags)):
+        return False
+    return version_ok(rule.get('version'), versions, stack)
+
+
 def applies(rule, relpath, tags, versions):
     if _match_any(rule.get('repo_exclude'), relpath):
         return False
@@ -329,10 +341,7 @@ def applies(rule, relpath, tags, versions):
         return False
     if rule.get('files') and not _match_any(rule['files'], relpath):
         return False
-    stack = rule.get('stack') or []
-    if stack and '*' not in stack and not (set(stack) & set(tags)):
-        return False
-    return version_ok(rule.get('version'), versions, stack)
+    return stack_ok(rule, tags, versions)
 
 
 KINDS = ('line', 'file', 'requires', 'absent', 'paired', 'semantic')

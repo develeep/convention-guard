@@ -5,9 +5,14 @@ detect:
   contains: '"laravel/framework"'
   version_regex: '"laravel/framework"\s*:\s*"[^0-9]*(\d+)'
 lint:
-  - cmd: ["./vendor/bin/pint", "--test", "{files}"]
+  # -v makes pint print the diff it would apply; the diff's `-` side line
+  # numbers are what anchors a formatting complaint to this change
+  - cmd: ["./vendor/bin/pint", "--test", "-v", "{files}"]
     if_exists: vendor/bin/pint
     files: ["**/*.php"]
+    parse: diff
+  # raw format is `file:line:message`
   - cmd: ["./vendor/bin/phpstan", "analyse", "--no-progress", "--error-format=raw", "{files}"]
     if_exists: vendor/bin/phpstan
     files: ["**/*.php"]
+    parse: unix

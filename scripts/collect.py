@@ -12,7 +12,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib.paths import load_state, project_dir, save_state  # noqa: E402
+from lib.paths import (load_state, project_dir,  # noqa: E402
+                       remember_plugin_root, save_state)
 
 WATCHED = {'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'str_replace_editor'}
 
@@ -32,6 +33,7 @@ def candidate_paths(tool_input):
 
 
 def main():
+    remember_plugin_root()
     try:
         payload = json.load(sys.stdin)
     except Exception:

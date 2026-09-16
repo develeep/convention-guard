@@ -52,7 +52,36 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --severity error --no-colo
   신호입니다. 규칙을 끄지 말고 경로를 제외하세요.
 - 전수조사에서만 나오고 최근 변경에서는 안 나오면 그대로 두세요. 앵커가 제 일을 하는 중입니다.
 
-## 4. config.yaml 쓰기
+## 4. 린터 출력이 이번 변경에 앵커되는지 확인
+
+린터 실패는 파싱된 `file:line` 이 **이번 변경이 추가한 줄**과 겹칠 때만 차단합니다.
+나머지는 차단하지 않고 "참고"로만 전달됩니다. 파싱이 불가능하거나 실패하면 예전처럼
+출력 전체로 차단합니다 — 진짜 실패를 조용히 버리는 게 더 나쁘기 때문입니다.
+
+**레포에 린터가 있는데 `parse:` 가 없으면 남의 레거시 에러까지 이번 턴을 막습니다.**
+도입 첫 주에 규칙이 꺼지는 전형적인 경로입니다. `--explain` 으로 먼저 확인하세요.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check.py" --explain
+```
+
+린터마다 `[parse: unix → 변경 줄만 차단]` 또는 `[출력 파싱 불가 → 전체 출력으로 차단]` 이
+찍힙니다. 후자가 보이면 `stacks/*.yaml` 의 해당 lint 항목에 `parse:` 를 지정하세요.
+
+| parse | 맞춰야 할 출력 |
+|---|---|
+| `eslint-json` | `eslint --format=json` |
+| `phpstan-json` | `phpstan --error-format=json` |
+| `golangci-json` | `golangci-lint --out-format=json` |
+| `unix` | `file:line:col: message` (go vet, golangci 기본, phpstan `--error-format=raw`) |
+| `github` | `::error file=...,line=...` (biome `--reporter=github`) |
+| `diff` | 유니파이드 diff (`pint --test -v`, `php-cs-fixer --diff`) |
+
+명령에는 `{files}`(변경 파일 목록) 또는 `{dirs}`(그 파일들의 패키지 디렉터리)를 씁니다.
+패키지 단위로만 도는 도구는 `{dirs}` 여야 합니다 — `go vet ./...` 는 매 턴 모듈 전체를
+다시 컴파일하고 남의 에러까지 끌고 옵니다.
+
+## 5. config.yaml 쓰기
 
 `<repo>/.claude/convention-rules/config.yaml`
 
@@ -72,6 +101,7 @@ exclude:
   - "database/migrations/**"
 
 max_rules: 3
+max_consecutive_blocks: 3   # 연속 차단 상한. 한 번 통과하면 초기화됩니다
 base_ref: auto      # 세션 중 커밋한 변경까지 검사하려면
 ```
 
@@ -85,7 +115,7 @@ base_ref: auto      # 세션 중 커밋한 변경까지 검사하려면
   영구히 이탈하지만, 경로 제외와 강도 조정은 되돌리기 쉽습니다.
 - **`disable` 에는 이유를 주석으로 남기세요.** 6개월 뒤 왜 껐는지 아무도 기억 못 합니다.
 
-## 5. 검증하고 설명하기
+## 6. 검증하고 설명하기
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check.py" --explain
@@ -102,7 +132,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --range HEAD~20..HEAD --severity
 3. 지금 상태에서 최근 변경분에 몇 건이 남는지
 4. 포맷터가 없다면 그걸 먼저 도입하라는 권고
 
-## 6. 예방용 규칙을 컨텍스트에 넣기
+## 7. 예방용 규칙을 컨텍스트에 넣기
 
 훅은 **쓰고 난 뒤** 잡습니다. 되돌리는 비용이 큰 것들은 **쓰기 전에** 알고 있는 편이 낫습니다.
 

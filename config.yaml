@@ -2,8 +2,8 @@
 
 max_rules: 4                 # 한 번에 주입할 error 규칙 상한
 max_warns: 3                 # 차단 시 함께 실어 보낼 warn 상한
-max_blocks_per_session: 2    # 세션당 최대 차단 횟수 (무한 루프 방지)
-once_per_session: true       # 같은 규칙은 세션당 한 번만
+max_consecutive_blocks: 3    # 연속 차단 상한 (무한 루프 방지). 한 번 통과하면 초기화됩니다
+once_per_session: true       # 같은 규칙은 세션당 한 번만 (오탐으로 기각한 건은 예외)
 run_linters: true            # 스택별 린터 위임
 lint_timeout: 90
 base_ref: ''                 # 'auto' 로 두면 기본 브랜치와의 merge-base 기준으로도 diff

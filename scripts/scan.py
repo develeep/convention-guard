@@ -22,7 +22,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import engine, gitdiff, lint, rules as rulelib, stack as stacklib  # noqa: E402
+from lib import (dismiss as dismisslib, engine, gitdiff, lint,  # noqa: E402
+                 rules as rulelib, stack as stacklib)
 from lib.paths import plugin_root, project_dir  # noqa: E402
 
 RANK = {'error': 0, 'warn': 1, 'info': 2}
@@ -48,16 +49,8 @@ def _git(root, args):
 # ---------------------------------------------------------------- collecting
 
 def _diff_lines(root, diff_args, paths):
-    """{relpath: [(lineno, text)]} from one git diff invocation."""
-    result = {}
-    for rel in paths:
-        code, out = _git(root, ['diff', '-U0', '--no-color'] + diff_args + ['--', rel])
-        if code != 0:
-            continue
-        lines = gitdiff._parse_diff(out)
-        if lines:
-            result[rel] = lines
-    return result
+    """{relpath: [(lineno, text)]} from one batched git diff."""
+    return gitdiff.diff_lines(root, paths, diff_args)
 
 
 def _whole(root, paths):
@@ -108,10 +101,10 @@ def gather(root, args, all_rules):
 
     code, out = _git(root, ['diff', 'HEAD', '--name-only'])
     paths = out.splitlines() if code == 0 else []
-    untracked = gitdiff.untracked(root)
-    changed = _diff_lines(root, ['HEAD'], paths)
-    changed.update(_whole(root, sorted(untracked)))
-    return changed, untracked, '워킹 트리'
+    fresh = gitdiff.new_files(root)
+    changed = gitdiff.added_lines(root, sorted(set(paths) | fresh),
+                                  gitdiff.resolve_base_ref(root, args.base_ref))
+    return changed, fresh & set(changed), '워킹 트리'
 
 
 # ---------------------------------------------------------------- reporting
@@ -125,10 +118,20 @@ def render(report, show_injection=True):
                   head['file_count'], RESET))
     if head['lint_failures']:
         out.append('')
-        out.append('%s린터 실패 — 확정 위반%s' % (COLOR['error'], RESET))
+        out.append('%s린터 실패 — 이번 변경 줄에서 확정 위반%s' % (COLOR['error'], RESET))
         for fail in head['lint_failures']:
             out.append('  $ %s' % fail['cmd'])
             for line in fail['output'].split('\n')[:15]:
+                out.append('    %s%s%s' % (DIM, line, RESET))
+            if fail.get('carried'):
+                out.append('    %s(기존 코드에 %d건 더 — 차단 대상 아님)%s'
+                           % (DIM, fail['carried'], RESET))
+    if head.get('lint_notes'):
+        out.append('')
+        out.append('%s린터가 이번 변경 밖에서 찾은 것 (차단하지 않음)%s' % (DIM, RESET))
+        for fail in head['lint_notes']:
+            out.append('  $ %s' % fail['cmd'])
+            for line in fail['output'].split('\n')[:5]:
                 out.append('    %s%s%s' % (DIM, line, RESET))
     out.append('')
 
@@ -174,6 +177,10 @@ def main():
     parser.add_argument('--max-hits', type=int, default=10, help='규칙당 최대 위치 수')
     parser.add_argument('--fail-on', choices=['error', 'warn', 'info', 'never'],
                         default='error', help='이 강도가 있으면 종료 코드 1')
+    parser.add_argument('--base-ref', default=None,
+                        help="비교 기준 ref. 'auto' 면 기본 브랜치와의 merge-base")
+    parser.add_argument('--no-dismiss', action='store_true',
+                        help='dismissed.yaml 의 기각 기록을 무시하고 전부 봅니다')
     parser.add_argument('--cwd', help='레포 경로 (기본: 현재 디렉터리)')
     args = parser.parse_args()
 
@@ -198,12 +205,21 @@ def main():
             print('일치하는 규칙 없음: %s' % args.rule, file=sys.stderr)
             return 2
 
+    args.base_ref = args.base_ref if args.base_ref is not None \
+        else (repo_cfg.get('base_ref') or '')
     changed, new_files, label = gather(root, args, all_rules)
-    ctx = engine.Context(root, changed, new_files, detected['tags'], detected['versions'])
+    dismissed = frozenset()
+    dismissal_count = 0
+    if not args.no_dismiss:
+        dismissed, entries = dismisslib.load(root)
+        dismissal_count = len(entries)
+    ctx = engine.Context(root, changed, new_files, detected['tags'],
+                         detected['versions'], dismissed)
 
-    lint_failures = []
+    lint_failures, lint_notes = [], []
     if not args.no_lint and detected['lint'] and changed:
-        lint_failures = lint.run(root, detected['lint'], list(changed))
+        lint_failures, lint_notes = lint.split_by_change(
+            lint.run(root, detected['lint'], list(changed)), ctx)
 
     respect = repo_cfg.get('respect_supersede', True)
     hits = engine.collect(all_rules, ctx, args.max_hits, respect_supersede=respect)
@@ -237,6 +253,8 @@ def main():
             'rules_applicable': len(applicable),
             'semantic': len([r for r in applicable if r.get('kind') == 'semantic']),
             'lint_failures': lint_failures,
+            'lint_notes': lint_notes,
+            'dismissed': dismissal_count,
         },
         'counts': counts,
         'findings': findings,

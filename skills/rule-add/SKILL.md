@@ -39,12 +39,17 @@ description: PR 리뷰에서 반복된 지적이나 팀 컨벤션 문서의 항�
 | 여러 줄에 걸친 패턴 | `file_regex` | 매치 구간이 변경된 줄과 겹칠 때 |
 | "A를 추가했으면 파일에 B가 있어야" | `when_line_added` + `must_contain_in_file` | 조건이 새로 추가됐을 때 |
 | 새 파일의 필수 선언 | `absent_in_new_file` | 파일이 새것일 때 |
-| "A 파일 바꿨으면 B도" | `when_changed` + `require_changed` | 변경 집합 |
+| "A 파일 바꿨으면 B도" | `when_changed` + `require_changed` | 변경 집합 (스택·`exclude` 게이트 적용) |
 | 의미 판단이 필요 | `review_when` + `review_prompt` | 게이트 통과 시 서브에이전트 |
 
 **세 번째를 먼저 고려하세요.** 대부분의 "맥락이 필요한" 규칙이 여기에 들어맞습니다.
 조건은 변경된 줄에서 찾고 요구사항은 파일 전체에서 찾으므로, 레거시 파일을 건드려도
 조용합니다.
+
+`when_changed` + `require_changed` 도 `applies_to` 를 존중합니다. 스택·버전을 먼저
+확인하고 `exclude` 를 변경 파일과 요구 파일 양쪽에 적용합니다. 그래서 Laravel 전용
+paired 규칙은 순수 Go 레포에서 발동하지 않습니다 — 대신 `applies_to.stack` 을 비워두면
+게이트가 없는 전 스택 규칙이 됩니다.
 
 절대 하지 말 것: 파일 전체를 훑는 규칙을 만들려고 `code_regex` 에 광범위한 패턴을 넣는 것.
 레거시가 전부 걸려서 일주일이면 규칙이 꺼집니다.
@@ -84,6 +89,10 @@ tests:
     - '비슷하지만 정상인 코드'
     - '주석 안에 같은 단어가 있는 경우'
 ```
+
+**`applies_to.stack` 은 반드시 채우세요.** 모든 트리거가 이 값으로 걸러지므로,
+비워두면 그 규칙은 스택과 무관하게 모든 레포에서 발동합니다. 정말 전 스택 규칙일 때만
+`["*"]` 를 명시하세요.
 
 `should_not_match` 에는 **정규식이 헷갈릴 만한 정상 코드**를 반드시 넣으세요.
 주석, 문자열 리터럴, 이름이 비슷한 다른 API 가 단골 오탐 원인입니다.
@@ -149,8 +158,12 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/emit_rules.py"            # 재생성
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/test_rules.py" --repo "$CLAUDE_PROJECT_DIR"
+python3 "${CLAUDE_PLUGIN_ROOT}/tests/run_all.py"
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --rule <새-규칙-id> --no-color
 ```
+
+첫 줄은 픽스처(규칙), 두 번째는 엔진 전체(픽스처까지 함께 돕니다). 공통 규칙을
+건드렸다면 `tests/run_all.py` 까지 돌리세요.
 
 두 번째가 진짜 시험입니다. **레포 전체에서 몇 건이 나오는지 보고, 그중 몇 개를 열어
 실제 위반인지 확인하세요.** 오탐이 섞여 있으면 정규식을 좁히고 3번으로 돌아갑니다.

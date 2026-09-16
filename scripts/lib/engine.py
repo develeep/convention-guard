@@ -5,18 +5,19 @@ byte-identical logic. A checker that disagrees with itself depending on how it
 was invoked is worse than no checker.
 """
 
-from . import gitdiff, rules as rulelib
+from . import dismiss as dismisslib, gitdiff, rules as rulelib
 
 
 class Context:
     """What one check knows about a change, with file reads cached."""
 
-    def __init__(self, root, changed, new_files, tags, versions):
+    def __init__(self, root, changed, new_files, tags, versions, dismissed=None):
         self.root = root
         self.changed = changed              # {relpath: [(lineno, added text)]}
         self.new_files = new_files          # treated as "whole file is new"
         self.tags = tags
         self.versions = versions
+        self.dismissed = dismissed or frozenset()
         self._text = {}
 
     def files(self):
@@ -32,6 +33,18 @@ class Context:
 
     def added_body(self, relpath):
         return '\n'.join(text for _, text in self.changed.get(relpath, ()))
+
+    def is_dismissed(self, rule_id, relpath, snippet):
+        """A finding the team already looked at and called a false positive."""
+        return self.dismissed_hash(rule_id, relpath,
+                                   dismisslib.fingerprint(snippet))
+
+    def dismissed_hash(self, rule_id, relpath, digest):
+        if not self.dismissed:
+            return False
+        if (rule_id, relpath) in self.dismissed:
+            return True
+        return (rule_id, relpath, digest) in self.dismissed
 
 
 def clip(text, limit=120):
@@ -50,17 +63,32 @@ def scan(rule, ctx, cap):
     kind = rule.get('kind', 'line')
     locations = []
 
+    def add(relpath, lineno, snippet):
+        """Returns True once the cap is reached."""
+        if ctx.is_dismissed(rule['id'], relpath, snippet):
+            return False
+        locations.append({'file': relpath, 'line': lineno, 'snippet': snippet})
+        return len(locations) >= cap
+
     if kind == 'paired':
         # changeset-level: A changed, B did not. The change set is the anchor.
-        touched = [f for f in ctx.files()
-                   if rulelib._match_any(rule['when_changed'], f)
-                   and not rulelib._match_any(rule.get('repo_exclude'), f)]
+        # The stack gate has to be applied by hand here: this branch never
+        # reaches `applies()`, so without it a Laravel rule fires in a Go repo.
+        if not rulelib.stack_ok(rule, ctx.tags, ctx.versions):
+            return []
+        visible = [f for f in ctx.files()
+                   if not rulelib._match_any(rule.get('repo_exclude'), f)
+                   and not rulelib._match_any(rule.get('exclude'), f)]
+        touched = [f for f in visible
+                   if rulelib._match_any(rule['when_changed'], f)]
         if not touched:
             return []
-        if any(rulelib._match_any(rule['require_changed'], f) for f in ctx.files()):
+        if any(rulelib._match_any(rule['require_changed'], f) for f in visible):
             return []
-        return [{'file': f, 'line': 1, 'snippet': '(짝이 되는 파일 변경 없음)'}
-                for f in touched[:cap]]
+        for relpath in touched:
+            if add(relpath, 1, '(짝이 되는 파일 변경 없음)'):
+                break
+        return locations
 
     for relpath in ctx.files():
         if not rulelib.applies(rule, relpath, ctx.tags, ctx.versions):
@@ -69,9 +97,7 @@ def scan(rule, ctx, cap):
         if kind == 'line':
             for lineno, text in ctx.changed[relpath]:
                 if rule['compiled'].search(text):
-                    locations.append({'file': relpath, 'line': lineno,
-                                      'snippet': clip(text)})
-                    if len(locations) >= cap:
+                    if add(relpath, lineno, clip(text)):
                         return locations
 
         elif kind == 'absent':
@@ -80,8 +106,8 @@ def scan(rule, ctx, cap):
             if relpath not in ctx.new_files:
                 continue
             if not rule['compiled_absent'].search(ctx.added_body(relpath)):
-                locations.append({'file': relpath, 'line': 1,
-                                  'snippet': '(새 파일에 해당 선언이 없음)'})
+                if add(relpath, 1, '(새 파일에 해당 선언이 없음)'):
+                    return locations
 
         elif kind == 'file':
             # whole file, so multi-line patterns are visible -- but the match
@@ -93,9 +119,8 @@ def scan(rule, ctx, cap):
                 start, end = _span_lines(body, match)
                 if not is_new and not any(start <= n <= end for n in touched_lines):
                     continue
-                locations.append({'file': relpath, 'line': start,
-                                  'snippet': clip(match.group(0).replace('\n', ' ⏎ '))})
-                if len(locations) >= cap:
+                snippet = clip(match.group(0).replace('\n', ' ⏎ '))
+                if add(relpath, start, snippet):
                     return locations
 
         elif kind == 'requires':
@@ -106,15 +131,13 @@ def scan(rule, ctx, cap):
                 continue
             for lineno, text in ctx.changed[relpath]:
                 if rule['compiled_when'].search(text):
-                    locations.append({'file': relpath, 'line': lineno,
-                                      'snippet': clip(text)})
+                    add(relpath, lineno, clip(text))
                     break
 
         elif kind == 'semantic':
             for lineno, text in ctx.changed[relpath]:
                 if rule['compiled_review'].search(text):
-                    locations.append({'file': relpath, 'line': lineno,
-                                      'snippet': clip(text)})
+                    add(relpath, lineno, clip(text))
                     break
 
         if len(locations) >= cap:

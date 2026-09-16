@@ -70,34 +70,46 @@ def _safe(name):
     return ''.join(c if (c.isalnum() or c in '-_') else '_' for c in str(name))[:120]
 
 
-def state_path(session_id):
-    return os.path.join(data_dir(), 'session-%s.json' % _safe(session_id or 'unknown'))
+def state_path(session_id, kind=''):
+    """Per-session state. `kind` gives a concern its own file.
+
+    The Stop event runs its hooks in parallel, so the deterministic check and
+    the optional semantic review would otherwise read-modify-write one file
+    and drop each other's counters -- including the block counter the loop
+    guard depends on.
+    """
+    suffix = '-%s' % _safe(kind) if kind else ''
+    return os.path.join(data_dir(),
+                        'session-%s%s.json' % (_safe(session_id or 'unknown'), suffix))
 
 
 DEFAULT_STATE = {
     'touched': [],
     'checked_prompt_ids': [],
     'fired_rules': [],
+    'consecutive_blocks': 0,
     'blocks': 0,
     'pending': [],
+    'unresolved': [],
 }
 
 
-def load_state(session_id):
-    path = state_path(session_id)
+def load_state(session_id, kind=''):
+    path = state_path(session_id, kind)
     try:
         with open(path, 'r', encoding='utf-8') as fh:
             state = json.load(fh)
     except Exception:
-        return dict(DEFAULT_STATE, touched=[], checked_prompt_ids=[],
-                    fired_rules=[], pending=[])
+        state = {}
+    if not isinstance(state, dict):
+        state = {}
     for key, value in DEFAULT_STATE.items():
-        state.setdefault(key, value if not isinstance(value, list) else [])
+        state.setdefault(key, list(value) if isinstance(value, list) else value)
     return state
 
 
-def save_state(session_id, state):
-    path = state_path(session_id)
+def save_state(session_id, state, kind=''):
+    path = state_path(session_id, kind)
     tmp = path + '.tmp'
     try:
         with open(tmp, 'w', encoding='utf-8') as fh:
@@ -105,6 +117,29 @@ def save_state(session_id, state):
         os.replace(tmp, path)
     except OSError:
         pass
+
+
+def remember_plugin_root():
+    """Leave the plugin's install path where a subagent can find it.
+
+    `${CLAUDE_PLUGIN_ROOT}` is substituted into hook `command`/`args`, not
+    into an agent hook's prompt, and the subagent's own shell does not inherit
+    it. The command hooks that do get the variable write it here.
+    """
+    root = os.environ.get('CLAUDE_PLUGIN_ROOT')
+    if not root:
+        return None
+    target = os.path.join(data_dir(), 'plugin-root')
+    try:
+        if os.path.isfile(target):
+            with open(target, 'r', encoding='utf-8') as fh:
+                if fh.read().strip() == root:
+                    return target
+        with open(target, 'w', encoding='utf-8') as fh:
+            fh.write(root)
+    except OSError:
+        return None
+    return target
 
 
 def log_path():

@@ -41,14 +41,22 @@ def load(path):
 def build(rows):
     stat = collections.defaultdict(
         lambda: {'fired': 0, 'shown': 0, 'followups': 0, 'fixed': 0,
-                 'severity': '?', 'source': '?', 'files': collections.Counter(),
-                 'downgraded': 0, 'queued': 0})
+                 'dismissed': 0, 'severity': '?', 'source': '?',
+                 'files': collections.Counter(), 'downgraded': 0, 'queued': 0})
+    linters = collections.defaultdict(
+        lambda: {'failed': 0, 'blocking': 0, 'anchored': 0})
     for row in rows:
+        event = row.get('event')
+        if event == 'lint':
+            entry = linters[row.get('cmd') or '?']
+            entry['failed'] += 1
+            entry['blocking'] += bool(row.get('blocking'))
+            entry['anchored'] += bool(row.get('anchored'))
+            continue
         rid = row.get('rule_id')
         if not rid:
             continue
         entry = stat[rid]
-        event = row.get('event')
         if event == 'match':
             entry['fired'] += 1
             entry['shown'] += bool(row.get('shown'))
@@ -58,15 +66,25 @@ def build(rows):
             for f in row.get('files') or []:
                 entry['files'][f] += 1
         elif event == 'followup':
+            if row.get('dismissed'):
+                # declined as a false positive: counting it as "not fixed"
+                # is what used to make a correct rejection look like neglect
+                entry['dismissed'] += 1
+                continue
             entry['followups'] += 1
             entry['fixed'] += bool(row.get('fixed'))
+        elif event == 'dismissed':
+            entry['dismissed'] += 1
         elif event == 'semantic_queued':
             entry['queued'] += 1
             entry['severity'] = row.get('severity', entry['severity'])
-    return stat
+    return stat, linters
 
 
 def verdict(entry):
+    decided = entry['followups'] + entry['dismissed']
+    if decided and entry['dismissed'] / decided >= 0.5:
+        return '오탐 확정 — 팀이 기각함, 조건을 좁히세요'
     if entry['followups'] < 3:
         return '데이터 부족'
     rate = entry['fixed'] / entry['followups']
@@ -90,10 +108,11 @@ def main():
         print('훅이 아직 돌지 않았거나 CLAUDE_PLUGIN_DATA 경로가 다릅니다.')
         return 0
 
-    stat = build(rows)
+    stat, linters = build(rows)
     items = []
     for rid, entry in stat.items():
-        if entry['fired'] < args.min_fired and not entry['queued']:
+        if entry['fired'] < args.min_fired and not entry['queued'] \
+                and not entry['dismissed']:
             continue
         rate = (entry['fixed'] / entry['followups']) if entry['followups'] else None
         items.append({
@@ -106,7 +125,7 @@ def main():
             'fixed': entry['fixed'],
             'fix_rate': rate,
             'queued': entry['queued'],
-            'downgraded': entry['downgraded'],
+            'dismissed': entry['dismissed'],
             'top_files': [f for f, _ in entry['files'].most_common(3)],
             'verdict': verdict(entry),
         })
@@ -114,26 +133,35 @@ def main():
                               -i['fired']))
 
     if args.json:
-        print(json.dumps({'total_events': len(rows), 'rules': items},
-                         ensure_ascii=False, indent=2))
+        print(json.dumps({'total_events': len(rows), 'rules': items,
+                          'linters': linters}, ensure_ascii=False, indent=2))
         return 0
 
     print('규칙 건강도  (이벤트 %d건, 로그 %s)\n' % (len(rows), args.log))
-    print('%-42s %-6s %5s %6s %8s  %s'
-          % ('규칙', '강도', '발동', '표시', '수정률', '판정'))
-    print('-' * 100)
+    print('%-42s %-6s %5s %6s %8s %5s  %s'
+          % ('규칙', '강도', '발동', '표시', '수정률', '기각', '판정'))
+    print('-' * 108)
     for item in items:
         rate = '%.0f%% (%d/%d)' % (item['fix_rate'] * 100, item['fixed'],
                                    item['followups']) if item['fix_rate'] is not None else '-'
-        print('%-42s %-6s %5d %6d %8s  %s'
+        print('%-42s %-6s %5d %6d %8s %5d  %s'
               % (item['rule_id'], item['severity'], item['fired'],
-                 item['shown'], rate, item['verdict']))
-    weak = [i for i in items if i['followups'] >= 3 and i['fix_rate'] < 0.3]
+                 item['shown'], rate, item['dismissed'], item['verdict']))
+    weak = [i for i in items
+            if (i['followups'] >= 3 and i['fix_rate'] < 0.3) or i['dismissed'] >= 2]
     if weak:
         print('\n손봐야 할 규칙 %d개:' % len(weak))
         for item in weak:
-            print('  %s — 자주 걸린 파일: %s'
-                  % (item['rule_id'], ', '.join(item['top_files']) or '-'))
+            print('  %s — 자주 걸린 파일: %s%s'
+                  % (item['rule_id'], ', '.join(item['top_files']) or '-',
+                     '  (기각 %d건)' % item['dismissed'] if item['dismissed'] else ''))
+    if linters:
+        print('\n린터  (실패 / 그중 차단 / 출력 파싱 성공)')
+        for cmd, entry in sorted(linters.items()):
+            print('  %-60s %4d / %4d / %4d'
+                  % (cmd[:60], entry['failed'], entry['blocking'], entry['anchored']))
+        print('  파싱 성공 건수가 실패 건수보다 적으면 그 린터는 변경 줄로 좁혀지지 '
+              '않아 통째로 차단합니다 — stacks/*.yaml 의 parse 설정을 보세요.')
     return 0
 
 

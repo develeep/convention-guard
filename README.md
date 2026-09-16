@@ -14,22 +14,29 @@
 ```
 PostToolUse(Write|Edit)   터치한 파일 경로만 큐에 적재. 컨텍스트 주입 0, 출력 0.
         ↓
-Stop                      ① 루프 가드: 요청(prompt)당 1회, 세션당 최대 2회 차단
-                          ② 조기 탈출: 변경 없음 / git 아님 / 질문으로 끝난 턴
-                          ③ 스택 감지 → 린터 위임 (실패 시 여기서 차단)
-                          ④ 규칙으로 "후보" 좁히기 (줄·파일·변경집합 단위, AI 호출 없음)
-                          ⑤ 예산 적용 후 block + reason 으로 주입
+Stop                      ① 루프 가드: 요청(prompt)당 1회, 연속 차단 3회까지
+                          ② 후속 확인: 지난 차단이 고쳐졌는지 / 기각됐는지 기록
+                          ③ 조기 탈출: 변경 없음 / git 아님 / 질문으로 끝난 턴
+                          ④ 스택 감지 → 린터 위임 (변경 줄에 걸린 실패는 여기서 차단)
+                          ⑤ 규칙으로 "후보" 좁히기 (줄·파일·변경집합 단위, AI 호출 없음)
+                          ⑥ 예산 적용 후 block + reason 으로 주입
 ```
 
-핵심 세 가지:
+핵심 네 가지:
 
 - **이번 변경의 책임인 것만 봅니다.** 파일 전체나 줄 전체를 무차별로 스캔하면 규칙 도입 전에
   쓰인 레거시가 매번 걸려서 일주일이면 꺼집니다. 그래서 트리거마다 "무엇을 보는가"와
-  "무엇이 이번 변경의 책임인가"를 정하는 앵커가 따로 있습니다.
+  "무엇이 이번 변경의 책임인가"를 정하는 앵커가 따로 있습니다. 린터도 같은 규칙을 따릅니다 —
+  출력을 파싱해 변경된 줄에 걸린 것만 차단합니다.
 - **맥락이 필요한 판정도 합니다.** 파일 전체를 봐야 하는 것(다줄 패턴, "A가 있으면 B도 있어야
   한다"), 파일 사이 관계("라우트 바꿨는데 테스트 없음")까지 다룹니다.
 - **훅은 판정하지 않습니다.** 정규식은 후보만 좁히고, 실제 위반인지는 에이전트가 코드를 보고
-  판단합니다. 오탐이면 고치지 말고 이유를 남기라고 명시적으로 지시합니다.
+  판단합니다. 오탐이면 고치지 말고 `dismiss.py`로 이유를 남기라고 지시합니다.
+- **판정의 결과를 셉니다.** 차단 하나하나가 다음 턴에 "고쳐짐 / 안 고쳐짐 / 기각됨"으로
+  기록됩니다. 이 숫자가 규칙을 좁힐지 지울지를 결정합니다.
+
+`git diff`는 변경 집합 전체에 대해 한 번만 돌립니다(200개 단위 청크). 파일당 한 번씩
+돌리던 때보다 60개 파일에서 0.078초 → 0.004초입니다.
 
 ## 설치
 
@@ -78,6 +85,10 @@ exclude:
 max_rules: 3
 base_ref: auto
 ```
+
+레포에 남는 파일은 이 하나 더 있습니다 — `dismissed.yaml` (오탐 기각 기록, 아래 참조).
+둘 다 커밋 대상입니다. 두 파일과 `.claude/rules/` 는 규칙 스캔 대상에서 제외되므로,
+설정 파일에 쓴 평문 주석이 자기 자신을 걸리게 하는 일은 없습니다.
 
 ### 조건 일부만 바꾸기 — 부분 오버라이드
 
@@ -154,6 +165,7 @@ triggers:
 
 `when_changed`/`require_changed`는 파일 사이의 관계입니다 — "라우트를 바꿨는데 테스트가
 없다", "스키마를 바꿨는데 타입 정의가 그대로다". 레포마다 다르므로 로컬 규칙으로 두기 좋습니다.
+이 트리거도 `applies_to` 의 스택·버전·`exclude` 를 먼저 통과해야 발동합니다.
 
 픽스처 의미는 트리거마다 다릅니다.
 
@@ -203,21 +215,53 @@ lint:
 pint / eslint / golangci-lint 가 결정론적으로 더 잘합니다. 규칙에는 린터로 표현할 수 없는
 팀 관습만 담을 때 값어치가 생깁니다 — 레이어 경계, 에러 처리 패턴, API 응답 형태, 네이밍 의도.
 
-린터가 실패하면 정규식 검사는 아예 돌리지 않고 린터 출력만 넘깁니다. `if_exists`에 지정한
-바이너리가 없으면 조용히 건너뛰므로, 툴체인이 없는 레포가 차단되는 일은 없습니다.
+린터가 실패하면 정규식 검사 결과보다 위에 붙습니다. `if_exists`에 지정한 바이너리가
+없으면 조용히 건너뛰므로, 툴체인이 없는 레포가 차단되는 일은 없습니다.
 
-**각 린터는 자기가 다루는 파일만 받습니다.** `files` 글롭이 그걸 정합니다.
+**각 린터는 자기가 다루는 파일만 받고, 출력은 파싱해서 변경된 줄에만 적용합니다.**
+`files` 글롭이 앞쪽을, `parse`가 뒤쪽을 정합니다.
 
 ```yaml
 lint:
-  - cmd: ["npx", "--no-install", "eslint", "{files}"]
+  - cmd: ["npx", "--no-install", "eslint", "--format=json", "{files}"]
     if_exists: node_modules/.bin/eslint
     files: ["**/*.{js,jsx,mjs,cjs,ts,tsx}"]
+    parse: eslint-json
 ```
 
-이게 없으면 `package.json`만 고친 턴에 eslint가 그 파일을 받아 "File ignored" 경고를 내고,
-그게 차단으로 이어집니다. 린터에게 다룰 줄 모르는 파일을 건넨 것이지 컨벤션 위반이 아닙니다.
-변경된 파일 중 그 린터가 가진 게 하나도 없으면 명령 자체를 건너뜁니다.
+`files`가 없으면 `package.json`만 고친 턴에 eslint가 그 파일을 받아 "File ignored" 경고를
+내고, 그게 차단으로 이어집니다. 린터에게 다룰 줄 모르는 파일을 건넨 것이지 컨벤션 위반이
+아닙니다. 변경된 파일 중 그 린터가 가진 게 하나도 없으면 명령 자체를 건너뜁니다.
+
+`parse`가 없으면 더 나쁩니다. `phpstan app/Legacy.php`는 그 파일 전체를 보고
+`go vet ./...`은 모듈 전체를 봅니다. 5년 된 파일의 한 줄을 고치려고 열었을 때 남이 쓴
+에러로 매 턴 차단되면, 규칙 트리거에 앵커를 붙인 의미가 없어집니다. 그래서 출력에서
+`file:line`을 꺼내 **이번 변경이 추가한 줄과 겹치는 것만 차단**하고, 나머지는 차단하지 않고
+"참고"로만 전달합니다.
+
+| `parse` | 출력 형태 | 쓰는 곳 |
+|---|---|---|
+| `eslint-json` | `--format=json` | eslint |
+| `phpstan-json` | `--error-format=json` | phpstan |
+| `golangci-json` | `--out-format=json` | golangci-lint |
+| `unix` | `file:line[:col]: message` | go vet, phpstan `--error-format=raw`, golangci-lint 기본 출력 |
+| `github` | `::error file=...,line=...::msg` | biome `--reporter=github` |
+| `diff` | 유니파이드 diff (`-` 쪽 줄번호) | php-cs-fixer `--diff`, pint `--test -v` |
+
+파싱이 불가능하거나(`parse` 미지정) 파싱에 실패하면 예전처럼 출력 전체로 차단합니다.
+진짜 린터 실패를 조용히 버리는 게 더 나쁜 오류이기 때문입니다. 어느 쪽인지는
+`--explain`이 린터마다 알려줍니다.
+
+```
+linter : ./vendor/bin/phpstan analyse ... {files}   [parse: unix → 변경 줄만 차단]
+```
+
+`{dirs}` 플레이스홀더도 있습니다. 변경된 파일들의 디렉터리로 치환되므로,
+패키지 단위로만 동작하는 도구를 레포 전체로 돌리지 않아도 됩니다.
+
+```yaml
+  - cmd: ["go", "vet", "{dirs}"]       # ./... 이 아니라 이번에 건드린 패키지만
+```
 
 경고로는 차단하지 않습니다. eslint에 `--max-warnings 0`을 붙이지 않은 것도 같은 이유입니다 —
 팀이 의도적으로 남겨둔 warning 이 작업을 막으면 안 됩니다.
@@ -278,16 +322,25 @@ info는 차단도 주입도 하지 않고 로그와 한 줄 요약에만 남습�
 | 비결정성 | 같은 코드에 매번 다른 판정. 컨벤션 검사에서 결정론은 미덕입니다 |
 | **수렴 실패** | 정규식은 규칙 집합이 유한해 끝이 있습니다. LLM은 고칠 때마다 새로운 걸 찾아냅니다 |
 
-마지막이 제일 위험합니다. `max_blocks_per_session` 이 없으면 영원히 안 끝납니다.
+마지막이 제일 위험합니다. `max_consecutive_blocks` 가 없으면 영원히 안 끝납니다.
 
 ### 그래서 2단 게이트
 
 ```
 Stop ─┬─ command 훅 : 결정론 검사 (항상, 빠름)        → error 차단
       └─ agent 훅   : 1) check.py --semantic-queue 실행
-                      2) EMPTY 면 즉시 {} 반환 ← 대부분의 턴이 여기서 끝
-                      3) 후보가 있을 때만 파일을 읽고 판정 → 확신한 것만 차단
+                      2) EMPTY 면 즉시 {"ok": true} ← 대부분의 턴이 여기서 끝
+                      3) 후보가 있을 때만 파일을 읽고 판정
+                         → 확신한 것만 {"ok": false, "reason": ...}
 ```
+
+**응답 스키마는 `{"ok": true}` / `{"ok": false, "reason": "..."}` 입니다.** 0.6.0 전에는
+프롬프트가 `{}` 와 `{"decision": "block"}` 을 반환하게 돼 있어서, 서브에이전트가 위반을
+찾아내도 판정이 조용히 버려졌습니다. `ok` 가 없는 응답은 통과로 처리됩니다.
+
+판정 상태는 `session-<id>-semantic.json` 에 따로 저장합니다. Stop 의 훅들은 **병렬로**
+실행되므로 결정론 검사와 상태 파일을 공유하면 마지막에 쓴 쪽이 상대의 차단 카운터를
+지워버립니다.
 
 `semantic` 규칙은 정규식을 **게이트로만** 씁니다. `foreach` 가 추가된 턴에만 N+1 판정이
 돌고, 나머지 턴에는 Bash 한 번으로 끝납니다. 세션당 판정 횟수도 기본 1회로 묶여 있습니다.
@@ -316,16 +369,66 @@ cp hooks/hooks.with-semantic-review.json hooks/hooks.json
 판정 모델은 `hooks.json` 의 `model` 로 지정합니다. 게이트가 대부분을 걸러주므로 가벼운
 모델로 충분하고, 그래야 매 턴 돌아도 부담이 없습니다.
 
-## 규칙 테스트 (CI에 넣으세요)
+## 테스트 (CI에 넣으세요)
 
 ```bash
-python3 scripts/test_rules.py                    # 공통 규칙만
-python3 scripts/test_rules.py --repo /path/repo  # 레포 로컬 오버레이까지
+python3 tests/run_all.py                         # 전부
+python3 tests/run_all.py --repo /path/repo       # 레포 로컬 오버레이까지
+python3 scripts/test_rules.py                    # 규칙 픽스처만
 ```
 
 `should_match` 픽스처가 없으면 실패합니다. 규칙이 100개를 넘어가면 서로 간섭하기 시작하고,
 오탐 한 번이면 에이전트가 reason 전체를 형식적으로 무시하게 됩니다. 픽스처가 그걸 막는
 유일한 장치입니다.
+
+규칙 픽스처 외에 엔진 쪽 회귀 테스트가 세 개 더 있습니다. 전부 실제로 있었던 버그입니다.
+
+| 스위트 | 지키는 것 |
+|---|---|
+| `tests/test_diff_anchor.py` | 무엇이 "이번 변경"인가 — 스테이징된 신규 파일, 줄번호, base_ref, `paired` 스택 게이트 |
+| `tests/test_lint_anchor.py` | 린터 출력 파싱과 변경 줄 교집합 |
+| `tests/test_session_policy.py` | 차단 예산, 후속 추적, 기각, `report` 모드 |
+
+## 오탐 기각 — 판단을 숫자로 남기기
+
+훅은 "오탐이면 고치지 말고 왜 해당하지 않는지 남기세요"라고 지시합니다. 그 판단이
+채팅에만 남으면 아무것도 되지 않습니다. 로그에는 `fixed: false` 만 남고, 그건 지적을
+그냥 무시한 것과 구별되지 않습니다. 수정률로 규칙을 정리하는 사이클이 정확히 이 지점에서
+무너집니다.
+
+```bash
+python3 scripts/dismiss.py --rule core/php-line-too-long \
+                           --file app/Http/Controllers/OrderController.php \
+                           --line 84 --reason "체이닝을 끊으면 가독성이 더 나빠짐"
+
+python3 scripts/dismiss.py --rule core/js-no-console --file scripts/seed.ts \
+                           --whole-file --reason "시드 스크립트는 콘솔 출력이 인터페이스"
+python3 scripts/dismiss.py --list
+```
+
+차단 reason 마지막에 이 명령이 실제 규칙 id·경로·줄번호까지 채워져서 따라옵니다.
+기록은 레포에 남으므로 커밋해서 팀과 공유하세요.
+
+`<repo>/.claude/convention-rules/dismissed.yaml`
+
+```yaml
+dismissed:
+  - rule: "core/php-line-too-long"
+    file: "app/Http/Controllers/OrderController.php"
+    hash: "6f1c93ab24"
+    reason: "체이닝을 끊으면 가독성이 더 나빠짐"
+    at: "2026-09-16"
+    # app/Http/Controllers/OrderController.php:84  $result = $this->repo->where(...
+```
+
+**지문은 줄 번호가 아니라 코드의 지문입니다.** 위에 줄이 추가돼도 억제가 유지되고,
+그 코드 자체가 바뀌면 다시 지적됩니다 — 바뀐 코드는 새 판단이기 때문입니다.
+`hash` 를 지우면(`--whole-file`) 그 파일에서 규칙 전체가 꺼집니다.
+
+`dismiss.py` 는 훅과 **같은 엔진으로 다시 스캔**해서 그 위치의 지문을 만듭니다. 그래서
+지문이 어긋날 일이 없고, 코드가 이미 바뀌었다면 기각할 것이 없다고 알려줍니다.
+
+감사할 때는 `scan.py --no-dismiss` 로 기각분까지 전부 볼 수 있습니다.
 
 ## 규칙 개선 사이클
 
@@ -333,27 +436,40 @@ python3 scripts/test_rules.py --repo /path/repo  # 레포 로컬 오버레이까
 
 ```json
 {"event":"match","rule_id":"core/ts-no-any","severity":"warn","shown":true,"source":"core"}
-{"event":"followup","rule_id":"core/ts-no-any","fixed":false}
+{"event":"followup","rule_id":"core/ts-no-any","file":"src/a.ts","fixed":false}
+{"event":"followup","rule_id":"core/ts-no-any","file":"src/b.ts","dismissed":true}
+{"event":"dismissed","rule_id":"core/ts-no-any","file":"src/b.ts","reason":"외부 SDK 타입이 any"}
+{"event":"lint","cmd":"./vendor/bin/phpstan analyse ...","anchored":true,"blocking":false}
 ```
 
-`followup`은 다음 턴에 그 지적이 실제로 사라졌는지를 기록합니다. 정기적으로 이렇게 보세요.
+`followup`은 차단 하나하나에 대해 **다음 Stop 시점에 딱 한 번** 기록됩니다. 위치(규칙 +
+파일 + 코드 지문) 단위라, 같은 규칙이 다른 파일에서 새로 걸린 것은 "안 고쳐진 지적"으로
+세지 않습니다. 정기적으로 이렇게 보세요.
 
 ```bash
 python3 scripts/log_report.py
 ```
 
 ```
-규칙                                       강도   발동  표시     수정률  판정
-core/php-line-too-long                     info    41     0  12% (2/17)  오탐 의심 — 좁히거나 삭제
-core/laravel-controller-needs-validation   error    9     9   89% (8/9)  건강함
+규칙                                       강도   발동  표시     수정률  기각  판정
+core/php-line-too-long                     info    41     0  12% (2/17)    6  오탐 확정 — 팀이 기각함
+core/laravel-controller-needs-validation   error    9     9   89% (8/9)    0  건강함
+
+린터  (실패 / 그중 차단 / 출력 파싱 성공)
+  ./vendor/bin/phpstan analyse --no-progress ...      12 /    3 /   12
 ```
 
-수정률은 **지적한 뒤 다음 턴에 그 지적이 실제로 사라진 비율**입니다.
-낮은 규칙은 오탐이거나 팀이 동의하지 않는 규칙입니다. `rule-tune` 스킬이 이 리포트를
-읽고 둘 중 어느 쪽인지까지 구분해 줍니다.
+수정률은 **지적한 뒤 다음 턴에 그 지적이 실제로 사라진 비율**이고, 기각은 **에이전트나
+사람이 "이 경우는 위반이 아니다"라고 판단해 남긴 건수**입니다. 두 숫자를 나눠 놓은 이유가
+있습니다 — 예전에는 오탐을 올바르게 거절한 것과 지적을 그냥 무시한 것이 로그에서 똑같이
+`fixed: false` 로 보였습니다.
 
-**수정률이 낮은 규칙 = 오탐이거나 팀이 동의하지 않는 규칙입니다.** 조건을 좁히거나 지우세요.
+**기각이 많은 규칙 = 오탐. 기각 없이 수정률만 낮은 규칙 = 팀이 동의하지 않는 규칙.**
+앞쪽은 조건을 좁히고, 뒤쪽은 지우세요. `rule-tune` 스킬이 이 구분을 대신 해 줍니다.
 규칙 5개로 시작해 로그를 보고 늘리는 편이, 30개로 시작하는 것보다 거의 항상 낫습니다.
+
+린터 표에서 "출력 파싱 성공"이 실패 건수보다 적으면, 그 린터는 변경 줄로 좁혀지지 않아
+출력 전체로 차단하고 있다는 뜻입니다. 규칙이 아니라 `stacks/*.yaml` 의 `parse` 를 보세요.
 
 ## 설정
 
@@ -363,10 +479,10 @@ core/laravel-controller-needs-validation   error    9     9   89% (8/9)  건강�
 |---|---|---|
 | `max_rules` | 4 | 한 번에 주입할 error 규칙 상한 |
 | `max_warns` | 3 | 차단 시 함께 보낼 warn 상한 |
-| `max_blocks_per_session` | 2 | 세션당 최대 차단 횟수 (무한 루프 방지) |
-| `once_per_session` | true | 같은 규칙 재발동 억제. 단 **안 고쳐진 지적은 예외적으로 한 번 더** 올라옵니다 |
-| `run_linters` | true | 스택별 린터 위임 |
-| `base_ref` | `''` | `auto`면 기본 브랜치와의 merge-base 기준으로도 diff (세션 중 커밋한 변경까지 검사) |
+| `max_consecutive_blocks` | 3 | **연속** 차단 상한. 차단하지 않은 턴이 한 번 나오면 0으로 초기화됩니다. 요청당 1회 차단은 `prompt_id` 가드가 이미 보장하므로, 이 값은 루프 방지 전용입니다. 상한에 걸려도 로그와 한 줄 요약은 계속 남습니다 |
+| `once_per_session` | true | 같은 규칙 재발동 억제. **안 고쳐진 지적은 예외적으로 한 번 더** 올라오고, **오탐으로 기각한 건은 이 예산을 쓰지 않습니다** |
+| `run_linters` | true | 스택별 린터 위임 (출력 파싱 후 변경 줄에만 적용) |
+| `base_ref` | `''` | `auto`면 기본 브랜치와의 merge-base diff를 HEAD diff와 **합집합**으로 씁니다 (세션 중 커밋한 변경까지 검사). `origin/HEAD` 를 먼저 물어보고 없을 때만 main/master 를 추측합니다 |
 | `skip_if_question` | true | 질문으로 끝난 턴은 검사 생략 |
 | `respect_supersede` | true | `superseded_by` 설정 파일이 있으면 해당 규칙 비활성화 |
 | `block_level` | `error` | `report` 면 기록만 하고 차단하지 않음 |
@@ -537,7 +653,7 @@ convention-guard/
 
 | 키 | 값 | 효과 |
 |---|---|---|
-| `block_level` | `error` / `report` | `report` 면 지적을 기록만 하고 차단하지 않습니다 |
+| `report_only` | boolean | 켜면 지적을 기록만 하고 차단하지 않습니다 (내부적으로 `block_level: report`) |
 | `semantic_review` | boolean | 서브에이전트 심층 판정 (agent 훅을 쓸 때만) |
 | `log_dir` | 디렉터리 | `firings.jsonl` 위치. 팀 로그를 한곳에 모을 때 |
 
@@ -551,7 +667,7 @@ convention-guard/
 ### 릴리스 체크리스트
 
 ```bash
-python3 scripts/test_rules.py          # 픽스처 통과
+python3 tests/run_all.py               # 픽스처 + 엔진 회귀
 python3 -m compileall -q scripts       # 문법
 ```
 
@@ -586,6 +702,8 @@ python3 "$P" --staged                 # 커밋 직전
 python3 "$P" --range main..HEAD       # PR 올리기 전
 python3 "$P" --files app/X.php        # 지정 파일 전체
 python3 "$P" --all                    # 레포 전수조사 (레거시 감사)
+python3 "$P" --base-ref auto          # 세션 중 커밋한 변경까지 함께
+python3 "$P" --no-dismiss             # 기각 기록을 무시하고 전부
 ```
 
 Stop 훅과 **같은 엔진**(`lib/engine.py`)을 씁니다. 수동 실행과 자동 실행이 다른 답을 내면
@@ -615,6 +733,7 @@ Stop 훅과 **같은 엔진**(`lib/engine.py`)을 씁니다. 수동 실행과 �
   호출 그래프가 필요한 판정은 못 합니다. 그건 AST 린터(phpstan, tsc, golangci-lint)나
   `semantic` 규칙의 몫입니다.
 - **세션 중 커밋한 변경.** 기본값은 `HEAD` 기준 diff라 이미 커밋된 변경은 보이지 않습니다.
-  `base_ref: auto`로 바꾸면 기본 브랜치와의 merge-base 기준으로도 봅니다.
+  `base_ref: auto` 로 바꾸면 merge-base diff를 HEAD diff와 합집합으로 봅니다 — 같은 파일에
+  미커밋 변경이 함께 있어도 커밋된 쪽이 빠지지 않습니다.
 - **Stop은 "작업 완료"가 아니라 "턴 종료"입니다.** 질문 휴리스틱과 변경 없음 조기 탈출로
   대부분 걸러지지만, 완벽하지는 않습니다.
