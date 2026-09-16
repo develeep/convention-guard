@@ -47,14 +47,21 @@ def merged_config(cwd):
     The team's committed config wins, so one person cannot quietly relax a
     standard for everyone; where the repo is silent, the install preference
     applies.
+
+    userConfig only exposes booleans/strings the plugin manifest schema
+    actually supports (no enum/options field exists there), so the installer
+    sets `report_only` (boolean) and it maps onto the internal `block_level`
+    string that the repo's own config.yaml also uses.
     """
     cfg = dict(DEFAULTS)
     cfg.update({k: v for k, v in (rulelib.load_plugin_config() or {}).items()
                 if k in DEFAULTS})
-    for key in ('block_level', 'semantic_review'):
-        value = user_option(key)
-        if value is not None:
-            cfg[key] = value
+    report_only = user_option('report_only')
+    if report_only is not None:
+        cfg['block_level'] = 'report' if report_only else 'error'
+    semantic_review = user_option('semantic_review')
+    if semantic_review is not None:
+        cfg['semantic_review'] = semantic_review
     repo = rulelib.load_repo_config(cwd) or {}
     cfg.update({k: v for k, v in repo.items() if k in DEFAULTS})
     return cfg

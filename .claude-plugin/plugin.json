@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "convention-guard",
   "displayName": "Convention Guard",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "루프 완료 시점에 이번 변경분만 검사해 팀 코딩 컨벤션을 피드백합니다. 스택 자동 감지(Laravel·Next·Nest·Go), 공통/로컬 규칙 병합, 훅 없이 수동 실행과 CI 연동 지원.",
   "author": {
     "name": "shlee",
@@ -24,26 +24,22 @@
     "golang"
   ],
   "userConfig": {
-    "block_level": {
-      "type": "string",
-      "title": "차단 강도",
-      "description": "error = 위반이 있으면 작업 완료를 막습니다. report = 기록만 하고 막지 않습니다. 도입 첫 2~3주는 report 로 두고 로그를 쌓는 편이 안전합니다. 레포의 .claude/convention-rules/config.yaml 에 값이 있으면 그쪽이 우선합니다.",
-      "options": [
-        "error",
-        "report"
-      ],
-      "default": "error"
+    "report_only": {
+      "type": "boolean",
+      "title": "기록만 하고 차단 안 함",
+      "description": "켜면 위반을 기록만 하고 작업을 막지 않습니다. 도입 초기 2~3주는 켜두는 걸 권장합니다.",
+      "default": false
     },
     "semantic_review": {
       "type": "boolean",
-      "title": "서브에이전트 심층 판정",
-      "description": "N+1 쿼리나 계층 경계처럼 정규식으로 판정할 수 없는 규칙을 서브에이전트가 판단합니다. hooks/hooks.with-semantic-review.json 을 쓸 때만 동작하며, 매 턴 비용이 발생할 수 있습니다.",
+      "title": "심층 판정 (서브에이전트)",
+      "description": "정규식으로 못 잡는 규칙(N+1, 계층 경계)을 서브에이전트가 판단합니다. 매 턴 비용이 붙을 수 있습니다.",
       "default": false
     },
     "log_dir": {
       "type": "directory",
       "title": "발동 로그 위치",
-      "description": "규칙 발동 기록(firings.jsonl)을 둘 디렉터리입니다. 비워두면 ~/.cache/convention-guard 를 씁니다. 팀 단위로 로그를 모으려면 공유 경로를 지정하세요.",
+      "description": "비워두면 ~/.cache/convention-guard 사용. 레포 경로는 고르지 마세요 — git에 잡힙니다.",
       "required": false
     }
   }
