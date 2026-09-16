@@ -57,9 +57,6 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --severity error --no-colo
 `<repo>/.claude/convention-rules/config.yaml`
 
 ```yaml
-# 감지가 빗나갈 때만 (보통 비워둡니다)
-stacks: []
-
 # 이 레포에서 끌 규칙 — 왜 끄는지 주석을 반드시 남길 것
 disable:
   - core/js-no-console      # 디버그 로그를 관례적으로 커밋하는 레포
@@ -77,6 +74,10 @@ exclude:
 max_rules: 3
 base_ref: auto      # 세션 중 커밋한 변경까지 검사하려면
 ```
+
+`stacks:` 는 **적지 마세요.** 감지 결과를 기록하는 칸이 아니라, 감지가 빗나갔을 때만
+쓰는 강제 지정 입력입니다. 미리 박아두면 나중에 Laravel 을 올리거나 TypeScript 를 추가했을 때
+굳어버린 목록이 실제와 어긋납니다. `--explain` 의 스택이 맞으면 그걸로 된 것입니다.
 
 원칙 두 가지:
 

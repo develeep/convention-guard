@@ -206,6 +206,22 @@ pint / eslint / golangci-lint 가 결정론적으로 더 잘합니다. 규칙에
 린터가 실패하면 정규식 검사는 아예 돌리지 않고 린터 출력만 넘깁니다. `if_exists`에 지정한
 바이너리가 없으면 조용히 건너뛰므로, 툴체인이 없는 레포가 차단되는 일은 없습니다.
 
+**각 린터는 자기가 다루는 파일만 받습니다.** `files` 글롭이 그걸 정합니다.
+
+```yaml
+lint:
+  - cmd: ["npx", "--no-install", "eslint", "{files}"]
+    if_exists: node_modules/.bin/eslint
+    files: ["**/*.{js,jsx,mjs,cjs,ts,tsx}"]
+```
+
+이게 없으면 `package.json`만 고친 턴에 eslint가 그 파일을 받아 "File ignored" 경고를 내고,
+그게 차단으로 이어집니다. 린터에게 다룰 줄 모르는 파일을 건넨 것이지 컨벤션 위반이 아닙니다.
+변경된 파일 중 그 린터가 가진 게 하나도 없으면 명령 자체를 건너뜁니다.
+
+경고로는 차단하지 않습니다. eslint에 `--max-warnings 0`을 붙이지 않은 것도 같은 이유입니다 —
+팀이 의도적으로 남겨둔 warning 이 작업을 막으면 안 됩니다.
+
 ### presets/ — 린터 설정 원본
 
 팀 컨벤션 문서의 포맷 항목은 규칙이 아니라 여기에 넣습니다.

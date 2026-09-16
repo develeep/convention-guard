@@ -7,5 +7,7 @@ detect:
 lint:
   - cmd: ["./vendor/bin/pint", "--test", "{files}"]
     if_exists: vendor/bin/pint
+    files: ["**/*.php"]
   - cmd: ["./vendor/bin/phpstan", "analyse", "--no-progress", "--error-format=raw", "{files}"]
     if_exists: vendor/bin/phpstan
+    files: ["**/*.php"]

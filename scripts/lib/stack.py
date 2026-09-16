@@ -49,15 +49,15 @@ def detect(plugin_root, cwd=None, forced=None):
         det = spec.get('detect') or {}
         matched = False
 
-        if forced and sid in forced:
-            matched = True
-        else:
-            markers = det.get('file')
-            if isinstance(markers, str):
-                markers = [markers]
-            for marker in (markers or []):
-                content = _read_marker(root, marker)
-                if content is not None:
+        # Marker detection always runs, even for a forced stack: forcing says
+        # "this stack is here", not "skip looking", and skipping would throw
+        # away the version we could have read from the marker file.
+        markers = det.get('file')
+        if isinstance(markers, str):
+            markers = [markers]
+        for marker in (markers or []):
+            content = _read_marker(root, marker)
+            if content is not None:
                     needle = det.get('contains')
                     if not needle:
                         matched = True
@@ -76,6 +76,9 @@ def detect(plugin_root, cwd=None, forced=None):
                             except re.error:
                                 pass
                         break
+
+        if forced and sid in forced:
+            matched = True
 
         if not matched:
             continue

@@ -3,7 +3,9 @@ tags: [js]
 detect:
   file: package.json
 lint:
-  - cmd: ["npx", "--no-install", "eslint", "--max-warnings", "0", "{files}"]
+  - cmd: ["npx", "--no-install", "eslint", "{files}"]
     if_exists: node_modules/.bin/eslint
+    files: ["**/*.{js,jsx,mjs,cjs,ts,tsx}"]
   - cmd: ["npx", "--no-install", "biome", "check", "{files}"]
     if_exists: node_modules/.bin/biome
+    files: ["**/*.{js,jsx,mjs,cjs,ts,tsx,json,jsonc,css}"]

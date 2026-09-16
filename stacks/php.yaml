@@ -5,3 +5,4 @@ detect:
 lint:
   - cmd: ["./vendor/bin/php-cs-fixer", "fix", "--dry-run", "--diff", "{files}"]
     if_exists: vendor/bin/php-cs-fixer
+    files: ["**/*.php"]

@@ -6,5 +6,7 @@ detect:
 lint:
   - cmd: ["golangci-lint", "run", "{files}"]
     if_exists: golangci-lint
+    files: ["**/*.go"]
   - cmd: ["go", "vet", "./..."]
     if_exists: go
+    files: ["**/*.go"]
