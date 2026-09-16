@@ -1,5 +1,6 @@
 {
   "name": "develeep-convention-guard",
+  "description": "코딩 컨벤션을 자동 검사하는 convention-guard 플러그인",
   "owner": {
     "name": "shlee",
     "email": "seunghoonlee0508@gmail.com"
