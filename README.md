@@ -58,10 +58,6 @@ python3 ~/.claude/plugins/convention-guard/scripts/check.py --explain
 감지된 스택, 적용되는 규칙, 켜진 린터가 한눈에 나옵니다. **규칙 소스가 둘 이상이 되는 순간
 이 명령이 없으면 디버깅이 지옥이 됩니다.** 뭔가 이상하면 항상 여기부터 보세요.
 
-처음 도입하는 레포라면 `convention-setup` 스킬에 맡기세요. 스택·린터·레거시 규모를
-측정하고, **이 레포가 이미 지키는 컨벤션을 찾아 규칙을 추천하고**, `config.yaml` 과
-`AGENTS.md` 까지 씁니다 (아래 두 절).
-
 ## 규칙 2층 구조
 
 우선순위는 아래에서 위로 `core` → `user` → `local`.
@@ -113,55 +109,7 @@ applies_to:
 ### 레포 전용 규칙 추가
 
 `id`만 새로 주면 됩니다. `local/` 접두사는 자동입니다.
-`examples/repo-local/` 에 config + override + 신규 규칙 + 후보(`candidates/`) + 기각 기록 예시가
-들어 있습니다.
-
-## 규칙 후보 추천 — 이 레포가 이미 지키는 것부터
-
-공통 규칙은 팀 사이에서 통하는 최소 집합입니다. 그 위에 얹을 규칙은 만들어내는 것이
-아니라 **이미 지켜지고 있는 것을 굳히는 쪽**이 맞습니다. `survey.py` 가 레포 전체를
-훅과 같은 엔진으로 훑어 후보별 준수율을 냅니다.
-
-```bash
-python3 scripts/survey.py                 # 추천 목록
-python3 scripts/survey.py --all-verdicts  # 탈락한 것까지
-python3 scripts/survey.py --json
-```
-
-```
-candidate/laravel-controller-no-eloquent  80%  준수 4 / 위반 1   추천
-    컨트롤러에서 Eloquent 직접 호출 금지
-    조회가 컨트롤러에 퍼지면 재사용도 테스트도 안 됩니다.
-    위반 예: app/Http/Controllers/Legacy.php:5  return Order::where("a", 1)->get();
-    채택: --adopt candidate/laravel-controller-no-eloquent --severity warn
-```
-
-후보는 **정상 패턴과 위반 패턴을 둘 다** 들고 있습니다(`candidates/**`). 그래서
-"이 규칙이 몇 건 걸리나"가 아니라 "이 레포가 어느 쪽으로 쓰고 있나"를 셀 수 있습니다.
-
-| 판정 | 조건 | 뜻 |
-|---|---|---|
-| 이미 100% 준수 | 위반 0, 준수 ≥3 | 회귀 방지용. `error` 로 켜도 안전 |
-| 추천 | 준수율 ≥80% | 컨벤션이 있습니다. `warn` 으로 시작 |
-| 합의 필요 | 30~80% | 팀이 갈려 있습니다. 규칙보다 논의가 먼저 |
-| 표본 부족 | 해당 파일 3개 미만 | 한 건씩으로는 컨벤션인지 알 수 없습니다 |
-| 반대 관습 | <30% | 이 레포는 반대로 씁니다. 추천하지 않습니다 |
-| 해당 코드 없음 | 준수 0, 위반 0 | 아직 그런 코드가 없습니다 |
-
-**50:50인 것을 규칙으로 만들면 절반이 오탐입니다.** 그래서 준수율이 임계값 아래인 후보는
-추천 목록에 올리지 않고, 목록을 그대로 전부 채택하는 것도 권하지 않습니다.
-
-```bash
-python3 scripts/survey.py --adopt candidate/<id> --severity warn
-```
-
-채택하면 후보 파일이 `<repo>/.claude/convention-rules/<id>.yaml` 로 복사됩니다
-(`local/` 네임스페이스, 카탈로그 전용 키는 제거, 픽스처는 함께). 그 순간부터 그냥
-규칙이라 `--explain`·`scan.py`·`test_rules.py` 가 전부 그대로 동작합니다.
-
-카탈로그에 없는 이 레포만의 관습은 `<repo>/.claude/convention-rules/candidates/` 에
-같은 형식으로 두면 똑같이 측정됩니다. 형식은 `candidates/README.md` 에 있습니다.
-에이전트가 발견한 것도 **숫자로 검증된 뒤에만** 목록에 오릅니다.
+`examples/repo-local/` 에 config + override + 신규 규칙 예시가 들어 있습니다.
 
 ## 규칙 파일 형식
 
@@ -433,15 +381,13 @@ python3 scripts/test_rules.py                    # 규칙 픽스처만
 오탐 한 번이면 에이전트가 reason 전체를 형식적으로 무시하게 됩니다. 픽스처가 그걸 막는
 유일한 장치입니다.
 
-규칙 픽스처 외에 엔진 쪽 회귀 테스트가 다섯 개 더 있습니다. 대부분 실제로 있었던 버그입니다.
+규칙 픽스처 외에 엔진 쪽 회귀 테스트가 세 개 더 있습니다. 전부 실제로 있었던 버그입니다.
 
 | 스위트 | 지키는 것 |
 |---|---|
 | `tests/test_diff_anchor.py` | 무엇이 "이번 변경"인가 — 스테이징된 신규 파일, 줄번호, base_ref, `paired` 스택 게이트 |
 | `tests/test_lint_anchor.py` | 린터 출력 파싱과 변경 줄 교집합 |
 | `tests/test_session_policy.py` | 차단 예산, 후속 추적, 기각, `report` 모드 |
-| `tests/test_survey.py` | 준수율 판정 경계와 후보 채택 결과가 규칙으로 동작하는지 |
-| `tests/test_agents_doc.py` | AGENTS.md 재생성이 사람이 쓴 내용을 보존하는지 |
 
 ## 오탐 기각 — 판단을 숫자로 남기기
 
@@ -598,40 +544,16 @@ context_line: 쓰기 액션(store/update/create)은 FormRequest 로 받고 $requ
 `context_line` 은 **명령형 한 줄**로 쓰세요. `context_injection` 은 "~가 없습니다" 같은
 사후 지적문이라 예방용으로는 어색합니다. 없으면 `context_injection` 첫 줄로 대체됩니다.
 
-### AGENTS.md — 도구 중립 문서
-
-```bash
-python3 scripts/emit_rules.py --agents-md --stdout   # 미리보기
-python3 scripts/emit_rules.py --agents-md            # AGENTS.md + CLAUDE.md
-```
-
-본문은 `AGENTS.md` 에 쓰고 `CLAUDE.md` 에는 `@AGENTS.md` import 한 줄만 둡니다.
-Claude Code 는 그 import 를 세션 시작에 전개하고, 다른 에이전트 도구는 `AGENTS.md` 를
-그대로 읽습니다. **내용이 한 곳에만 있으므로 두 문서가 엇갈릴 일이 없습니다.**
-
-```
-AGENTS.md    <!-- convention-guard:begin --> 예방용 규칙 요약 <!-- ...:end -->
-CLAUDE.md    <!-- convention-guard:begin --> @AGENTS.md      <!-- ...:end -->
-```
-
-**관리 블록 안쪽만 생성기 소유입니다.** 프로젝트 요약·빌드 명령·디렉터리 구조 같은
-블록 밖 내용은 사람(또는 `convention-setup` 스킬이 처음 한 번) 소유이고, 재생성해도
-그대로 남습니다. `CLAUDE.md` 가 이미 `@AGENTS.md` 를 직접 import 하고 있으면
-아예 건드리지 않습니다.
-
-경로 스코핑이 없으므로 여기 적은 줄은 **매 세션 전부 로드**됩니다. 200줄 아래로
-유지하고, 파일별로만 필요한 것은 `.claude/rules/` 로 보내세요.
-
 ### 다른 출력 형태
 
 ```bash
-python3 scripts/emit_rules.py --claude-md   # CLAUDE.md 한 파일에 관리 블록으로
+python3 scripts/emit_rules.py --claude-md   # CLAUDE.md 관리 블록으로
 python3 scripts/emit_rules.py --hook        # SessionStart 훅 JSON 으로
 ```
 
-`--claude-md` 는 Claude Code 만 쓰는 팀을 위한 단일 파일 모드입니다. `--hook` 은 파일
-없이 항상 최신 규칙을 주입합니다 (SessionStart 는 command 훅 stdout 이 컨텍스트로
-들어가는 몇 안 되는 이벤트입니다).
+`--claude-md` 는 경로 스코핑이 없어 **매 세션 전부 로드**됩니다. 한 파일로 모아 리뷰하고
+싶을 때만 쓰세요. `--hook` 은 파일 없이 항상 최신 규칙을 주입합니다 (SessionStart 는
+command 훅 stdout 이 컨텍스트로 들어가는 몇 안 되는 이벤트입니다).
 
 ```json
 {"hooks": {"SessionStart": [{"hooks": [
@@ -647,7 +569,6 @@ python3 scripts/emit_rules.py --hook        # SessionStart 훅 JSON 으로
 
 관리 블록(`<!-- convention-guard:begin -->` ~ `end`) 안만 교체되므로 밖에 쓴 내용은
 보존됩니다. HTML 주석은 컨텍스트 주입 전에 제거되므로 마커 자체는 토큰을 쓰지 않습니다.
-대상 레포의 줄바꿈 형식(CRLF/LF)을 따라 씁니다.
 
 ## 줄바꿈 형식
 
@@ -761,13 +682,12 @@ python3 -m compileall -q scripts       # 문법
 
 | 스킬 | 언제 | 하는 일 |
 |---|---|---|
-| `convention-setup` | 새 레포에 도입할 때 | 스택·린터·레거시 규모를 측정하고, 전수조사로 규칙을 추천해 고른 것만 채택하고, `config.yaml` 과 `AGENTS.md` 작성 |
-| `convention-check` | 커밋·PR 직전 | 훅 없이 지금 검사. 오탐은 걸러 `dismiss.py` 로 기록 |
+| `convention-setup` | 새 레포에 도입할 때 | 레포 구조·린터·레거시 규모를 실제로 측정해 `config.yaml` 초안 작성 |
+| `convention-check` | 커밋·PR 직전 | 훅 없이 지금 검사. 오탐을 걸러 정리해서 보고 |
 | `rule-add` | 리뷰 지적이 반복될 때 | 트리거 종류를 고르고 정규식·픽스처를 짜서 테스트까지 |
-| `rule-tune` | 2~3주에 한 번 | 로그의 수정률·기각 수로 오탐 규칙을 찾아 좁히거나 승격·삭제 |
+| `rule-tune` | 2~3주에 한 번 | 로그 수정률로 오탐 규칙을 찾아 좁히거나 승격·삭제 |
 
-`convention-setup` 은 규칙 추천(`survey.py`)과 문서 생성(`emit_rules.py --agents-md`)까지
-한 사이클로 처리합니다.
+`convention-setup` 은 마지막 단계에서 `.claude/rules/` 생성까지 해줍니다.
 
 네 개가 한 사이클입니다. `setup` 으로 켜고 → `check` 로 확인하며 쓰고 →
 리뷰에서 나온 것을 `add` 로 규칙화하고 → `tune` 으로 쓸모없는 것을 걷어냅니다.
@@ -791,18 +711,6 @@ Stop 훅과 **같은 엔진**(`lib/engine.py`)을 씁니다. 수동 실행과 �
 
 `--all` 만 예외적으로 모든 파일을 "새 파일"로 취급해 부재 검사까지 적용합니다.
 레거시 감사가 목적이므로 그게 맞고, 그래서 명시적으로 켜야 합니다.
-
-나머지 스크립트도 훅 없이 그대로 씁니다.
-
-```bash
-D=~/.claude/plugins/convention-guard/scripts
-
-python3 "$D/survey.py"                    # 규칙 후보 추천
-python3 "$D/dismiss.py" --list            # 기각 기록
-python3 "$D/log_report.py"                # 규칙 건강도
-python3 "$D/emit_rules.py" --agents-md    # AGENTS.md 갱신
-python3 "$D/check.py" --explain           # 무엇이 켜져 있는지
-```
 
 ### CI
 

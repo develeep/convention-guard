@@ -104,22 +104,7 @@ def render(group, rules, paths, budget):
     return '\n'.join(out) + '\n'
 
 
-def repo_newline(root, existing_path=None):
-    """Follow the target repo's line endings, not the plugin's."""
-    probes = [existing_path] if existing_path else []
-    probes += [os.path.join(root, name) for name in
-               ('AGENTS.md', 'CLAUDE.md', 'README.md', 'package.json',
-                'composer.json', 'go.mod')]
-    for path in probes:
-        if path and os.path.isfile(path):
-            with open(path, 'rb') as fh:
-                head = fh.read(4000)
-            if head:
-                return '\r\n' if b'\r\n' in head else '\n'
-    return '\n'
-
-
-def write_managed(path, block, newline=None):
+def write_managed(path, block):
     """Replace only our block so hand-written content survives regeneration."""
     existing = ''
     if os.path.isfile(path):
@@ -134,38 +119,8 @@ def write_managed(path, block, newline=None):
     else:
         merged = block
     os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-    eol = newline or repo_newline(os.path.dirname(path) or '.', path)
-    merged = merged.replace('\r\n', '\n')
-    if eol != '\n':
-        merged = merged.replace('\n', eol)
-    with open(path, 'w', encoding='utf-8', newline='') as fh:
+    with open(path, 'w', encoding='utf-8') as fh:
         fh.write(merged)
-
-
-IMPORT_LINE = '@AGENTS.md'
-
-
-def ensure_claude_import(root, newline):
-    """CLAUDE.md points at AGENTS.md instead of holding a second copy.
-
-    Claude Code expands `@AGENTS.md` at load time, and other tools read
-    AGENTS.md directly, so the content lives in exactly one file.
-    """
-    target = os.path.join(root, 'CLAUDE.md')
-    existing = ''
-    if os.path.isfile(target):
-        with open(target, 'r', encoding='utf-8') as fh:
-            existing = fh.read()
-    if BEGIN not in existing and re.search(r'(?m)^\s*@AGENTS\.md\s*$', existing):
-        return None             # 이미 사람이 직접 import 해 두었습니다
-    block = '\n'.join([
-        BEGIN, '',
-        '프로젝트 컨벤션은 AGENTS.md 에 있습니다. 도구가 달라도 같은 문서를 읽도록 '
-        '여기서 불러옵니다.', '',
-        IMPORT_LINE, '',
-        END]) + '\n'
-    write_managed(target, block, newline)
-    return target
 
 
 def main():
@@ -173,8 +128,6 @@ def main():
     parser.add_argument('--out', default='.claude/rules',
                         help='규칙 파일을 쓸 디렉터리 (기본 .claude/rules)')
     parser.add_argument('--stdout', action='store_true', help='쓰지 않고 출력만')
-    parser.add_argument('--agents-md', action='store_true',
-                        help='AGENTS.md 안의 관리 블록으로 (CLAUDE.md 는 @AGENTS.md import)')
     parser.add_argument('--claude-md', action='store_true',
                         help='파일 대신 CLAUDE.md 안의 관리 블록으로')
     parser.add_argument('--hook', action='store_true',
@@ -232,33 +185,22 @@ def main():
             'additionalContext': text}}, ensure_ascii=False))
         return 0
 
-    if args.claude_md or args.agents_md:
-        # One flat list, no path scoping: every line here loads in every
-        # session. That is the trade for a single file the whole team -- and
-        # every other agent tool -- can read in review.
+    if args.claude_md:
+        # CLAUDE.md has no path scoping, so the frontmatter is dropped -- which
+        # means every line here loads in every session. Keep that in mind: this
+        # mode trades precision for a single file everyone can see in review.
         parts = []
         for block in blocks.values():
             body = block.split(BEGIN, 1)[-1].split(END)[0].strip()
             if body:
-                # one document, so the group titles are sections under the
-                # project's own H1, not H1s of their own
-                parts.append(re.sub(r'(?m)^# ', '## ', body))
+                parts.append(body)
         block = '%s\n\n%s\n\n%s\n' % (BEGIN, '\n\n'.join(parts), END)
         if args.stdout:
             print(block)
             return 0
-        name = 'AGENTS.md' if args.agents_md else 'CLAUDE.md'
-        target = os.path.join(root, name)
-        newline = repo_newline(root, target if os.path.isfile(target) else None)
-        write_managed(target, block, newline)
-        print('%s 관리 블록 갱신 — 규칙 %d개' % (name, len(picked)))
-        if args.agents_md:
-            imported = ensure_claude_import(root, newline)
-            if imported:
-                print('CLAUDE.md → @AGENTS.md import 블록 갱신')
-            else:
-                print('CLAUDE.md 는 이미 AGENTS.md 를 import 하고 있습니다')
-        print('관리 블록 밖에 쓴 내용은 재생성해도 그대로 남습니다.')
+        target = os.path.join(root, 'CLAUDE.md')
+        write_managed(target, block)
+        print('CLAUDE.md 관리 블록 갱신 — 규칙 %d개' % len(picked))
         return 0
 
     if args.stdout:

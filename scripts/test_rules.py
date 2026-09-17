@@ -24,20 +24,12 @@ if not sys.stdout.isatty():
     GREEN = RED = YELLOW = RESET = ''
 
 
-def collect(repo, candidates=True):
+def collect(repo):
     root = plugin_root()
     found = []
     bases = [(os.path.join(root, 'rules'), 'core')]
-    if candidates:
-        # the catalog is what survey.py recommends from. A recommendation
-        # arriving with a false-positive regex is worse than a bad rule: it
-        # gets adopted on our own advice.
-        bases.append((os.path.join(root, 'candidates'), 'candidate'))
     if repo:
         bases.append((os.path.join(repo, rulelib.LOCAL_DIRNAME), 'local'))
-        if candidates:
-            bases.append((os.path.join(repo, rulelib.LOCAL_DIRNAME, 'candidates'),
-                          'local-candidate'))
     for base, source in bases:
         for path in rulelib._iter_rule_files(base):
             try:
@@ -100,12 +92,8 @@ def main():
             continue
         key = str(target) if target else str(rid)
         if not target:
-            other = seen_ids.get(key)
-            # a candidate and its adopted copy share an id on purpose
-            layers = {source, other}
-            cross_candidate = any(str(s).endswith('candidate') for s in layers)
-            if other and other != source and not cross_candidate:
-                warnings.append('%s: id %s 가 %s 레이어와 충돌' % (rel, key, other))
+            if key in seen_ids and seen_ids[key] != source:
+                warnings.append('%s: id %s 가 %s 레이어와 충돌' % (rel, key, seen_ids[key]))
             seen_ids[key] = source
 
         stub = rulelib._normalize(raw, path, source)
@@ -118,27 +106,6 @@ def main():
             if not target:
                 warnings.append('%s: %s' % (rel, exc))
             continue
-
-        if source.endswith('candidate'):
-            probe = raw.get('probe') or {}
-            conforming = probe.get('conforming') if isinstance(probe, dict) else None
-            if not conforming:
-                failures.append('%s: 후보에 probe.conforming 없음 (준수율을 셀 수 없음)' % rel)
-            else:
-                try:
-                    pattern = re.compile(conforming, re.M)
-                except re.error as exc:
-                    failures.append('%s: probe.conforming 정규식 오류 — %s' % (rel, exc))
-                    pattern = None
-                # the conforming pattern must not match the violating fixtures,
-                # or the survey would count the same file as both
-                for sample in (raw.get('tests') or {}).get('should_match') or []:
-                    checked += 1
-                    if pattern is not None and pattern.search(str(sample)):
-                        failures.append('%s: probe.conforming 이 위반 픽스처에도 걸림 — %r'
-                                        % (rel, sample))
-            if not (raw.get('rationale') or '').strip():
-                warnings.append('%s: rationale 없음 (추천 목록에 근거가 안 나옵니다)' % rel)
 
         if kind == 'semantic':
             if not raw.get('review_prompt'):

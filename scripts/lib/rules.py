@@ -68,21 +68,13 @@ def _match_any(patterns, relpath):
 
 # ---------------------------------------------------------------- loading
 
-# not rules: the candidate catalog is what survey.py recommends *from*, and
-# dismissed.yaml records judgments. Loading either as a rule would fire
-# unadopted candidates in the hook.
-NON_RULE_NAMES = ('config.yaml', 'config.yml', 'dismissed.yaml', 'dismissed.yml')
-NON_RULE_DIRS = ('candidates',)
-
-
-def _iter_rule_files(base, skip_dirs=NON_RULE_DIRS):
+def _iter_rule_files(base):
     if not base or not os.path.isdir(base):
         return
     for dirpath, dirnames, filenames in os.walk(base):
-        dirnames[:] = [d for d in dirnames
-                       if not d.startswith('.') and d not in (skip_dirs or ())]
+        dirnames[:] = [d for d in dirnames if not d.startswith('.')]
         for name in sorted(filenames):
-            if name in NON_RULE_NAMES:
+            if name in ('config.yaml', 'config.yml'):
                 continue
             if name.endswith(('.yaml', '.yml')):
                 yield os.path.join(dirpath, name)
