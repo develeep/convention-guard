@@ -1,0 +1,46 @@
+rule: core/js-no-empty-catch
+stacks: [js]
+cases:
+  - name: 새로 쓴 빈 catch 는 걸림
+    after:
+      src/load.ts: |
+        export function load() {
+          try {
+            return JSON.parse('{}');
+          } catch (e) {
+          }
+        }
+    expect: ["src/load.ts:4"]
+
+  - name: 주석으로 이유를 남기면 조용함
+    after:
+      src/load.ts: |
+        export function load() {
+          try {
+            return JSON.parse('{}');
+          } catch (e) {
+            // 파싱 실패는 기본값
+          }
+        }
+    expect: []
+
+  - name: 레거시 빈 catch 가 있는 파일의 다른 곳만 고치면 조용함
+    before:
+      src/load.ts: |
+        export function load() {
+          try {
+            return JSON.parse('{}');
+          } catch (e) {
+          }
+        }
+    after:
+      src/load.ts: |
+        export function load() {
+          try {
+            return JSON.parse('{}');
+          } catch (e) {
+          }
+        }
+
+        export const version = 2;
+    expect: []

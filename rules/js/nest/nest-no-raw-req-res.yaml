@@ -2,15 +2,15 @@ id: nest-no-raw-req-res
 title: 컨트롤러에서 @Req/@Res 직접 사용
 severity: warn
 applies_to:
-  stack: [nest]
+  stacks: [nest]
   files: ["**/*.controller.ts"]
-triggers:
-  code_regex: '@(Req|Res|Response|Request)\s*\(\s*\)'
-context_injection: |
+detect:
+  when_line_added: '@(Req|Res|Response|Request)\s*\(\s*\)'
+message: |
   플랫폼 객체를 직접 다루면 인터셉터와 예외 필터가 동작하지 않습니다.
   DTO 와 반환값으로 처리하세요.
 tests:
-  should_match:
+  match:
     - '  findAll(@Res() res: Response) {'
-  should_not_match:
+  no_match:
     - '  findAll(@Query() query: ListDto) {'

@@ -1,0 +1,6 @@
+name: common
+description: "모든 레포에 켜지는 공통 위생 규칙"
+# 이 태그 중 하나가 감지되면 presets: auto 에서 켜집니다. 비어 있으면 명시해야 켜집니다.
+stacks: ["*"]
+rules:
+  - core/no-orphan-todo

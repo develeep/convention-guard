@@ -1,6 +1,6 @@
 """Repo-root stack detection.
 
-One repo == one stack set (monorepos are out of scope by design choice).
+One repo == one stack set (monorepos are out of scope for now).
 Each stacks/*.yaml declares marker-file detection, the tags it contributes,
 and the linters to delegate deterministic checks to.
 """
@@ -8,10 +8,11 @@ and the linters to delegate deterministic checks to.
 import os
 import re
 
-from .paths import project_dir, read_yaml
+from .paths import project_dir
+from .yamlio import read_cached as read_yaml
 
 
-def _load_defs(plugin_root):
+def load_defs(plugin_root):
     defs = []
     stack_dir = os.path.join(plugin_root, 'stacks')
     if not os.path.isdir(stack_dir):
@@ -39,59 +40,62 @@ def _read_marker(root, rel, limit=200000):
         return None
 
 
+def _match_marker(det, content):
+    needle = det.get('contains')
+    if not needle:
+        return True
+    try:
+        return re.search(needle, content, re.M) is not None
+    except re.error:
+        return needle in content
+
+
+def _version(det, content):
+    pattern = det.get('version_regex')
+    if not pattern:
+        return None
+    try:
+        match = re.search(pattern, content, re.M)
+    except re.error:
+        return None
+    return match.group(1) if match else None
+
+
 def detect(plugin_root, cwd=None, forced=None):
-    """Return {'tags': set, 'versions': dict, 'stacks': [id], 'lint': [...]}"""
+    """Return {'root', 'tags': set, 'versions': dict, 'stacks': [id], 'lint': [...]}"""
     root = project_dir(cwd)
     result = {'root': root, 'tags': set(), 'versions': {}, 'stacks': [], 'lint': []}
+    forced = set(forced or [])
 
-    for spec in _load_defs(plugin_root):
+    for spec in load_defs(plugin_root):
         sid = spec['id']
         det = spec.get('detect') or {}
-        matched = False
+        markers = det.get('file')
+        if isinstance(markers, str):
+            markers = [markers]
 
         # Marker detection always runs, even for a forced stack: forcing says
         # "this stack is here", not "skip looking", and skipping would throw
         # away the version we could have read from the marker file.
-        markers = det.get('file')
-        if isinstance(markers, str):
-            markers = [markers]
-        for marker in (markers or []):
+        matched = False
+        for marker in markers or []:
             content = _read_marker(root, marker)
-            if content is not None:
-                    needle = det.get('contains')
-                    if not needle:
-                        matched = True
-                    else:
-                        try:
-                            matched = re.search(needle, content, re.M) is not None
-                        except re.error:
-                            matched = needle in content
-                    if matched:
-                        vre = det.get('version_regex')
-                        if vre:
-                            try:
-                                m = re.search(vre, content, re.M)
-                                if m:
-                                    result['versions'][sid] = m.group(1)
-                            except re.error:
-                                pass
-                        break
-
-        if forced and sid in forced:
+            if content is None or not _match_marker(det, content):
+                continue
             matched = True
+            version = _version(det, content)
+            if version:
+                result['versions'][sid] = version
+            break
 
-        if not matched:
+        if not (matched or sid in forced):
             continue
-
         result['stacks'].append(sid)
-        for tag in (spec.get('tags') or [sid]):
+        for tag in spec.get('tags') or [sid]:
             result['tags'].add(str(tag))
-        for entry in (spec.get('lint') or []):
+        for entry in spec.get('lint') or []:
             if isinstance(entry, dict) and entry.get('cmd'):
-                entry = dict(entry)
-                entry['stack'] = sid
-                result['lint'].append(entry)
-
+                result['lint'].append(dict(entry, stack=sid))
     return result
 
 

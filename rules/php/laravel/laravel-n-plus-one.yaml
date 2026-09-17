@@ -1,21 +1,37 @@
 id: laravel-n-plus-one
 title: 반복문 안에서 관계 접근 (N+1)
 severity: warn
-context_line: 컬렉션을 반복하기 전에 with()/load() 로 관계를 eager load 하세요. 반복문 안의 ->relation 접근은 쿼리를 N번 냅니다.
+prevent: 컬렉션을 반복하기 전에 with()/load() 로 관계를 eager load 하세요. 반복문 안의 ->relation 접근은 쿼리를 N번 냅니다.
 applies_to:
-  stack: [laravel]
+  stacks: [laravel]
   files: ["app/**/*.php"]
   exclude: ["**/vendor/**"]
-triggers:
-  review_when: '\bforeach\s*\(|->each\s*\(|->map\s*\('
-review_prompt: |
-  반복문 안에서 Eloquent 관계에 접근해 쿼리가 N번 나가는 곳이 있는지 판단하세요.
-  - 반복 대상 컬렉션이 with()/load() 로 eager load 되었는지 거슬러 확인할 것
-  - 반복문 안의 ->relation 접근, ->count(), ->exists() 가 쿼리를 유발하는지
-  - 이미 eager load 되어 있거나 컬렉션이 메모리상 배열이면 위반이 아님
-  확실하지 않으면 위반으로 보고하지 마세요. 오탐 하나가 규칙 전체의 신뢰를 깎습니다.
+detect:
+  # 게이트일 뿐 판정이 아닙니다. 반복이 추가된 줄만 리뷰어에게 넘어갑니다.
+  when_line_added: '\bforeach\s*\(|->each\s*\(|->map\s*\('
+semantic_review:
+  context:
+    - current_function
+    - related_files:
+        symbol: '\b([A-Z]\w+)::(?:query|with|where|all|find|findOrFail|get|latest|oldest)\b'
+        glob: 'app/Models/{1}.php'
+        max: 2
+  max_context_lines: 150
+  instruction: |
+    반복문 안에서 Eloquent 관계에 접근해 쿼리가 반복 횟수만큼 나가는지 판단합니다.
+    - 반복 대상 컬렉션을 만든 쿼리를 함수 안에서 찾아, 반복문 안에서 접근하는 관계가
+      with() / load() / loadMissing() 으로 미리 로드됐는지 확인합니다.
+    - 반복문 안의 ->관계 접근, ->관계()->count(), ->관계()->exists() 는 로드되지 않았다면 쿼리입니다.
+    - 관계 메서드인지 모델 파일(관련 파일)로 확인할 수 있으면 확인합니다.
+    VIOLATION: 로드되지 않은 관계에 반복문 안에서 접근한다.
+    VALID: 이미 로드됐거나, 반복 대상이 배열·컬렉션 연산뿐이거나, 관계 접근이 없다.
+    반복 대상이 함수 밖(인자, 프로퍼티)에서 와서 로드 여부를 알 수 없으면 VALID 입니다.
+message: |
+  반복문 안에서 로드되지 않은 관계에 접근해 쿼리가 N번 나갑니다.
+  컬렉션을 조회할 때 with('관계') 로 함께 로드하세요.
 tests:
-  should_match:
+  match:
     - '        foreach ($orders as $order) {'
-  should_not_match:
+    - '        $orders->each(function ($order) {'
+  no_match:
     - '        $total = array_sum($amounts);'

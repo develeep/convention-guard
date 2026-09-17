@@ -26,7 +26,7 @@ import shlex
 import shutil
 import subprocess
 
-from .rules import _match_any
+from .rules import match_any as _match_any
 
 MAX_OUTPUT = 3000
 UNIX_RE = re.compile(r'^(?P<file>[^\s:][^:]*):(?P<line>\d+)(?::\d+)?:\s*(?P<msg>.*)$')
@@ -34,7 +34,7 @@ GITHUB_RE = re.compile(r'file=(?P<file>[^,]+),line=(?P<line>\d+)')
 DIFF_HUNK_RE = re.compile(r'^@@ -(\d+)(?:,\d+)? \+')
 
 
-def _binary_present(root, entry):
+def binary_present(root, entry):
     marker = entry.get('if_exists')
     if not marker:
         return True
@@ -213,7 +213,7 @@ def run(root, entries, files, timeout=90, max_files=40):
         return failures
     all_files = sorted(files)
     for entry in entries or []:
-        if not _binary_present(root, entry):
+        if not binary_present(root, entry):
             continue
         owned = owned_files(entry, all_files)
         mine = owned[:max_files]

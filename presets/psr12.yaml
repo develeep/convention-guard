@@ -1,0 +1,17 @@
+name: psr12
+description: "PSR-12 스타일. 포맷터(pint 등)가 있으면 포맷 규칙은 스스로 물러납니다"
+# 이 태그 중 하나가 감지되면 presets: auto 에서 켜집니다. 비어 있으면 명시해야 켜집니다.
+stacks: ["php"]
+rules:
+  - core/php-cast-spacing
+  - core/php-control-structure-spacing
+  - core/php-indent-spaces
+  - core/php-line-too-long
+  - core/php-namespace-required
+  - core/php-no-closing-tag
+  - core/php-no-short-open-tag
+  - core/php-no-var-keyword
+  - core/php-nullable-type-spacing
+  - core/php-strict-types-required
+  - core/php-use-elseif
+  - core/php-variadic-spacing

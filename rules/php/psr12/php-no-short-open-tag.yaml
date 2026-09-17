@@ -3,18 +3,18 @@ title: 여는 태그는 <?php 만 사용
 severity: error
 superseded_by: [pint.json, .php-cs-fixer.php, .php-cs-fixer.dist.php]
 applies_to:
-  stack: [php]
+  stacks: [php]
   files: ["**/*.php"]
   exclude: ["**/vendor/**"]
-triggers:
-  code_regex: '<\?(?!php\b|=|xml)'
-context_injection: |
+detect:
+  when_line_added: '<\?(?!php\b|=|xml)'
+message: |
   여는 태그는 <?php 를 씁니다. short_open_tag 설정에 따라 코드가 통째로
   출력되는 서버가 있습니다. 템플릿의 출력 축약은 <?= 만 허용됩니다.
 tests:
-  should_match:
+  match:
     - '<? echo $x; ?>'
-  should_not_match:
+  no_match:
     - '<?php declare(strict_types=1);'
     - '<?= $user->name ?>'
     - '<?xml version="1.0"?>'

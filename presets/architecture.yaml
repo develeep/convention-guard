@@ -1,0 +1,7 @@
+name: architecture
+description: "계층 경계 등 구조 규칙. 의미 판정이 필요해 명시적으로 켭니다"
+# 이 태그 중 하나가 감지되면 presets: auto 에서 켜집니다. 비어 있으면 명시해야 켜집니다.
+stacks: []
+rules:
+  - core/layer-boundary
+  - core/nest-no-repo-in-controller

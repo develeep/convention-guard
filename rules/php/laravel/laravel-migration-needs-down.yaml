@@ -1,19 +1,18 @@
 id: laravel-migration-needs-down
 title: 마이그레이션에 down() 없음
 severity: error
-in_context: true
-context_line: 마이그레이션에는 반드시 down() 을 함께 구현하세요.
+prevent: 마이그레이션에는 반드시 down() 을 함께 구현하세요.
 applies_to:
-  stack: [laravel]
+  stacks: [laravel]
   files: ["database/migrations/**/*.php"]
-triggers:
+detect:
   when_line_added: 'public\s+function\s+up\s*\('
   must_contain_in_file: 'function\s+down\s*\('
-context_injection: |
+message: |
   롤백할 수 없는 마이그레이션입니다. down() 을 구현하세요.
   되돌릴 수 없는 변경이라면 down() 안에서 그 사실을 명시적으로 남기세요.
 tests:
-  should_match:
+  match:
     - "return new class extends Migration\n{\n    public function up(): void\n    {\n        Schema::create('users', fn () => null);\n    }\n};"
-  should_not_match:
+  no_match:
     - "return new class extends Migration\n{\n    public function up(): void\n    {\n    }\n\n    public function down(): void\n    {\n        Schema::dropIfExists('users');\n    }\n};"

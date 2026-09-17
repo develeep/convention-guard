@@ -1,5 +1,5 @@
 {
-  "description": "변경 파일 수집(PostToolUse) + 완료 시점 컨벤션 검사(Stop)",
+  "description": "변경 파일 수집(PostToolUse) + 완료 시점 컨벤션 검증 사이클(Stop). 의미 판정은 후보가 있을 때만 convention-reviewer 에이전트에 위임합니다.",
   "hooks": {
     "PostToolUse": [
       {
@@ -19,7 +19,8 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/check.py\"",
-            "timeout": 150
+            "timeout": 150,
+            "statusMessage": "컨벤션 검사 중..."
           }
         ]
       }

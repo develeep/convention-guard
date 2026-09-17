@@ -1,0 +1,19 @@
+# 레포에 두는 파일: <repo>/.claude/convention-guard/rules/no-direct-slack-call.yaml
+# 이 레포에만 있는 규칙. id 에 local/ 네임스페이스가 자동으로 붙어 local/no-direct-slack-call 이 됩니다.
+id: no-direct-slack-call
+title: Slack 은 NotificationService 경유
+severity: error
+applies_to:
+  stacks: [php]
+  files: ["app/**/*.php"]
+  exclude: ["app/Services/NotificationService.php"]
+detect:
+  when_line_added: '(Http::post\s*\(\s*["'']https://hooks\.slack\.com|new\s+SlackClient)'
+message: |
+  Slack 호출은 NotificationService 를 통해서만 합니다.
+  재시도와 rate limit 처리가 거기에 모여 있습니다.
+tests:
+  match:
+    - 'Http::post("https://hooks.slack.com/services/T000/B000/xxx", $payload);'
+  no_match:
+    - 'app(NotificationService::class)->slack($payload);'

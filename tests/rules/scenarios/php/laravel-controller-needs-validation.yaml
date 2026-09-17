@@ -1,0 +1,78 @@
+rule: core/laravel-controller-needs-validation
+stacks: [php, laravel]
+cases:
+  - name: 검증 없는 store 추가는 걸림
+    before:
+      app/Http/Controllers/UserController.php: |
+        <?php
+
+        class UserController extends Controller
+        {
+            public function index()
+            {
+                return User::all();
+            }
+        }
+    after:
+      app/Http/Controllers/UserController.php: |
+        <?php
+
+        class UserController extends Controller
+        {
+            public function index()
+            {
+                return User::all();
+            }
+
+            public function store(Request $request)
+            {
+                return User::create($request->all());
+            }
+        }
+    expect: ["app/Http/Controllers/UserController.php:10"]
+
+  - name: 같은 파일에 FormRequest 가 있으면 조용함
+    after:
+      app/Http/Controllers/UserController.php: |
+        <?php
+
+        use App\Http\Requests\StoreUserRequest;
+
+        class UserController extends Controller
+        {
+            public function store(StoreUserRequest $request)
+            {
+                return User::create($request->validated());
+            }
+        }
+    expect: []
+
+  - name: 검증 없는 기존 store 가 있는 파일에서 다른 메서드만 고치면 조용함
+    before:
+      app/Http/Controllers/UserController.php: |
+        <?php
+
+        class UserController extends Controller
+        {
+            public function store(Request $request)
+            {
+                return User::create($request->all());
+            }
+        }
+    after:
+      app/Http/Controllers/UserController.php: |
+        <?php
+
+        class UserController extends Controller
+        {
+            public function store(Request $request)
+            {
+                return User::create($request->all());
+            }
+
+            public function index()
+            {
+                return User::all();
+            }
+        }
+    expect: []

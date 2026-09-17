@@ -2,11 +2,11 @@
 """Every check in one command. Put this in CI.
 
     python3 tests/run_all.py
-    python3 tests/run_all.py --repo /path/to/repo   # include the repo's rules
+    python3 tests/run_all.py --repo /path/to/repo   # include the repo's own rules
+    python3 tests/run_all.py --quiet                # print failing suites only
 
-`scripts/test_rules.py` protects the rules (fixtures per rule); the files next
-to this one protect the engine: what counts as "this change", where a linter
-finding is allowed to block, and how a block is measured afterwards.
+Suites are discovered: every `test_*.py` under tests/, plus the rule fixture
+runner. Each suite is a plain script whose exit code is the verdict.
 """
 
 import argparse
@@ -17,13 +17,19 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
-SUITES = [
-    ('규칙 픽스처', [os.path.join(ROOT, 'scripts', 'test_rules.py')]),
-    ('변경 앵커', [os.path.join(HERE, 'test_diff_anchor.py')]),
-    ('린터 앵커링', [os.path.join(HERE, 'test_lint_anchor.py')]),
-    ('세션 정책', [os.path.join(HERE, 'test_session_policy.py')]),
-    ('자체 설정 제외', [os.path.join(HERE, 'test_self_exclude.py')]),
-]
+
+def suites(repo=None):
+    found = []
+    for dirpath, dirnames, filenames in os.walk(HERE):
+        dirnames[:] = sorted(d for d in dirnames if d not in ('helpers', '__pycache__'))
+        for name in sorted(filenames):
+            if name.startswith('test_') and name.endswith('.py'):
+                path = os.path.join(dirpath, name)
+                cmd = [path]
+                if repo and name == 'test_rule_fixtures.py':
+                    cmd += ['--repo', repo]
+                found.append((os.path.relpath(path, HERE), cmd))
+    return found
 
 
 def main():
@@ -32,12 +38,11 @@ def main():
     parser.add_argument('--quiet', action='store_true', help='실패한 스위트만 출력')
     args = parser.parse_args()
 
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
     failed = []
-    for label, cmd in SUITES:
-        argv = [sys.executable] + cmd
-        if args.repo and cmd[0].endswith('test_rules.py'):
-            argv += ['--repo', args.repo]
-        proc = subprocess.run(argv, capture_output=True, text=True, cwd=ROOT)
+    for label, cmd in suites(args.repo):
+        proc = subprocess.run([sys.executable] + cmd, capture_output=True, text=True,
+                              cwd=ROOT, env=env)
         status = 'PASS' if proc.returncode == 0 else 'FAIL'
         print('[%s] %s' % (status, label))
         if proc.returncode != 0:

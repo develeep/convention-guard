@@ -2,17 +2,17 @@ id: js-no-empty-catch
 title: 빈 catch 블록 금지
 severity: warn
 applies_to:
-  stack: [js]
+  stacks: [js]
   files: ["**/*.{ts,tsx,js,jsx,mjs}"]
   exclude: ["**/node_modules/**", "**/*.test.*", "**/*.spec.*"]
-triggers:
+detect:
   file_regex: 'catch\s*(\([^)]*\))?\s*\{\s*\}'
-context_injection: |
+message: |
   에러를 삼키지 마세요. 로거로 남기거나, 의도적으로 무시한다면 이유를 주석으로 남기세요.
 tests:
-  should_match:
+  match:
     - "  } catch (e) {\n  }\n"
     - "  } catch {}\n"
-  should_not_match:
+  no_match:
     - "  } catch (e) {\n    logger.warn(e);\n  }\n"
     - "  } catch (e) {\n    // 파싱 실패는 기본값 사용\n  }\n"

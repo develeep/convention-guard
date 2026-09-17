@@ -1,0 +1,8 @@
+name: security
+description: "자격증명 노출·검증 없는 입력 등 보안 규칙"
+# 이 태그 중 하나가 감지되면 presets: auto 에서 켜집니다. 비어 있으면 명시해야 켜집니다.
+stacks: ["*"]
+rules:
+  - core/no-hardcoded-secret
+  - core/next-no-public-secret
+  - core/laravel-no-request-all

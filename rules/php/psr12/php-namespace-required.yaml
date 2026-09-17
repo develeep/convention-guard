@@ -2,16 +2,17 @@ id: php-namespace-required
 title: 새 클래스 파일에 namespace 선언
 severity: error
 applies_to:
-  stack: [php]
+  stacks: [php]
   files: ["app/**/*.php", "src/**/*.php"]
   exclude: ["**/vendor/**", "**/*.blade.php", "**/helpers.php"]
-triggers:
-  absent_in_new_file: '^namespace\s+[A-Za-z_][A-Za-z0-9_\\]*\s*;'
-context_injection: |
+detect:
+  when_file_added: true
+  must_contain_in_file: '^namespace\s+[A-Za-z_][A-Za-z0-9_\\]*\s*;'
+message: |
   namespace 선언이 없습니다. PSR-4 오토로딩이 동작하려면 디렉터리 구조와 맞는
   namespace 가 있어야 합니다. 예) app/Services/Foo.php -> namespace App\Services;
 tests:
-  should_match:
+  match:
     - "<?php\n\ndeclare(strict_types=1);\n\nclass Foo {}\n"
-  should_not_match:
+  no_match:
     - "<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Services;\n\nclass Foo {}\n"

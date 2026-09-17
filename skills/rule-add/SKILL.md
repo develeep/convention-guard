@@ -1,183 +1,101 @@
 ---
 name: rule-add
-description: PR 리뷰에서 반복된 지적이나 팀 컨벤션 문서의 항목을 convention-guard 규칙으로 만듭니다. 정규식과 픽스처를 짜고 테스트까지 돌립니다. "이거 규칙으로 만들어줘", "이런 지적 자동화하고 싶어", "컨벤션 규칙 추가", "이 패턴 잡고 싶어", 코드 리뷰에서 같은 말을 또 하게 될 때 사용하세요.
+description: 반복되는 리뷰 지적이나 팀 컨벤션 항목을 convention-guard 규칙으로 만듭니다. 규칙으로 만들 가치를 먼저 판단하고, 변경 앵커를 고르고, 실제 코드에서 정상·위반 사례를 찾아 정규식과 픽스처를 짠 뒤, 픽스처·시나리오·레포 전수조사로 오탐을 검증합니다. 정규식으로 판정할 수 없는 규칙은 의미 판정(semantic_review) 규칙으로 만듭니다. "이거 규칙으로 만들어줘", "이 패턴 잡고 싶어", "컨벤션 규칙 추가", convention-discover 가 넘긴 후보를 등록할 때 사용합니다.
 ---
 
-# 컨벤션 규칙 만들기
+# 규칙 만들기
 
-사람이 정규식을 직접 쓰는 것보다, **실제 코드를 보고 만든 뒤 픽스처로 검증하는** 편이
-오탐이 훨씬 적습니다. 순서를 지키세요.
+사람이 정규식부터 쓰는 것보다 **실제 코드를 보고 만든 뒤 픽스처로 검증하는** 편이 오탐이 훨씬 적습니다.
 
-## 1. 규칙으로 만들 가치가 있는지부터 판단
+스크립트 위치: `S="${CLAUDE_PLUGIN_ROOT}/scripts"`
 
-다음에 해당하면 **규칙을 만들지 말고** 그 이유를 사용자에게 알려주세요.
+## 체크리스트
 
-- **린터가 잡는 것** (포맷, import 순서, 미사용 변수) → 린터 설정에 넣는 게 맞습니다.
-  `presets/` 에 프리셋이 있으면 그걸 권하세요. 굳이 규칙으로도 둘 거라면
-  `superseded_by: [pint.json, ...]` 를 붙여 포맷터가 있는 레포에서는 물러나게 하세요.
-- **타입 추론이나 호출 그래프가 필요한 것** → phpstan / tsc / golangci-lint 의 몫입니다.
-- **의미를 봐야만 판정되는 것** (N+1, 계층 경계) → 정규식 규칙이 아니라
-  `semantic` 규칙(6번)으로 만드세요.
-
-## 2. 어디에 둘지, 얼마나 세게 할지 정하기
-
-한 번에 물어보고, 판단이 서면 추천안을 먼저 제시하세요.
-
-- **공통(`rules/`)** vs **이 레포만(`.claude/convention-rules/`)**.
-  한 레포에서만 통하는 이야기면 로컬입니다. `local/` 네임스페이스가 자동으로 붙습니다.
-- **강도**: `error`(차단) / `warn`(차단 안 함, error 에 편승) / `info`(로그만).
-  **검증되지 않은 새 규칙은 `warn` 으로 시작하세요.** 승격은 `rule-tune` 으로 데이터를 보고.
-
-## 3. 트리거 종류 고르기 — 가장 중요한 선택
-
-줄 하나만 봐서 판정되는 규칙은 생각보다 적습니다. **무엇을 봐야 하는지**와
-**무엇이 이번 변경의 책임인지**를 함께 정하세요.
-
-| 판정에 필요한 것 | 트리거 | 앵커 |
-|---|---|---|
-| 줄 하나 | `code_regex` | 줄 자체 |
-| 여러 줄에 걸친 패턴 | `file_regex` | 매치 구간이 변경된 줄과 겹칠 때 |
-| "A를 추가했으면 파일에 B가 있어야" | `when_line_added` + `must_contain_in_file` | 조건이 새로 추가됐을 때 |
-| 새 파일의 필수 선언 | `absent_in_new_file` | 파일이 새것일 때 |
-| "A 파일 바꿨으면 B도" | `when_changed` + `require_changed` | 변경 집합 (스택·`exclude` 게이트 적용) |
-| 의미 판단이 필요 | `review_when` + `review_prompt` | 게이트 통과 시 서브에이전트 |
-
-**세 번째를 먼저 고려하세요.** 대부분의 "맥락이 필요한" 규칙이 여기에 들어맞습니다.
-조건은 변경된 줄에서 찾고 요구사항은 파일 전체에서 찾으므로, 레거시 파일을 건드려도
-조용합니다.
-
-`when_changed` + `require_changed` 도 `applies_to` 를 존중합니다. 스택·버전을 먼저
-확인하고 `exclude` 를 변경 파일과 요구 파일 양쪽에 적용합니다. 그래서 Laravel 전용
-paired 규칙은 순수 Go 레포에서 발동하지 않습니다 — 대신 `applies_to.stack` 을 비워두면
-게이트가 없는 전 스택 규칙이 됩니다.
-
-절대 하지 말 것: 파일 전체를 훑는 규칙을 만들려고 `code_regex` 에 광범위한 패턴을 넣는 것.
-레거시가 전부 걸려서 일주일이면 규칙이 꺼집니다.
-
-## 4. 실제 코드에서 패턴 확인
-
-`Grep` 으로 레포를 훑어 **위반 사례와 정상 사례를 둘 다** 찾으세요.
-정상 사례가 정규식에 걸리지 않는지 확인하는 것이 핵심입니다.
-
-적용 태그는 감지 결과와 맞춰야 합니다.
-
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check.py" --explain
+```
+- [ ] 1. 규칙으로 만들 가치 판단
+- [ ] 2. 위치와 강도 정하기
+- [ ] 3. 앵커 고르기
+- [ ] 4. 실제 코드에서 위반·정상 사례 찾기
+- [ ] 5. 규칙 파일 작성
+- [ ] 6. 검증 루프 (픽스처 → 전수조사 → 좁히기)
+- [ ] 7. 예방 컨텍스트 여부 결정
+- [ ] 8. 보고
 ```
 
-## 5. 규칙 파일 작성
+### 1. 규칙으로 만들 가치 판단
 
-```yaml
-id: <짧은-케밥-케이스>            # core/ 또는 local/ 네임스페이스는 자동
-title: <한 줄 요약>
-severity: warn
-superseded_by: [pint.json]      # 포맷터가 고쳐주는 항목이면 (선택)
-applies_to:
-  stack: [laravel]              # ["*"] 는 전 스택
-  files: ["app/**/*.php"]
-  exclude: ["**/vendor/**"]
-  version: ">=10"               # 선택
-triggers:
-  code_regex: '...'
-context_injection: |
-  무엇이 문제인지 한 줄, 대신 무엇을 할지 한 줄.
-  에이전트가 읽고 바로 고칠 수 있게 구체적으로.
-tests:
-  should_match:
-    - '실제 위반 코드'
-  should_not_match:
-    - '비슷하지만 정상인 코드'
-    - '주석 안에 같은 단어가 있는 경우'
-```
+다음이면 규칙을 만들지 말고 이유를 알립니다.
 
-**`applies_to.stack` 은 반드시 채우세요.** 모든 트리거가 이 값으로 걸러지므로,
-비워두면 그 규칙은 스택과 무관하게 모든 레포에서 발동합니다. 정말 전 스택 규칙일 때만
-`["*"]` 를 명시하세요.
-
-`should_not_match` 에는 **정규식이 헷갈릴 만한 정상 코드**를 반드시 넣으세요.
-주석, 문자열 리터럴, 이름이 비슷한 다른 API 가 단골 오탐 원인입니다.
-
-픽스처 의미는 트리거마다 다릅니다.
-
-| 트리거 | `should_match` 에 넣을 것 |
+| 대상 | 맡길 곳 |
 |---|---|
-| `code_regex` / `file_regex` | 위반 코드 |
-| `absent_in_new_file` | 해당 선언이 **없는** 파일 본문 |
-| `when_line_added` + `must_contain` | 조건은 있고 요구사항은 **없는** 파일 본문 |
-| `when_changed` + `require_changed` | 변경된 경로 **목록** — `["routes/api.php"]` |
+| 포맷, import 순서, 미사용 변수 | 린터·포맷터 설정 (`examples/formatters/`) |
+| 타입 추론, 호출 그래프 | phpstan / tsc / golangci-lint |
+| 코드에 흔적이 남지 않는 것 (커밋 메시지, 설계 합의) | 문서 |
 
-## 6. semantic 규칙 (의미 판정)
+### 2. 위치와 강도
 
-정규식은 **게이트로만** 씁니다. 판정은 서브에이전트가 합니다.
+- 이 레포에만 해당 → `<repo>/.claude/convention-guard/rules/<id>.yaml` (`local/` 네임스페이스 자동)
+- 여러 레포 공통 → 플러그인 `rules/<언어>/<묶음>/<id>.yaml` + `presets/*.yaml` 에 id 추가
+- 기존 core 규칙을 바꾸는 것 → 새로 만들지 말고 `override: core/<id>` 파일 (바꿀 키만)
+- 강도: **새 규칙은 `warn` 으로 시작**합니다. 승격은 rule-tune 에서 데이터를 보고 합니다.
 
-```yaml
-id: laravel-n-plus-one
-severity: warn
-applies_to:
-  stack: [laravel]
-  files: ["app/**/*.php"]
-triggers:
-  review_when: '\bforeach\s*\('     # 판정을 살 만한 턴인지 거르는 게이트
-review_prompt: |
-  반복문 안에서 관계에 접근해 쿼리가 N번 나가는지 판단하세요.
-  이미 eager load 되어 있으면 위반이 아닙니다.
-  확실하지 않으면 보고하지 마세요.
-```
+### 3. 앵커 고르기 — 가장 중요한 선택
 
-`review_prompt` 에는 **"확실하지 않으면 보고하지 말라"** 를 반드시 넣으세요.
-그리고 게이트를 좁게 잡으세요 — 넓으면 매 턴 LLM 비용이 나갑니다.
-`agent` 훅을 켜지 않았다면 semantic 규칙은 로드만 되고 아무 일도 하지 않습니다.
+앵커는 무엇이 **이번 변경의 책임**인지 정합니다. 잘못 고르면 레거시 코드가 전부 걸립니다.
 
-## 7. 컨텍스트에 넣을 규칙인지 판단
-
-대부분의 규칙은 **넣지 않습니다.** 훅이 잡아주므로 컨텍스트에 또 적으면 자리만 차지하고,
-목록이 길어질수록 전부 묻힙니다.
-
-`in_context: true` 를 붙일 기준은 하나입니다 — **잡힌 뒤 고치는 비용이 큰가.**
-
-| 넣을 것 | 넣지 말 것 |
+| 판정에 필요한 것 | detect |
 |---|---|
-| 파일 구조를 바꿔야 고쳐지는 것 (검증 계층 추가, 'use client' 분리) | 한 줄 치환으로 끝나는 것 |
-| 마이그레이션처럼 되돌리기 어려운 것 | 포맷터가 고쳐주는 것 |
-| `semantic` 규칙 (자동으로 포함됨) | 정규식으로 확실히 잡히는 것 |
+| 추가된 줄 하나 | `when_line_added` |
+| "A 를 추가했으면 파일에 B 가 있어야" | `when_line_added` + `must_contain_in_file` |
+| 새 파일의 필수 선언 | `when_file_added: true` + `must_contain_in_file` |
+| "A 파일을 바꿨으면 B 도" | `when_changed` + `require_changed` |
+| 여러 줄에 걸친 패턴 | `file_regex` (매치가 변경된 줄과 겹칠 때만) |
+| 의미를 봐야 판정 | 위 중 하나를 게이트로 + `semantic_review` |
 
-넣기로 했다면 `context_line` 을 **명령형 한 줄**로 쓰세요. `context_injection` 은
-"~가 없습니다" 처럼 사후 지적문이라 예방용으로는 어색합니다.
+필드 전체·픽스처 의미·의미 판정 컨텍스트: [references/schema.md](references/schema.md)
 
-```yaml
-in_context: true
-context_line: 쓰기 액션(store/update/create)은 FormRequest 로 받고 $request->validated() 를 쓰세요.
-```
+### 4. 실제 코드에서 사례 찾기
+
+`Grep` 으로 레포에서 위반 사례와 **정상 사례를 둘 다** 찾습니다. 정상 코드가 걸리지 않게 만드는 것이 핵심입니다. 주석, 문자열 리터럴, 이름이 비슷한 다른 API 가 단골 오탐 원인입니다.
+
+### 5. 규칙 파일 작성
+
+앵커별 완성 예시를 보고 가장 가까운 것에서 시작합니다: [references/examples.md](references/examples.md)
+
+반드시 채울 것: `applies_to.stacks` (전 스택이면 `["*"]`), `tests.match`, `tests.no_match` (4단계의 헷갈리는 정상 코드), `message` (무엇이 문제인지 한 줄 + 대신 무엇을 할지 한 줄).
+
+### 6. 검증 루프
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/emit_rules.py" --stdout   # 확인 후
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/emit_rules.py"            # 재생성
+python3 "${CLAUDE_PLUGIN_ROOT}/tests/rules/test_rule_fixtures.py" --repo "$CLAUDE_PROJECT_DIR"
+python3 "$S/scan.py" --all --rule <id> --no-lint --fail-on never --no-color
 ```
 
-## 8. 검증 — 건너뛰지 마세요
+1. 픽스처가 실패하면 메시지대로 고치고 다시 실행합니다.
+2. 전수조사 결과에서 **서너 곳을 `Read` 로 열어** 실제 위반인지 확인합니다.
+3. 정상 코드가 걸렸으면 그 코드를 `no_match` 에 추가하고 정규식을 좁힌 뒤 1로 돌아갑니다.
+4. 수백 건이 나오면 규칙이 아니라 레거시 신호입니다. 파일 경로(`applies_to.exclude`)로 좁히거나 강도를 낮춥니다.
+
+플러그인 규칙이라면 앵커가 `when_line_added` 단독이 아닐 때 `tests/rules/scenarios/` 에 git 시나리오(새 코드는 걸림 / 손대지 않은 레거시는 조용함)도 추가하고 `python3 "${CLAUDE_PLUGIN_ROOT}/tests/run_all.py"` 를 돌립니다.
+
+### 7. 예방 컨텍스트 여부
+
+대부분의 규칙은 훅이 잡으므로 컨텍스트에 넣지 않습니다. **잡힌 뒤 되돌리는 비용이 클 때만** `prevent:` 한 줄(명령형)을 붙이고 재생성합니다.
+
+| prevent 를 붙임 | 붙이지 않음 |
+|---|---|
+| 파일 구조를 바꿔야 고쳐지는 것 (검증 계층, 'use client' 분리) | 한 줄 치환으로 끝나는 것 |
+| 되돌리기 어려운 것 (마이그레이션) | 포맷터가 고치는 것 |
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/test_rules.py" --repo "$CLAUDE_PROJECT_DIR"
-python3 "${CLAUDE_PLUGIN_ROOT}/tests/run_all.py"
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --rule <새-규칙-id> --no-color
+python3 "$S/setup.py" emit --stdout
 ```
 
-첫 줄은 픽스처(규칙), 두 번째는 엔진 전체(픽스처까지 함께 돕니다). 공통 규칙을
-건드렸다면 `tests/run_all.py` 까지 돌리세요.
+### 8. 보고
 
-두 번째가 진짜 시험입니다. **레포 전체에서 몇 건이 나오는지 보고, 그중 몇 개를 열어
-실제 위반인지 확인하세요.** 오탐이 섞여 있으면 정규식을 좁히고 3번으로 돌아갑니다.
-전수조사에서 수백 건이 나오면 그건 규칙이 아니라 레거시 신호입니다 —
-`exclude` 를 붙이거나 `severity` 를 낮추세요.
-
-## 9. 기존 규칙을 조정하는 경우
-
-새 규칙을 만들지 말고 덮어쓰세요.
-
-- 끄기 / 강도 조정 / 디렉터리 제외 → `.claude/convention-rules/config.yaml`
-- 조건 일부만 변경 → `override: core/<id>` 파일 (명시한 키만 병합됩니다)
-
-## 마무리
-
-무엇을 어디에 만들었고, 왜 그 강도이며, 레포 전체에서 몇 건이 걸리는지 세 줄로 보고하세요.
-`warn` 으로 시작했다면 2~3주 뒤 `rule-tune` 으로 승격을 검토하자고 덧붙이세요.
+```
+규칙: local/no-direct-slack-call (warn) — .claude/convention-guard/rules/no-direct-slack-call.yaml
+앵커: when_line_added — 새로 추가한 호출만 걸림, 기존 호출은 조용함
+검증: 픽스처 4개 통과 · 전수조사 7건 중 확인한 4건 모두 실제 위반
+다음: 2~3주 뒤 rule-tune 으로 error 승격 검토
+```

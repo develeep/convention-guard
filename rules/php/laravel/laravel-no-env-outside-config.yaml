@@ -2,17 +2,17 @@ id: laravel-no-env-outside-config
 title: config 밖에서 env() 호출 금지
 severity: error
 applies_to:
-  stack: [laravel]
+  stacks: [laravel]
   files: ["app/**/*.php", "routes/**/*.php", "**/*.blade.php"]
   exclude: ["config/**", "**/vendor/**"]
-triggers:
-  code_regex: '(?<![\w$>:])env\s*\('
-context_injection: |
+detect:
+  when_line_added: '(?<![\w$>:])env\s*\('
+message: |
   config 캐시가 켜지면 config/ 밖의 env() 는 null 이 됩니다.
   config/*.php 에 키를 정의하고 config('...') 로 읽으세요.
 tests:
-  should_match:
+  match:
     - "$key = env('STRIPE_KEY');"
-  should_not_match:
+  no_match:
     - "$key = config('services.stripe.key');"
     - "$this->env('x');"

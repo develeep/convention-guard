@@ -2,16 +2,16 @@ id: no-orphan-todo
 title: 담당자·티켓 없는 TODO 금지
 severity: warn
 applies_to:
-  stack: ["*"]
-triggers:
-  code_regex: '(?://|#|/\*)\s*(TODO|FIXME|HACK)\s*(?![(:\[]\s*[A-Za-z0-9_-]+)'
-context_injection: |
+  stacks: ["*"]
+detect:
+  when_line_added: '(?://|#|/\*)\s*(TODO|FIXME|HACK)\s*(?![(:\[]\s*[A-Za-z0-9_-]+)'
+message: |
   TODO에는 담당자나 티켓을 남기세요. 예) TODO(shlee): ... 또는 TODO(PROJ-1234): ...
   지금 처리할 수 있으면 TODO를 남기지 말고 처리하세요.
 tests:
-  should_match:
+  match:
     - '// TODO 에러 처리'
     - '# FIXME 나중에'
-  should_not_match:
+  no_match:
     - '// TODO(shlee): 에러 처리'
     - '// TODO(PROJ-1234): 캐시 도입'

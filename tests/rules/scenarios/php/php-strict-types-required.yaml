@@ -1,0 +1,35 @@
+rule: core/php-strict-types-required
+stacks: [php]
+cases:
+  - name: 새 파일에 선언이 없으면 걸림
+    after:
+      app/Services/Foo.php: |
+        <?php
+
+        namespace App\Services;
+
+        class Foo {}
+    expect: ["app/Services/Foo.php:1"]
+
+  - name: 선언이 있는 새 파일은 조용함
+    after:
+      app/Services/Foo.php: |
+        <?php
+
+        declare(strict_types=1);
+
+        namespace App\Services;
+    expect: []
+
+  - name: 선언 없는 레거시 파일을 고쳐도 조용함
+    before:
+      app/Legacy/Old.php: |
+        <?php
+
+        class Old {}
+    after:
+      app/Legacy/Old.php: |
+        <?php
+
+        class Old { public $name; }
+    expect: []

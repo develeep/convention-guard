@@ -2,16 +2,16 @@ id: js-no-console
 title: console 잔여물
 severity: warn
 applies_to:
-  stack: [js]
+  stacks: [js]
   files: ["**/*.{ts,tsx,js,jsx,mjs}"]
   exclude: ["**/*.test.*", "**/*.spec.*", "**/scripts/**", "**/node_modules/**", "**/*.config.*"]
-triggers:
-  code_regex: '(?<![\w.])console\.(log|debug|dir)\s*\('
-context_injection: |
+detect:
+  when_line_added: '(?<![\w.])console\.(log|debug|dir)\s*\('
+message: |
   디버그 로그가 남아 있습니다. 제거하거나 팀 로거로 교체하세요.
 tests:
-  should_match:
+  match:
     - '  console.log(user);'
-  should_not_match:
+  no_match:
     - '  logger.debug(user);'
     - '  console.error(err);'

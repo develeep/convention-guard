@@ -1,0 +1,66 @@
+rule: core/php-no-empty-catch
+stacks: [php]
+cases:
+  - name: 새로 쓴 빈 catch 는 걸림
+    before:
+      app/Svc.php: |
+        <?php
+
+        class Svc
+        {
+            public function f()
+            {
+                return 1;
+            }
+        }
+    after:
+      app/Svc.php: |
+        <?php
+
+        class Svc
+        {
+            public function f()
+            {
+                try {
+                    return 1;
+                } catch (\Throwable $e) {
+                }
+            }
+        }
+    expect: ["app/Svc.php:9"]
+
+  - name: 레거시 빈 catch 가 있는 파일의 다른 곳만 고치면 조용함
+    before:
+      app/Svc.php: |
+        <?php
+
+        class Svc
+        {
+            public function f()
+            {
+                try {
+                    return 1;
+                } catch (\Throwable $e) {
+                }
+            }
+        }
+    after:
+      app/Svc.php: |
+        <?php
+
+        class Svc
+        {
+            public function f()
+            {
+                try {
+                    return 1;
+                } catch (\Throwable $e) {
+                }
+            }
+
+            public function g()
+            {
+                return 2;
+            }
+        }
+    expect: []

@@ -1,0 +1,6 @@
+name: performance
+description: "N+1 등 성능 규칙. 의미 판정이 필요해 명시적으로 켭니다"
+# 이 태그 중 하나가 감지되면 presets: auto 에서 켜집니다. 비어 있으면 명시해야 켜집니다.
+stacks: []
+rules:
+  - core/laravel-n-plus-one

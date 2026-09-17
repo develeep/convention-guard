@@ -1,4 +1,4 @@
-# 레포에 두는 파일: <repo>/.claude/convention-rules/dismissed.yaml
+# 레포에 두는 파일: <repo>/.claude/convention-guard/dismissed.yaml
 # 직접 쓰지 말고 scripts/dismiss.py 로 추가하세요 — 지문을 엔진과 같은 방식으로 만들어 줍니다.
 #
 #   python3 scripts/dismiss.py --rule core/php-line-too-long \
@@ -6,6 +6,7 @@
 #                              --line 84 --reason "체이닝을 끊으면 가독성이 더 나빠짐"
 #
 # 커밋해서 팀과 공유하세요. rule-tune 이 이 파일을 읽어 오탐 규칙을 찾아냅니다.
+# 이 파일을 파싱할 수 없으면 검사는 멈추고 이유를 알려줍니다 (기각 기록을 조용히 무시하지 않습니다).
 dismissed:
   # 지문이 있는 항목: 그 코드가 그대로인 동안만 조용합니다.
   # 코드가 바뀌면 새 판단이므로 다시 지적됩니다.
@@ -13,6 +14,7 @@ dismissed:
     file: "app/Http/Controllers/OrderController.php"
     hash: "6f1c93ab24"
     reason: "라라벨 체이닝이라 끊으면 가독성이 더 나빠짐"
+    by: "human"
     at: "2026-09-16"
     # app/Http/Controllers/OrderController.php:84  $result = $this->repo->whereHas(...
 
@@ -20,4 +22,5 @@ dismissed:
   - rule: "core/js-no-console"
     file: "scripts/seed.ts"
     reason: "시드 스크립트는 콘솔 출력이 인터페이스"
+    by: "agent"
     at: "2026-09-16"

@@ -1,0 +1,58 @@
+rule: core/laravel-migration-needs-down
+stacks: [php, laravel]
+cases:
+  - name: down 없는 새 마이그레이션은 걸림
+    after:
+      database/migrations/2026_01_01_000000_create_orders.php: |
+        <?php
+
+        return new class extends Migration
+        {
+            public function up(): void
+            {
+                Schema::create('orders', fn () => null);
+            }
+        };
+    expect: ["database/migrations/2026_01_01_000000_create_orders.php:5"]
+
+  - name: down 이 있으면 조용함
+    after:
+      database/migrations/2026_01_01_000000_create_orders.php: |
+        <?php
+
+        return new class extends Migration
+        {
+            public function up(): void
+            {
+            }
+
+            public function down(): void
+            {
+            }
+        };
+    expect: []
+
+  - name: down 없는 오래된 마이그레이션의 up 본문만 고치면 조용함
+    before:
+      database/migrations/2020_01_01_000000_create_users.php: |
+        <?php
+
+        return new class extends Migration
+        {
+            public function up(): void
+            {
+                Schema::create('users', fn () => null);
+            }
+        };
+    after:
+      database/migrations/2020_01_01_000000_create_users.php: |
+        <?php
+
+        return new class extends Migration
+        {
+            public function up(): void
+            {
+                Schema::create('members', fn () => null);
+            }
+        };
+    expect: []

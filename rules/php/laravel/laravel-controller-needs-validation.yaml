@@ -1,21 +1,20 @@
 id: laravel-controller-needs-validation
 title: store/update 컨트롤러 액션에 검증 없음
 severity: error
-in_context: true
-context_line: 쓰기 액션(store/update/create)은 FormRequest 로 받고 $request->validated() 를 쓰세요.
+prevent: 쓰기 액션(store/update/create)은 FormRequest 로 받고 $request->validated() 를 쓰세요.
 applies_to:
-  stack: [laravel]
+  stacks: [laravel]
   files: ["app/Http/Controllers/**/*.php"]
   exclude: ["**/vendor/**"]
-triggers:
+detect:
   when_line_added: 'public\s+function\s+(store|update|create)\s*\('
   must_contain_in_file: '(FormRequest|Http\\Requests|->validate\(|->validated\(\)|Validator::make\()'
-context_injection: |
+message: |
   쓰기 액션을 추가했는데 이 파일 어디에도 검증이 없습니다.
   FormRequest 를 만들어 타입힌트로 받고 $request->validated() 를 쓰세요.
 tests:
-  should_match:
+  match:
     - "class UserController extends Controller\n{\n    public function store(Request $request)\n    {\n        return User::create($request->all());\n    }\n}"
-  should_not_match:
+  no_match:
     - "use App\\Http\\Requests\\StoreUserRequest;\n\nclass UserController extends Controller\n{\n    public function store(StoreUserRequest $request)\n    {\n        return User::create($request->validated());\n    }\n}"
     - "class UserController extends Controller\n{\n    public function index()\n    {\n        return User::all();\n    }\n}"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the convention rules on demand -- no hook, no session state.
 
-Same engine as the Stop hook, so a manual run and an automatic one never
+Same pipeline as the Stop hook, so a manual run and an automatic one never
 disagree. Useful before opening a PR, in CI, and for auditing a repo before
 turning the hook on.
 
@@ -12,155 +12,42 @@ turning the hook on.
     python3 scan.py --all                  # 레포 전수조사 (레거시 감사)
     python3 scan.py --json                 # 기계가 읽을 형태
     python3 scan.py --fail-on warn         # CI 종료 코드 기준
+
+Exit codes: 0 pass, 1 findings at or above --fail-on, 2 unable to inspect.
 """
 
 import argparse
 import json
 import os
-import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import (dismiss as dismisslib, engine, gitdiff, lint,  # noqa: E402
-                 rules as rulelib, stack as stacklib)
-from lib.paths import plugin_root, project_dir  # noqa: E402
+from lib import autofix, config as configlib, gitdiff, pipeline, report, semantic  # noqa: E402
+from lib.paths import git_toplevel, project_dir  # noqa: E402
+from lib.scope import ChangeScope, ScopeError  # noqa: E402
 
 RANK = {'error': 0, 'warn': 1, 'info': 2}
-COLOR = {'error': '\033[31m', 'warn': '\033[33m', 'info': '\033[36m'}
-DIM, BOLD, RESET = '\033[2m', '\033[1m', '\033[0m'
+EXIT_PASS, EXIT_FINDINGS, EXIT_UNINSPECTABLE = 0, 1, 2
 
 
-def _plain():
-    global COLOR, DIM, BOLD, RESET
-    COLOR = {k: '' for k in COLOR}
-    DIM = BOLD = RESET = ''
-
-
-def _git(root, args):
-    try:
-        proc = subprocess.run(['git'] + args, cwd=root, capture_output=True,
-                              text=True, errors='replace', timeout=30)
-        return proc.returncode, proc.stdout
-    except (OSError, subprocess.SubprocessError):
-        return 1, ''
-
-
-# ---------------------------------------------------------------- collecting
-
-def _diff_lines(root, diff_args, paths):
-    """{relpath: [(lineno, text)]} from one batched git diff."""
-    return gitdiff.diff_lines(root, paths, diff_args)
-
-
-def _whole(root, paths):
-    result = {}
-    for rel in paths:
-        lines = gitdiff._whole_file(root, rel)
-        if lines:
-            result[rel] = lines
-    return result
-
-
-def gather(root, args, all_rules):
-    """Returns (changed, new_files, label)."""
+def build_scope(root, args, cfg):
     if args.all:
-        globs = set()
-        for rule in all_rules:
-            globs.update(rule.get('files') or [])
-        code, out = _git(root, ['ls-files'])
-        tracked = out.splitlines() if code == 0 else []
-        if globs:
-            tracked = [f for f in tracked if rulelib._match_any(list(globs), f)]
-        # every file is treated as new so absence rules apply -- that is the
-        # point of an audit, and it is opt-in precisely because it is noisy
-        return _whole(root, tracked), set(tracked), '전수조사 (%d개 파일)' % len(tracked)
-
+        return ChangeScope.everything(root)
     if args.files:
-        rels = []
-        for raw in args.files:
-            path = os.path.abspath(raw)
-            rel = os.path.relpath(path, root).replace(os.sep, '/')
-            if not rel.startswith('..'):
-                rels.append(rel)
-        return _whole(root, rels), set(rels), '지정 파일 %d개' % len(rels)
-
+        return ChangeScope.files(root, args.files)
     if args.range:
-        code, out = _git(root, ['diff', '--name-only', args.range])
-        paths = out.splitlines() if code == 0 else []
-        code, out = _git(root, ['diff', '--name-only', '--diff-filter=A', args.range])
-        new = set(out.splitlines()) if code == 0 else set()
-        return _diff_lines(root, [args.range], paths), new, args.range
-
+        return ChangeScope.git_range(root, args.range)
     if args.staged:
-        code, out = _git(root, ['diff', '--cached', '--name-only'])
-        paths = out.splitlines() if code == 0 else []
-        code, out = _git(root, ['diff', '--cached', '--name-only', '--diff-filter=A'])
-        new = set(out.splitlines()) if code == 0 else set()
-        return _diff_lines(root, ['--cached'], paths), new, '스테이지된 변경'
-
-    code, out = _git(root, ['diff', 'HEAD', '--name-only'])
-    paths = out.splitlines() if code == 0 else []
-    fresh = gitdiff.new_files(root)
-    changed = gitdiff.added_lines(root, sorted(set(paths) | fresh),
-                                  gitdiff.resolve_base_ref(root, args.base_ref))
-    return changed, fresh & set(changed), '워킹 트리'
+        return ChangeScope.staged(root)
+    configured = args.base_ref if args.base_ref is not None else cfg['scope']['base_ref']
+    base_ref = gitdiff.resolve_base_ref(root, configured)
+    if configured and configured != 'auto' and not base_ref:
+        raise ScopeError('base ref 를 찾을 수 없습니다: %s' % configured)
+    return ChangeScope.working_tree(root, base_ref)
 
 
-# ---------------------------------------------------------------- reporting
-
-def render(report, show_injection=True):
-    out = []
-    head = report['head']
-    out.append('%sconvention-guard%s  %s' % (BOLD, RESET, head['label']))
-    out.append('%s%s  |  스택: %s  |  검사 대상 %d개 파일%s'
-               % (DIM, head['root'], ', '.join(head['stacks']) or '감지 실패',
-                  head['file_count'], RESET))
-    if head['lint_failures']:
-        out.append('')
-        out.append('%s린터 실패 — 이번 변경 줄에서 확정 위반%s' % (COLOR['error'], RESET))
-        for fail in head['lint_failures']:
-            out.append('  $ %s' % fail['cmd'])
-            for line in fail['output'].split('\n')[:15]:
-                out.append('    %s%s%s' % (DIM, line, RESET))
-            if fail.get('carried'):
-                out.append('    %s(기존 코드에 %d건 더 — 차단 대상 아님)%s'
-                           % (DIM, fail['carried'], RESET))
-    if head.get('lint_notes'):
-        out.append('')
-        out.append('%s린터가 이번 변경 밖에서 찾은 것 (차단하지 않음)%s' % (DIM, RESET))
-        for fail in head['lint_notes']:
-            out.append('  $ %s' % fail['cmd'])
-            for line in fail['output'].split('\n')[:5]:
-                out.append('    %s%s%s' % (DIM, line, RESET))
-    out.append('')
-
-    if not report['findings']:
-        out.append('  지적 사항 없음')
-    for finding in report['findings']:
-        sev = finding['severity']
-        out.append('%s%-5s%s %s  %s%s%s'
-                   % (COLOR[sev], sev, RESET, finding['title'],
-                      DIM, finding['rule_id'], RESET))
-        for loc in finding['locations']:
-            out.append('      %s:%d  %s%s%s'
-                       % (loc['file'], loc['line'], DIM, loc['snippet'], RESET))
-        if show_injection and finding.get('guidance'):
-            for line in finding['guidance'].split('\n'):
-                out.append('      %s→ %s%s' % (DIM, line, RESET))
-        out.append('')
-
-    counts = report['counts']
-    out.append('%s요약%s  error %d / warn %d / info %d   (규칙 %d개 중 %d개 적용)'
-               % (BOLD, RESET, counts['error'], counts['warn'], counts['info'],
-                  report['head']['rules_total'], report['head']['rules_applicable']))
-    if report['head']['semantic']:
-        out.append('%s      정규식으로 판정 불가한 semantic 규칙 %d개는 이 명령으로 검사되지 '
-                   '않습니다%s' % (DIM, report['head']['semantic'], RESET))
-    return '\n'.join(out)
-
-
-def main():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description='컨벤션 규칙을 훅 없이 실행합니다')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--staged', action='store_true', help='스테이지된 변경만')
@@ -169,7 +56,7 @@ def main():
     group.add_argument('--all', action='store_true',
                        help='레포 전수조사. 레거시 감사용이며 결과가 많습니다')
     parser.add_argument('--severity', choices=['error', 'warn', 'info'], default='info',
-                        help='이 강도 이상만 출력 (기본 info)')
+                        help='이 강도 이상만 출력 (종료 코드에는 영향 없음)')
     parser.add_argument('--rule', help='이 규칙 하나만 실행 (id 또는 일부 문자열)')
     parser.add_argument('--no-lint', action='store_true', help='린터 위임 생략')
     parser.add_argument('--json', action='store_true', help='JSON 출력')
@@ -181,93 +68,120 @@ def main():
                         help="비교 기준 ref. 'auto' 면 기본 브랜치와의 merge-base")
     parser.add_argument('--no-dismiss', action='store_true',
                         help='dismissed.yaml 의 기각 기록을 무시하고 전부 봅니다')
+    parser.add_argument('--fix', action='store_true',
+                        help='fix.auto 가 있는 규칙의 자동 수정안을 보여줍니다 (--write 로 적용)')
+    parser.add_argument('--write', action='store_true', help='--fix 의 수정안을 실제로 적용')
+    parser.add_argument('--review', action='store_true',
+                        help='semantic 규칙 후보를 판정 배치로 만들고, 캐시된 VIOLATION 판정을 결과에 포함')
     parser.add_argument('--cwd', help='레포 경로 (기본: 현재 디렉터리)')
-    args = parser.parse_args()
+    return parser.parse_args(argv)
 
-    if args.no_color or args.json or not sys.stdout.isatty():
-        _plain()
 
-    root = project_dir(args.cwd)
-    if not gitdiff.is_repo(root):
-        print('git 레포가 아닙니다: %s' % root, file=sys.stderr)
-        return 2
+def review_semantic(result, cfg):
+    """(extra findings, review info) for --review: cached VIOLATIONs become
+    findings, candidates without a verdict become a batch for the reviewer."""
+    triage = semantic.triage(result, cfg)
+    grouped = {}
+    for rule, cand, _verdict in triage.violations:
+        grouped.setdefault(rule['id'], (rule, []))[1].append(cand)
+    path, items, deferred = semantic.build_batch(result.scope.root, None, triage.pending, cfg,
+                                                 label='scan')
+    info = {'batch': path, 'candidates': len(items), 'deferred': len(deferred),
+            'cached_violations': len(triage.violations), 'cleared': len(triage.cleared)}
+    return list(grouped.values()), info
 
-    repo_cfg = rulelib.load_repo_config(args.cwd) or {}
-    detected = stacklib.detect(plugin_root(), args.cwd, forced=repo_cfg.get('stacks'))
-    all_rules, notes, _ = rulelib.load_all(args.cwd)
-    for level, text in notes:
+
+def main(argv=None):
+    args = parse_args(argv)
+    if args.write and not args.fix:
+        print('--write 는 --fix 와 함께 씁니다', file=sys.stderr)
+        return EXIT_UNINSPECTABLE
+    root = git_toplevel(project_dir(args.cwd))
+    cfg = configlib.load(root)
+    for level, text in cfg.notes:
+        print('[%s] %s' % (level, text), file=sys.stderr)
+
+    try:
+        scope = build_scope(root, args, cfg)
+    except ScopeError as exc:
+        print('검사 불가: %s' % exc, file=sys.stderr)
+        return EXIT_UNINSPECTABLE
+
+    rule_filter = (lambda r: args.rule in r['id']) if args.rule else None
+    result = pipeline.run(scope, cfg, run_lint=not args.no_lint, cap=args.max_hits,
+                          use_dismiss=not args.no_dismiss, rule_filter=rule_filter)
+    for level, text in result.notes:
         if level in ('error', 'warn'):
             print('[%s] %s' % (level, text), file=sys.stderr)
+    load_errors = [t for lv, t in list(cfg.notes) + list(result.notes) if lv == 'error']
+    if args.rule and not result.rules:
+        print('일치하는 규칙 없음: %s' % args.rule, file=sys.stderr)
+        return EXIT_UNINSPECTABLE
 
-    if args.rule:
-        all_rules = [r for r in all_rules if args.rule in r['id']]
-        if not all_rules:
-            print('일치하는 규칙 없음: %s' % args.rule, file=sys.stderr)
-            return 2
+    fixes, fixed = [], []
+    if args.fix and not load_errors:
+        fixes = autofix.plan(root, result.hits)
+        if args.write and fixes:
+            fixed = autofix.apply(root, fixes)
+            # re-check what is left, from a fresh scope: the files changed
+            scope = build_scope(root, args, cfg)
+            result = pipeline.run(scope, cfg, run_lint=not args.no_lint, cap=args.max_hits,
+                                  use_dismiss=not args.no_dismiss, rule_filter=rule_filter)
 
-    args.base_ref = args.base_ref if args.base_ref is not None \
-        else (repo_cfg.get('base_ref') or '')
-    changed, new_files, label = gather(root, args, all_rules)
-    dismissed = frozenset()
-    dismissal_count = 0
-    if not args.no_dismiss:
-        dismissed, entries = dismisslib.load(root)
-        dismissal_count = len(entries)
-    ctx = engine.Context(root, changed, new_files, detected['tags'],
-                         detected['versions'], dismissed)
+    hits, review = list(result.hits), None
+    if args.review and result.semantic_hits:
+        extra, review = review_semantic(result, cfg)
+        hits += extra
 
-    lint_failures, lint_notes = [], []
-    if not args.no_lint and detected['lint'] and changed:
-        lint_failures, lint_notes = lint.split_by_change(
-            lint.run(root, detected['lint'], list(changed)), ctx)
-
-    respect = repo_cfg.get('respect_supersede', True)
-    hits = engine.collect(all_rules, ctx, args.max_hits, respect_supersede=respect)
-
+    counts = {'error': 0, 'warn': 0, 'info': 0}
+    for rule, _ in hits:
+        counts[rule['severity']] = counts.get(rule['severity'], 0) + 1
     threshold = RANK[args.severity]
-    findings, counts = [], {'error': 0, 'warn': 0, 'info': 0}
-    for hit in hits:
-        sev = hit['rule']['severity']
-        counts[sev] = counts.get(sev, 0) + 1
-        if RANK.get(sev, 9) > threshold:
-            continue
-        findings.append({
-            'rule_id': hit['rule']['id'],
-            'title': hit['rule']['title'],
-            'severity': sev,
-            'source': hit['rule']['source'],
-            'guidance': hit['rule']['injection'],
-            'locations': hit['locations'],
-        })
-
-    applicable = [r for r in all_rules
-                  if not r.get('stack') or '*' in r['stack']
-                  or set(r['stack']) & set(detected['tags'])]
-    report = {
+    shown = [h for h in hits if RANK.get(h[0]['severity'], 9) <= threshold]
+    payload = {
         'head': {
             'root': root,
-            'label': label,
-            'stacks': detected['stacks'],
-            'file_count': len(changed),
-            'rules_total': len(all_rules),
-            'rules_applicable': len(applicable),
-            'semantic': len([r for r in applicable if r.get('kind') == 'semantic']),
-            'lint_failures': lint_failures,
-            'lint_notes': lint_notes,
-            'dismissed': dismissal_count,
+            'label': scope.label,
+            'stacks': result.stacks.ids,
+            'file_count': len(scope),
+            'rules_total': len(result.rules),
+            'rules_applicable': len(result.applicable),
+            'semantic': sum(len(c) for _, c in result.semantic_hits),
+            'lint_failures': result.lint_blocking,
+            'lint_notes': result.lint_notes,
+            'dismissed': result.dismissals,
+            'review': review,
+            'fixes': [f.to_dict() for f in (fixed if args.write else fixes)],
+            'fixes_applied': bool(args.write and fixed),
         },
         'counts': counts,
-        'findings': findings,
+        'findings': report.findings(shown),
     }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        color = not (args.no_color or not sys.stdout.isatty())
+        print(report.render_text(payload, report.Palette(color)))
+        if args.fix:
+            if args.write:
+                print('\n자동 수정 %d건을 적용했습니다 (위 결과는 적용 후 남은 것)' % len(fixed))
+            else:
+                print('\n자동 수정 가능 %d건 — 적용하려면 --write 를 붙이세요' % len(fixes))
+            if fixed or fixes:
+                print(autofix.diff(fixed if args.write else fixes))
+        if review and review['batch']:
+            print('\n심층 판정 대기 후보 %d건%s — convention-guard:convention-reviewer 에이전트에게 전달하세요:'
+                  % (review['candidates'],
+                     ' (예산 초과로 %d건 미룸)' % review['deferred'] if review['deferred'] else ''))
+            print('  python3 "%s" show "%s"' % (report.script_path('review.py'), review['batch']))
 
-    print(json.dumps(report, ensure_ascii=False, indent=2) if args.json
-          else render(report))
-
+    if load_errors:
+        return EXIT_UNINSPECTABLE
     if args.fail_on == 'never':
-        return 0
-    limit = RANK[args.fail_on]
-    worst = min([RANK[f['severity']] for f in findings], default=9)
-    return 1 if (lint_failures or worst <= limit) else 0
+        return EXIT_PASS
+    # the exit code judges every finding, not just the ones --severity displayed
+    worst = min([RANK[rule['severity']] for rule, _ in hits], default=9)
+    return EXIT_FINDINGS if (result.lint_blocking or worst <= RANK[args.fail_on]) else EXIT_PASS
 
 
 if __name__ == '__main__':

@@ -1,0 +1,7 @@
+name: php
+description: "PHP 공통: 디버그 출력, 빈 catch"
+# 이 태그 중 하나가 감지되면 presets: auto 에서 켜집니다. 비어 있으면 명시해야 켜집니다.
+stacks: ["php"]
+rules:
+  - core/php-no-debug-output
+  - core/php-no-empty-catch

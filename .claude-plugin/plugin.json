@@ -2,8 +2,8 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "convention-guard",
   "displayName": "Convention Guard",
-  "version": "0.6.0",
-  "description": "루프 완료 시점에 이번 변경분만 검사해 팀 코딩 컨벤션을 피드백합니다. 스택 자동 감지(Laravel·Next·Nest·Go), 공통/로컬 규칙 병합, 훅 없이 수동 실행과 CI 연동 지원.",
+  "version": "1.0.0",
+  "description": "AI 에이전트가 작업을 끝낼 때마다 이번 변경분이 팀 컨벤션을 지켰는지 검사하고, 고친 뒤 다시 검증합니다. 변경 앵커 기반 결정론 탐지, 후보가 있을 때만 서브에이전트에 맡기는 의미 판정, 오탐 기각 기록, 자동 수정, 규칙 건강도 튜닝. Laravel·Next·Nest·Go 규칙 번들, 수동 실행과 CI 지원.",
   "author": {
     "name": "shlee",
     "email": "seunghoonlee0508@gmail.com"
@@ -13,10 +13,11 @@
   "license": "MIT",
   "keywords": [
     "convention",
-    "code-style",
-    "lint",
-    "hooks",
     "code-review",
+    "verification",
+    "hooks",
+    "lint",
+    "semantic-review",
     "psr-12",
     "laravel",
     "nextjs",
@@ -27,19 +28,19 @@
     "report_only": {
       "type": "boolean",
       "title": "기록만 하고 차단 안 함",
-      "description": "켜면 위반을 기록만 하고 작업을 막지 않습니다. 도입 초기 2~3주는 켜두는 걸 권장합니다. (토글 대신 빈 입력창이 뜨면 true 또는 false 를 입력하세요)",
+      "description": "켜면 위반을 기록만 하고 작업을 막지 않습니다 (mode: report). 레포 config 에 mode 가 있으면 그쪽이 우선합니다. 도입 초기 2~3주는 켜두는 걸 권장합니다. (토글 대신 빈 입력창이 뜨면 true 또는 false 를 입력하세요)",
       "default": false
     },
     "semantic_review": {
       "type": "boolean",
-      "title": "심층 판정 (서브에이전트)",
-      "description": "정규식으로 못 잡는 규칙(N+1, 계층 경계)을 서브에이전트가 판단합니다. 매 턴 비용이 붙을 수 있습니다. (토글 대신 빈 입력창이 뜨면 true 또는 false 를 입력하세요)",
+      "title": "의미 판정 (서브에이전트)",
+      "description": "정규식으로 판정할 수 없는 규칙(N+1, 계층 경계)의 후보가 있고 판정 기록이 없을 때만 convention-reviewer 에이전트에게 판정을 맡깁니다. 후보가 없는 턴에는 비용이 없습니다. 레포 config 가 우선합니다. (토글 대신 빈 입력창이 뜨면 true 또는 false 를 입력하세요)",
       "default": false
     },
     "log_dir": {
       "type": "directory",
       "title": "발동 로그 위치",
-      "description": "비워두면 ~/.cache/convention-guard 사용. 레포 경로는 고르지 마세요 — git에 잡힙니다.",
+      "description": "비워두면 플러그인 데이터 디렉터리에 firings.jsonl 을 씁니다. 레포 경로는 고르지 마세요 — git 에 잡힙니다.",
       "required": false
     }
   }

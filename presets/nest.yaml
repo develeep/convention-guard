@@ -1,0 +1,6 @@
+name: nest
+description: "NestJS 컨트롤러 계층 규칙"
+# 이 태그 중 하나가 감지되면 presets: auto 에서 켜집니다. 비어 있으면 명시해야 켜집니다.
+stacks: ["nest"]
+rules:
+  - core/nest-*

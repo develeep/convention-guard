@@ -1,22 +1,41 @@
 id: layer-boundary
 title: 계층 경계 위반
 severity: error
-context_line: 계층을 거슬러 import 하지 마세요 (domain -> infra, controller -> repository 직접 접근 등). 기존 파일의 import 방향을 먼저 보고 맞추세요.
+prevent: 계층을 거슬러 import 하지 마세요 (domain -> infra, controller -> repository 직접 접근 등). 같은 디렉터리의 기존 파일이 import 하는 방향을 먼저 보고 맞추세요.
 applies_to:
-  stack: ["*"]
-  exclude: ["**/vendor/**", "**/node_modules/**", "**/*.test.*", "**/*_test.go"]
-triggers:
-  review_when: '^\s*(import |use |from |require\()'
-review_prompt: |
-  이번 변경에 추가된 import/use 구문이 이 레포의 계층 경계를 넘는지 판단하세요.
-  먼저 레포 구조를 훑어 실제 계층 규칙이 무엇인지 파악한 뒤 판단해야 합니다
-  (예: domain -> infra 금지, controller -> repository 직접 접근 금지,
-   ui -> 서버 전용 모듈 금지). 레포에 그런 계층이 없다면 위반이 아닙니다.
-  기존 코드가 이미 같은 방향으로 import 하고 있다면 이번 변경의 책임이 아니므로
-  보고하지 마세요.
+  stacks: ["*"]
+  files: ["**/*.{php,ts,tsx,js,jsx,mjs,go,py,java,kt}"]
+  exclude:
+    - "**/vendor/**"
+    - "**/node_modules/**"
+    - "**/*.test.*"
+    - "**/*.spec.*"
+    - "**/*_test.go"
+    - "**/tests/**"
+    - "**/migrations/**"
+detect:
+  # 게이트: 인프라·영속 계층을 가리키는 import 가 추가된 줄만 리뷰어에게 넘깁니다.
+  when_line_added: '^\s*(?:import|use|from|require)\b.*\b(?:infra|infrastructure|repositor(?:y|ies)|persistence|database|db|orm|prisma|typeorm|eloquent|models?)\b'
+  flags: i
+semantic_review:
+  context: [imports, snippet, changed_hunks]
+  max_context_lines: 80
+  instruction: |
+    이번 변경이 추가한 import 가 계층 경계를 거스르는지 판단합니다.
+    파일 경로로 이 파일의 계층을 정하고(controller / service / domain / ui 등),
+    import 대상 경로로 가져오는 계층을 정합니다.
+    VIOLATION: 경로만으로 계층이 분명하고, 명백히 안쪽 계층이 바깥 계층을 가져온다.
+      예) domain/ 이 infra/ 를, controller 가 repository 를 직접, ui 컴포넌트가 서버 전용 DB 모듈을.
+    VALID: 계층 구분이 경로에 드러나지 않거나, 같은 계층이거나, 정상 방향이다.
+    레포 전체 구조를 탐색하지 마세요. 경로만으로 판단이 서지 않으면 VALID 입니다.
+message: |
+  계층 경계를 거스르는 import 입니다. 바깥 계층(인프라·영속성)은 서비스나 포트를 통해 쓰세요.
 tests:
-  should_match:
+  match:
     - 'use App\Infrastructure\Redis\Client;'
     - "import { db } from '@/infra/database';"
-  should_not_match:
+    - "import { UserRepository } from '../repositories/user.repository';"
+  no_match:
     - '$x = 1;'
+    - "import { useState } from 'react';"
+    - 'use Illuminate\Http\Request;'
