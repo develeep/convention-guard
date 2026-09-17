@@ -112,7 +112,7 @@ class StopContext:
         statelib.save(self.session, self.state)
 
     def event(self, record):
-        log.event(dict(record, session=self.session))
+        log.event(dict(record, session=self.session, repo=self.root))
 
 
 class Scan:
@@ -258,14 +258,14 @@ def _current(ctx, scan):
 
 
 def _dismissed_predicate(root):
-    keys, _ = dismisslib.load(root)
+    dismissals = dismisslib.load(root)
 
     def is_dismissed(key):
         try:
             rule_id, relpath, digest = parse_key(key)
         except ValueError:
             return False
-        return (rule_id, relpath) in keys or (rule_id, relpath, digest) in keys
+        return dismissals.is_dismissed(rule_id, relpath, digest)
     return is_dismissed
 
 

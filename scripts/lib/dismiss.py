@@ -1,37 +1,62 @@
 """Findings the team looked at and called false positives.
 
-The hook tells the agent "if it is a false positive, do not fix it -- say why".
-That sentence used to go nowhere: the reason lived in the chat and the log kept
-only `fixed: false`, indistinguishable from "the agent ignored us". So the fix
-rate -- the one number the tuning cycle runs on -- conflated two opposite
-things.
+A dismissal is recorded in the repo, next to the rules it is about, and is
+meant to be committed:
 
-A dismissal is recorded in the repo, next to the rules it is about:
-
-    <repo>/.claude/convention-rules/dismissed.yaml
+    <repo>/.claude/convention-guard/dismissed.yaml
 
     dismissed:
-      - rule: core/php-line-too-long
-        file: app/Http/Controllers/OrderController.php
-        hash: 6f1c93ab24            # fingerprint of the dismissed snippet
-        reason: "라라벨 체이닝이라 끊으면 가독성이 더 나빠짐"
-        at: 2026-09-16
+      - rule: "core/php-line-too-long"
+        file: "app/Http/Controllers/OrderController.php"
+        hash: "6f1c93ab24"              # fingerprint of the dismissed code
+        reason: "체이닝을 끊으면 가독성이 더 나빠짐"
+        by: "agent"                      # agent | human
+        at: "2026-09-16"
 
 The fingerprint is of the code, not the line number, so the suppression
 survives edits above it and expires the moment the line itself changes -- a
 rewritten line is a new decision. Omit `hash` to dismiss a rule for a whole
 file.
+
+This file is a team artifact, so it is never rewritten wholesale (comments in
+it are the team's) and never silently ignored: a file that does not parse is
+an error every entry point reports, because treating it as empty would bring
+back every finding the team already declined.
 """
 
-import json
 import os
+import re
 import time
 
-from .candidate import fingerprint  # noqa: F401  (re-exported)
 from .rules import repo_dir
-from .yamlio import read as read_yaml
+from .yamlio import load as yaml_load, scalar
 
 FILENAME = 'dismissed.yaml'
+HEADER = ('# convention-guard: 오탐으로 판단해 넘긴 지적들. 커밋해서 팀과 공유하세요.\n'
+          '# hash 는 넘긴 코드의 지문입니다. 그 코드가 바뀌면 다시 지적됩니다.\n'
+          '# hash 가 없는 항목은 그 파일 전체에서 규칙을 끕니다.\n')
+
+
+class DismissalError(Exception):
+    pass
+
+
+class Dismissals:
+    def __init__(self, keys=frozenset(), entries=(), error=None, path=None):
+        self.keys = keys          # {(rule, file, hash)} and {(rule, file)}
+        self.entries = list(entries)
+        self.error = error
+        self.path = path
+
+    def __len__(self):
+        return len(self.entries)
+
+    def is_dismissed(self, rule_id, relpath, digest):
+        return (rule_id, relpath) in self.keys or (rule_id, relpath, digest) in self.keys
+
+    def has(self, rule_id, relpath, digest=None):
+        return (rule_id, relpath, digest) in self.keys if digest else \
+            (rule_id, relpath) in self.keys
 
 
 def path(root):
@@ -39,23 +64,28 @@ def path(root):
 
 
 def load(root):
-    """Returns (keys, entries).
-
-    keys holds `(rule_id, file, hash)` for exact dismissals and
-    `(rule_id, file)` for file-wide ones, which is what Context matches on.
-    """
     target = path(root)
     if not os.path.isfile(target):
-        return frozenset(), []
+        return Dismissals(path=target)
     try:
-        data = read_yaml(target) or {}
-    except Exception:
-        return frozenset(), []
+        with open(target, 'r', encoding='utf-8') as fh:
+            text = fh.read()
+    except OSError as exc:
+        return Dismissals(error='%s 를 읽을 수 없습니다: %s' % (target, exc), path=target)
+    if not text.strip():
+        return Dismissals(path=target)
+    try:
+        data = yaml_load(text) or {}
+    except Exception as exc:
+        return Dismissals(error='%s 파싱 실패 — 기각 기록을 적용할 수 없습니다: %s'
+                          % (target, exc), path=target)
+    if not isinstance(data, dict):
+        return Dismissals(error='%s: 최상위가 매핑이 아닙니다' % target, path=target)
     entries = data.get('dismissed') or []
     if isinstance(entries, dict):
         entries = [entries]
     keys, kept = set(), []
-    for entry in entries:
+    for entry in entries if isinstance(entries, list) else []:
         if not isinstance(entry, dict):
             continue
         rule_id = str(entry.get('rule') or '').strip()
@@ -63,61 +93,59 @@ def load(root):
         if not rule_id or not relpath:
             continue
         digest = entry.get('hash')
-        if digest:
-            keys.add((rule_id, relpath, str(digest).strip()))
-        else:
-            keys.add((rule_id, relpath))
+        keys.add((rule_id, relpath, str(digest).strip()) if digest else (rule_id, relpath))
         kept.append(entry)
-    return frozenset(keys), kept
+    return Dismissals(frozenset(keys), kept, path=target)
 
 
-def predicate(keys):
-    """is_dismissed(rule_id, relpath, digest) over the keys load() returned."""
-    def is_dismissed(rule_id, relpath, digest):
-        return (rule_id, relpath) in keys or (rule_id, relpath, digest) in keys
-    return is_dismissed
+def predicate(dismissals):
+    """is_dismissed(rule_id, relpath, digest) for the detectors."""
+    return dismissals.is_dismissed
 
 
-def _yaml_line(key, value):
-    # json.dumps produces a double-quoted scalar that both PyYAML and the
-    # bundled parser read back identically, including Korean text and colons.
-    return '%s: %s' % (key, json.dumps(str(value), ensure_ascii=False))
+def add(root, rule_id, relpath, reason, digest=None, snippet=None, line=None, by='human'):
+    """Append one dismissal. Returns False when it is already recorded.
 
-
-def append(root, rule_id, relpath, snippet, reason, line=None):
-    """Add one dismissal. Returns the fingerprint that was written."""
+    Appends rather than rewrites, so the team's comments survive. Refuses to
+    touch a file that does not parse -- appending to it would only bury the
+    problem under more entries.
+    """
+    current = load(root)
+    if current.error:
+        raise DismissalError(current.error)
+    if current.has(rule_id, relpath, digest):
+        return False
     target = path(root)
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    digest = fingerprint(snippet)
-    block = ['  - %s' % _yaml_line('rule', rule_id),
-             '    %s' % _yaml_line('file', relpath),
-             '    %s' % _yaml_line('hash', digest),
-             '    %s' % _yaml_line('reason', reason),
-             '    %s' % _yaml_line('at', time.strftime('%Y-%m-%d'))]
-    if line:
+    existing = ''
+    if os.path.isfile(target):
+        with open(target, 'r', encoding='utf-8', newline='') as fh:
+            existing = fh.read()
+    newline = '\r\n' if '\r\n' in existing else '\n'
+    fields = [('rule', rule_id), ('file', relpath)]
+    if digest:
+        fields.append(('hash', digest))
+    fields += [('reason', reason), ('by', by), ('at', time.strftime('%Y-%m-%d'))]
+    block = ['  - %s: %s' % (fields[0][0], scalar(fields[0][1]))]
+    block += ['    %s: %s' % (key, scalar(value)) for key, value in fields[1:]]
+    if line and snippet:
         block.append('    # %s:%s  %s' % (relpath, line, ' '.join(str(snippet).split())[:100]))
-    exists = os.path.isfile(target)
-    with open(target, 'a', encoding='utf-8') as fh:
-        if not exists:
-            fh.write('# convention-guard: 오탐으로 판단해 넘긴 지적들.\n'
-                     '# hash 는 넘긴 코드의 지문입니다. 그 줄이 바뀌면 다시 지적됩니다.\n'
-                     'dismissed:\n')
-        fh.write('\n'.join(block) + '\n')
-    return digest
 
-
-def append_whole_file(root, rule_id, relpath, reason):
-    """Turn a rule off for one file. No fingerprint, so it does not expire."""
-    target = path(root)
+    prefix = ''
+    if not existing.strip():
+        prefix = HEADER + 'dismissed:\n'
+    else:
+        if not existing.endswith(('\n', '\r\n')):
+            prefix = '\n'
+        if not re.search(r'^dismissed:\s*(#.*)?$', existing.replace('\r\n', '\n'), re.M):
+            prefix += 'dismissed:\n'
+        elif current.entries == [] and 'dismissed: []' in existing:
+            raise DismissalError('%s 의 "dismissed: []" 를 "dismissed:" 로 바꾼 뒤 다시 실행하세요'
+                                 % target)
     os.makedirs(os.path.dirname(target), exist_ok=True)
-    block = ['  - %s' % _yaml_line('rule', rule_id),
-             '    %s' % _yaml_line('file', relpath),
-             '    %s' % _yaml_line('reason', reason),
-             '    %s' % _yaml_line('at', time.strftime('%Y-%m-%d'))]
-    exists = os.path.isfile(target)
-    with open(target, 'a', encoding='utf-8') as fh:
-        if not exists:
-            fh.write('# convention-guard: 오탐으로 판단해 넘긴 지적들.\n'
-                     '# hash 가 있으면 그 코드가 바뀔 때 다시 지적되고, 없으면 파일 전체입니다.\n'
-                     'dismissed:\n')
-        fh.write('\n'.join(block) + '\n')
+    with open(target, 'w' if not existing.strip() else 'a', encoding='utf-8', newline='') as fh:
+        fh.write((prefix + '\n'.join(block) + '\n').replace('\n', newline))
+    after = load(root)
+    if after.error or not after.has(rule_id, relpath, digest):
+        raise DismissalError('%s 에 기록한 뒤 다시 읽지 못했습니다: %s'
+                             % (target, after.error or '항목이 보이지 않음'))
+    return True

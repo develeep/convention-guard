@@ -23,7 +23,7 @@ def collect(root):
     stacks = pipeline.detect_stacks(root, cfg)
     ruleset = pipeline.load_rules(root, cfg, stacks)
     presets, _ = rulelib.load_presets(pipeline.default_plugin_root())
-    _keys, dismissals = dismisslib.load(root)
+    dismissals = dismisslib.load(root)
 
     rows = []
     for rule in ruleset.rules:
@@ -60,7 +60,8 @@ def collect(root):
                                            r[0]['id']))],
         'dismissals': {'path': dismisslib.path(root), 'count': len(dismissals)},
         'notes': [{'level': level, 'text': text}
-                  for level, text in list(cfg.notes) + list(ruleset.notes)],
+                  for level, text in list(cfg.notes) + list(ruleset.notes)
+                  + ([('error', dismissals.error)] if dismissals.error else [])],
     }
 
 

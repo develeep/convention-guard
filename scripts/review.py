@@ -118,7 +118,8 @@ def record(batch, path, answers):
         with open(batch['log'], 'a', encoding='utf-8') as fh:
             for review_key, v in verdicts.items():
                 fh.write(json.dumps({'event': 'verdict', 'schema': 2, 'source': 'reviewer',
-                                     'session': batch.get('session'), 'rule_id': v['rule_id'],
+                                     'session': batch.get('session'), 'repo': batch['repo'],
+                                     'rule_id': v['rule_id'],
                                      'key': v['key'], 'review_key': review_key,
                                      'file': v['file'], 'verdict': v['verdict'],
                                      'reason': v['reason'],

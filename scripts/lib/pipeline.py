@@ -57,9 +57,13 @@ def run(scope, cfg, plugin_root=None, run_lint=True, cap=None, use_dismiss=True,
     is_dismissed = detect._never_dismissed
     dismissals = 0
     if use_dismiss:
-        keys, entries = dismisslib.load(root)
-        is_dismissed = dismisslib.predicate(keys)
-        dismissals = len(entries)
+        recorded = dismisslib.load(root)
+        if recorded.error:
+            # never check as if nothing had been declined: every dismissed
+            # finding would come back and block again
+            ruleset.notes.append(('error', recorded.error))
+        is_dismissed = recorded.is_dismissed
+        dismissals = len(recorded)
 
     lint_blocking, lint_notes, lint_raw = [], [], []
     if run_lint and cfg['linters']['enabled'] and stacks.lint and scope:

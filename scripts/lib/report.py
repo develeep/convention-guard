@@ -14,10 +14,10 @@ def script_path(name):
     return os.path.join(plugin_root(), 'scripts', name).replace(os.sep, '/')
 
 
-def dismiss_hint(rule_id=None, cand=None):
-    return ('python3 "%s" --rule %s --file %s --line %s --reason "<한 줄 이유>"'
-            % (script_path('dismiss.py'), rule_id or '<규칙id>',
-               cand.file if cand else '<파일>', cand.line if cand else '<줄>'))
+def dismiss_hint(key):
+    """The exact command for one candidate: the key pins the code, no re-scan."""
+    return ('python3 "%s" --key %s --by agent --reason "<한 줄 이유>"'
+            % (script_path('dismiss.py'), key))
 
 
 def _lint_block(out, failures, max_lines, header):
@@ -91,7 +91,8 @@ def hook_reason(lint_failures, lint_notes, errors, warns, repeats=frozenset(), r
         out.append('각 항목이 실제 위반인지 코드를 보고 판단하세요. 위반이면 고치세요.')
         out.append('오탐이면 고치지 말고 아래 명령으로 남기세요. 그 코드가 그대로인 동안')
         out.append('다시 지적하지 않고, 로그에는 "기각"으로 기록됩니다.')
-        out.append('  %s' % dismiss_hint(first[0]['id'], first[1][0]))
+        out.append('  %s' % dismiss_hint(first[1][0].key))
+        out.append('  다른 위치는 --key 대신 --rule <규칙id> --file <파일> --line <줄> 로 지정합니다.')
     out.append('처리한 뒤 완료하면 같은 범위를 다시 검사해, 남았거나 수정하면서 새로 생긴 것만 알려드립니다.')
     return clip_reason('\n'.join(out))
 
@@ -125,13 +126,11 @@ def verify_reason(outcome, last_chance, review=None, skipped=False):
     render('■ 수정하면서 새로 생겼습니다', {k: v for k, v in outcome.new.items() if k in blocking})
     if review:
         out += review_section(review, skipped)
-    first = next(iter(blocking.values()), None)
-    if first:
+    first = next((k for k in blocking if not k.startswith('lint:')), None)
+    if blocking:
         out.append('위반이면 고치고, 오탐이면 고치지 말고 기각으로 남기세요.')
-        if first['rule_id'] != 'lint':
-            out.append('  python3 "%s" --rule %s --file %s --line %d --reason "<한 줄 이유>"'
-                       % (script_path('dismiss.py'), first['rule_id'], first['file'],
-                          first['line']))
+    if first:
+        out.append('  %s' % dismiss_hint(first))
     if last_chance:
         out.append('이번이 마지막 재검증입니다. 다음 완료 때는 남은 항목을 기록만 하고 차단하지 않습니다.')
     return clip_reason('\n'.join(out))
