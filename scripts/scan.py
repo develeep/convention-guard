@@ -23,7 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import config as configlib, gitdiff, pipeline, report, semantic  # noqa: E402
+from lib import autofix, config as configlib, gitdiff, pipeline, report, semantic  # noqa: E402
 from lib.paths import git_toplevel, project_dir  # noqa: E402
 from lib.scope import ChangeScope, ScopeError  # noqa: E402
 
@@ -68,6 +68,9 @@ def parse_args(argv=None):
                         help="비교 기준 ref. 'auto' 면 기본 브랜치와의 merge-base")
     parser.add_argument('--no-dismiss', action='store_true',
                         help='dismissed.yaml 의 기각 기록을 무시하고 전부 봅니다')
+    parser.add_argument('--fix', action='store_true',
+                        help='fix.auto 가 있는 규칙의 자동 수정안을 보여줍니다 (--write 로 적용)')
+    parser.add_argument('--write', action='store_true', help='--fix 의 수정안을 실제로 적용')
     parser.add_argument('--review', action='store_true',
                         help='semantic 규칙 후보를 판정 배치로 만들고, 캐시된 VIOLATION 판정을 결과에 포함')
     parser.add_argument('--cwd', help='레포 경로 (기본: 현재 디렉터리)')
@@ -90,6 +93,9 @@ def review_semantic(result, cfg):
 
 def main(argv=None):
     args = parse_args(argv)
+    if args.write and not args.fix:
+        print('--write 는 --fix 와 함께 씁니다', file=sys.stderr)
+        return EXIT_UNINSPECTABLE
     root = git_toplevel(project_dir(args.cwd))
     cfg = configlib.load(root)
     for level, text in cfg.notes:
@@ -111,6 +117,16 @@ def main(argv=None):
     if args.rule and not result.rules:
         print('일치하는 규칙 없음: %s' % args.rule, file=sys.stderr)
         return EXIT_UNINSPECTABLE
+
+    fixes, fixed = [], []
+    if args.fix and not load_errors:
+        fixes = autofix.plan(root, result.hits)
+        if args.write and fixes:
+            fixed = autofix.apply(root, fixes)
+            # re-check what is left, from a fresh scope: the files changed
+            scope = build_scope(root, args, cfg)
+            result = pipeline.run(scope, cfg, run_lint=not args.no_lint, cap=args.max_hits,
+                                  use_dismiss=not args.no_dismiss, rule_filter=rule_filter)
 
     hits, review = list(result.hits), None
     if args.review and result.semantic_hits:
@@ -135,6 +151,8 @@ def main(argv=None):
             'lint_notes': result.lint_notes,
             'dismissed': result.dismissals,
             'review': review,
+            'fixes': [f.to_dict() for f in (fixed if args.write else fixes)],
+            'fixes_applied': bool(args.write and fixed),
         },
         'counts': counts,
         'findings': report.findings(shown),
@@ -144,6 +162,13 @@ def main(argv=None):
     else:
         color = not (args.no_color or not sys.stdout.isatty())
         print(report.render_text(payload, report.Palette(color)))
+        if args.fix:
+            if args.write:
+                print('\n자동 수정 %d건을 적용했습니다 (위 결과는 적용 후 남은 것)' % len(fixed))
+            else:
+                print('\n자동 수정 가능 %d건 — 적용하려면 --write 를 붙이세요' % len(fixes))
+            if fixed or fixes:
+                print(autofix.diff(fixed if args.write else fixes))
         if review and review['batch']:
             print('\n심층 판정 대기 후보 %d건%s — convention-reviewer 에이전트에게 전달하세요:'
                   % (review['candidates'],

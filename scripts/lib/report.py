@@ -137,6 +137,14 @@ def verify_reason(outcome, last_chance, review=None, skipped=False):
     return clip_reason('\n'.join(out))
 
 
+def autofix_section(fixes):
+    out = ['■ 자동 수정 %d건 — 아래 줄을 규칙대로 고쳤습니다. 이 파일들은 편집 전에 다시 읽으세요.'
+           % len(fixes)]
+    for fix in fixes:
+        out.append('  %s:%d  [%s]  %s' % (fix.file, fix.line, fix.rule_id, fix.after.strip()))
+    return '\n'.join(out) + '\n\n'
+
+
 def clip_reason(text):
     if len(text) > REASON_LIMIT:
         text = text[:REASON_LIMIT] + '\n… (이하 생략 — 위 항목부터 처리하세요)'

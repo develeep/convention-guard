@@ -10,6 +10,11 @@ detect:
   when_line_added: '\(\s+(int|integer|float|double|string|bool|boolean|array|object)\s*\)|\((int|integer|float|double|string|bool|boolean|array|object)\s+\)'
 message: |
   캐스트 괄호 안에는 공백이 없어야 합니다. 예) $intValue = (int) $input;
+fix:
+  # 포맷터가 없는 레포에서 mode: auto-fix 일 때 추가된 줄에만 적용됩니다
+  auto:
+    replace: '\(\s*(int|integer|float|double|string|bool|boolean|array|object)\s*\)'
+    with: '(\1)'
 tests:
   match:
     - '$intValue = ( int )$input;'

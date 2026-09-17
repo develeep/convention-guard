@@ -10,6 +10,11 @@ detect:
   when_line_added: '^\s*var\s+\$'
 message: |
   var 대신 가시성(private/protected/public)을 명시하세요. 모든 프로퍼티에 필요합니다.
+fix:
+  # 포맷터가 없는 레포에서 mode: auto-fix 일 때 추가된 줄에만 적용됩니다
+  auto:
+    replace: '^(\s*)var(\s+\$)'
+    with: '\1public\2'
 tests:
   match:
     - '    var $name;'

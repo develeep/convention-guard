@@ -21,8 +21,8 @@ subagent. No candidates, no AI call.
 
 import os
 
-from . import (config as configlib, cycle as cyclelib, dismiss as dismisslib, gitdiff, log,
-               pipeline, report, semantic, state as statelib)
+from . import (autofix, config as configlib, cycle as cyclelib, dismiss as dismisslib, gitdiff,
+               log, pipeline, report, semantic, state as statelib)
 from .candidate import VIOLATION, parse_key
 from .paths import git_toplevel, hook_project_dir
 from .scope import ChangeScope, ScopeError
@@ -102,6 +102,7 @@ class StopContext:
         self.continuing = bool(payload.get('stop_hook_active'))
         self.cfg = configlib.load(self.root)
         self.state = statelib.load(self.session)
+        self.autofixed = []
 
     @property
     def semantic_on(self):
@@ -130,6 +131,25 @@ def on_stop(payload):
     if not isinstance(payload, dict):
         return None
     ctx = StopContext(payload)
+    return _with_autofix_note(ctx, _stop(ctx))
+
+
+def _with_autofix_note(ctx, out):
+    """Files auto-fix rewrote changed under the agent; it must hear about it."""
+    if not ctx.autofixed:
+        return out
+    files = sorted({fix.file for fix in ctx.autofixed})
+    note = ('convention-guard: 자동 수정 %d건 (%s) — 해당 파일은 편집 전에 다시 읽으세요'
+            % (len(ctx.autofixed), ', '.join(files)))
+    if out and out.get('decision') == 'block':
+        out['reason'] = report.autofix_section(ctx.autofixed) + out['reason']
+        out['systemMessage'] = note
+        return out
+    return notice(note if not out else '%s / %s' % (out.get('systemMessage', ''), note))
+
+
+def _stop(ctx):
+    payload = ctx.payload
     errors = [text for level, text in ctx.cfg.notes if level == 'error']
     if errors:
         return config_error(errors[0])
@@ -194,6 +214,15 @@ def _scan(ctx):
     if not scope:
         return None
     result = pipeline.run(scope, ctx.cfg, cap=VERIFY_CAP)
+    if ctx.cfg['mode'] == 'auto-fix' and not result.errors and not ctx.autofixed:
+        applied = autofix.apply(ctx.root, autofix.plan(ctx.root, result.hits))
+        if applied:
+            for fix in applied:
+                ctx.event(dict(fix.to_dict(), event='autofix'))
+            ctx.autofixed = applied
+            # the scope caches file text and diffs; the files just changed
+            scope = ChangeScope.from_touched(scope.root, touched, scope.base_ref)
+            result = pipeline.run(scope, ctx.cfg, cap=VERIFY_CAP)
     triage = None
     if ctx.semantic_on and not result.errors and result.semantic_hits:
         triage = semantic.triage(result, ctx.cfg, quiet=lambda rule: _quiet(ctx, rule))

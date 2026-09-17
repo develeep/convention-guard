@@ -23,11 +23,12 @@ class ScopeError(Exception):
 
 
 class ChangeScope:
-    def __init__(self, root, changed, new_files, label):
+    def __init__(self, root, changed, new_files, label, base_ref=None):
         self.root = root
         self.changed = changed              # {relpath: [(lineno, added text)]}
         self.new_files = set(new_files)     # judged as "whole file is new"
         self.label = label
+        self.base_ref = base_ref
         self._text = {}
 
     # -- queries used by detectors and linters
@@ -64,7 +65,7 @@ class ChangeScope:
     def from_touched(cls, root, touched, base_ref=None):
         _require_repo(root)
         changed = gitdiff.added_lines(root, touched, base_ref)
-        return cls(root, changed, gitdiff.new_files(root) & set(changed), '이번 작업')
+        return cls(root, changed, gitdiff.new_files(root) & set(changed), '이번 작업', base_ref)
 
     @classmethod
     def working_tree(cls, root, base_ref=None):

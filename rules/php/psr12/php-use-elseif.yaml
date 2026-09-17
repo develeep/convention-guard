@@ -10,6 +10,11 @@ detect:
   when_line_added: '\belse\s+if\s*\('
 message: |
   제어 키워드가 모두 한 단어로 보이도록 elseif 를 씁니다.
+fix:
+  # 포맷터가 없는 레포에서 mode: auto-fix 일 때 추가된 줄에만 적용됩니다
+  auto:
+    replace: '\belse\s+if\s*\('
+    with: 'elseif ('
 tests:
   match:
     - '} else if ($a > $b) {'

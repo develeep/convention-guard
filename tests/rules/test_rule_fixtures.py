@@ -124,6 +124,21 @@ def main():
             if hit(sample):
                 failures.append('%s: 걸리면 안 되는데 걸림 (오탐) — %r' % (rel, sample))
 
+        fix = rule.get('fix')
+        if fix:
+            # an auto-fix must resolve every violation it is shown, and leave
+            # already-correct code byte for byte alone
+            for sample in should:
+                after = fix['compiled'].sub(fix['with'], sample)
+                checked += 1
+                if after == sample or hit(after):
+                    failures.append('%s: fix.auto 가 위반을 고치지 못함 — %r -> %r'
+                                    % (rel, sample, after))
+            for sample in shouldnt:
+                checked += 1
+                if fix['compiled'].sub(fix['with'], sample) != sample:
+                    failures.append('%s: fix.auto 가 정상 코드를 바꿈 — %r' % (rel, sample))
+
     for note in warnings:
         print('WARN %s' % note)
     for note in failures:

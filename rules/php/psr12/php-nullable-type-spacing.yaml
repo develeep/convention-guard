@@ -10,6 +10,11 @@ detect:
   when_line_added: '[(,:]\s*\?\s+[A-Za-z_\\]'
 message: |
   ? 와 타입 사이에 공백을 두지 않습니다. 예) ?string $arg1, ?int &$arg2): ?string
+fix:
+  # 포맷터가 없는 레포에서 mode: auto-fix 일 때 추가된 줄에만 적용됩니다
+  auto:
+    replace: '([(,:]\s*)\?\s+(?=[A-Za-z_\\])'
+    with: '\1?'
 tests:
   match:
     - '    public function f(? string $arg1): ? string'
