@@ -14,7 +14,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import config as configlib, dismiss as dismisslib, pipeline, rules as rulelib  # noqa: E402
+from lib import (config as configlib, dismiss as dismisslib, lint, pipeline,  # noqa: E402
+                 rules as rulelib)
 from lib.paths import git_toplevel, project_dir  # noqa: E402
 
 
@@ -45,7 +46,8 @@ def collect(root):
         'tags': sorted(stacks.tags),
         'versions': stacks.versions,
         'linters': [{'cmd': e['cmd'] if isinstance(e['cmd'], str) else ' '.join(e['cmd']),
-                     'parse': e.get('parse')} for e in stacks.lint],
+                     'parse': e.get('parse'), 'installed': lint.binary_present(root, e)}
+                    for e in stacks.lint],
         'presets': [{'name': name, 'active': name in ruleset.presets,
                      'description': presets[name].description}
                     for name in sorted(presets)],
@@ -74,9 +76,13 @@ def render(info):
            'versions    : %s' % (info['versions'] or '-'),
            'dismissed   : %d건 (%s)' % (info['dismissals']['count'], info['dismissals']['path'])]
     for linter in info['linters']:
-        out.append('linter      : %-56s %s' % (
-            linter['cmd'], '[parse: %s → 변경 줄만 차단]' % linter['parse'] if linter['parse']
-            else '[출력 파싱 불가 → 전체 출력으로 차단]'))
+        if not linter['installed']:
+            status = '[설치 안 됨 — 건너뜀]'
+        elif linter['parse']:
+            status = '[parse: %s → 변경 줄만 차단]' % linter['parse']
+        else:
+            status = '[출력 파싱 불가 → 전체 출력으로 차단]'
+        out.append('linter      : %-56s %s' % (linter['cmd'], status))
     if not info['linters']:
         out.append('linter      : -')
     out.append('presets     : %s' % '  '.join(

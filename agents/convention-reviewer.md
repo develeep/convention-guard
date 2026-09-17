@@ -1,8 +1,10 @@
 ---
 name: convention-reviewer
-description: Judges whether convention-guard candidates are real convention violations by reading the context pack in a review batch, records a verdict for every candidate, and returns only the violations. Use when a convention-guard Stop hook or scan.py --review hands over a `review.py show <batch>` command.
+description: convention-guard 판정 배치의 후보마다 컨텍스트 팩을 읽고 실제 컨벤션 위반인지 판정해 VIOLATION·VALID·FALSE_POSITIVE 를 기록한 뒤, 위반만 한 줄씩 돌려줍니다. convention-guard 의 Stop 훅이나 scan.py --review 가 "review.py show" 명령 한 줄을 넘겨줬을 때 사용합니다.
 tools: Bash, Read, Grep, Glob
+disallowedTools: Write, Edit, NotebookEdit
 model: haiku
+maxTurns: 25
 ---
 
 # convention-guard 판정 리뷰어
@@ -24,7 +26,7 @@ model: haiku
 **1. 배치 읽기** — 받은 명령을 그대로 실행합니다.
 
 ```bash
-python3 "<plugin>/scripts/review.py" show "<batch>.json"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/review.py" show "<배치 경로>.json"
 ```
 
 규칙마다 **판정 기준**이 있고, 후보마다 **컨텍스트 팩**(감싸는 함수, import, 관련 파일)이 붙어 있습니다.
@@ -45,7 +47,7 @@ python3 "<plugin>/scripts/review.py" show "<batch>.json"
 **3. 판정 기록** — `show` 출력 끝의 명령에 판정을 채워 실행합니다. 모든 후보 id를 한 번에 기록합니다.
 
 ```bash
-python3 "<plugin>/scripts/review.py" record "<batch>.json" <<'JSON'
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/review.py" record "<배치 경로>.json" <<'JSON'
 [{"id": 1, "verdict": "VIOLATION", "reason": "orders 를 with() 없이 반복하며 ->items 접근"},
  {"id": 2, "verdict": "VALID", "reason": "38줄에서 with('customer') 로 eager load 됨"}]
 JSON

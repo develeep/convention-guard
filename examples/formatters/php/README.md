@@ -28,15 +28,15 @@ $finder = PhpCsFixer\Finder::create()
 
 return (new PhpCsFixer\Config())
     ->setRiskyAllowed(true)
-    ->setRules(json_decode(file_get_contents(__DIR__ . '/pint-rules.json'), true))
+    ->setRules(json_decode(file_get_contents(__DIR__ . '/pint.json'), true)['rules'])
     ->setFinder($finder);
 ```
 
-## 이 파일을 넣으면 규칙 8개가 자동으로 물러납니다
+## 이 파일을 넣으면 포맷 규칙 9개가 자동으로 물러납니다
 
 `pint.json` / `.php-cs-fixer.php` / `.php-cs-fixer.dist.php` 중 하나가 레포에 있으면
 `superseded_by` 가 걸린 포맷 규칙들이 스스로 비활성화됩니다.
-`check.py --explain` 에 `superseded by pint.json` 으로 표시됩니다.
+`scripts/detect_stack.py` 에 `superseded by pint.json` 으로 표시됩니다.
 
 `declare_strict_types` 는 risky 규칙입니다. 기존 코드가 많은 레포에서는
 한 번에 켜지 말고 디렉터리 단위로 적용한 뒤 테스트를 돌리세요.

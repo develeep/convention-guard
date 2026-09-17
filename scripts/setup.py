@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Set a repo up for convention-guard and keep its instruction layer current.
 
+    python3 setup.py init --stdout        # 이 레포에 맞춘 config.yaml 초안 미리보기
+    python3 setup.py init                 # .claude/convention-guard/config.yaml 생성
     python3 setup.py emit                 # .claude/rules/convention-*.md (경로 스코핑)
     python3 setup.py emit --agents-md     # AGENTS.md 관리 블록 + CLAUDE.md 에 @AGENTS.md
     python3 setup.py emit --claude-md     # CLAUDE.md 관리 블록
@@ -23,7 +25,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import config as configlib, pipeline, rules as rulelib  # noqa: E402
+from lib import config as configlib, lint, pipeline, rules as rulelib  # noqa: E402
 from lib.paths import git_toplevel, project_dir  # noqa: E402
 
 BEGIN = '<!-- convention-guard:begin 자동 생성 — 규칙을 고친 뒤 setup.py emit 으로 재생성하세요 -->'
@@ -229,9 +231,97 @@ def _remove_stale(outdir, keep):
     return removed
 
 
+# Directories that are almost always generated or frozen. Only the ones that
+# exist are suggested, and only as comments: excluding code is a team call.
+EXCLUDE_HINTS = ['legacy', 'app/Legacy', 'generated', 'gen', 'dist', 'build', 'storage',
+                 'bootstrap/cache', 'public/build', '.next', 'coverage']
+FORMATTER_MARKERS = ['pint.json', '.php-cs-fixer.php', '.php-cs-fixer.dist.php', 'biome.json',
+                     '.prettierrc', '.eslintrc', '.eslintrc.js', '.eslintrc.json',
+                     'eslint.config.js', 'eslint.config.mjs', '.golangci.yml', '.golangci.yaml']
+
+
+def draft_config(root):
+    """A commented starting config for this repo, based on what is detected."""
+    cfg = configlib.load(root)
+    stacks = pipeline.detect_stacks(root, cfg)
+    ruleset = pipeline.load_rules(root, dict(cfg, presets='auto'), stacks)
+    in_play = [r for r in ruleset.rules if rulelib.stack_ok(r, stacks.tags, stacks.versions)]
+    superseded = sorted(r['id'] for r in in_play if rulelib.superseded(r, root))
+    formatters = [m for m in FORMATTER_MARKERS if os.path.exists(os.path.join(root, m))]
+    linters = [(' '.join(e['cmd']) if isinstance(e['cmd'], list) else e['cmd'], e.get('parse'))
+               for e in stacks.lint if lint.binary_present(root, e)]
+    hints = [d for d in EXCLUDE_HINTS if os.path.isdir(os.path.join(root, d))]
+
+    out = ['# convention-guard 팀 설정 — setup.py init 이 만든 초안입니다.',
+           '# 플러그인 기본값과 다른 키만 남기세요. 전체 키: docs/configuration.md',
+           '#',
+           '# 감지된 스택   : %s' % (', '.join(stacks.ids) or '(없음 — stacks 로 지정하세요)'),
+           '# auto 프리셋   : %s' % (', '.join(ruleset.presets) or '-'),
+           '# 적용 규칙     : %d개' % len(in_play)]
+    for cmd, parse in linters:
+        out.append('# 린터         : %s%s' % (cmd, '' if parse else '  ← parse 없음: 출력 전체로 차단'))
+    if formatters:
+        out.append('# 포맷터 설정  : %s (포맷 규칙 %d개가 물러남)' % (', '.join(formatters),
+                                                                  len(superseded)))
+    elif any(t in stacks.tags for t in ('php', 'js', 'go')):
+        out.append('# 포맷터 설정  : 없음 — examples/formatters 의 설정을 먼저 들이는 편이 낫습니다')
+    out += ['',
+            '# 도입 첫 2~3주는 report 로 기록만 쌓고, log_report.py 로 확인한 뒤 fix 로 올리세요.',
+            'mode: report',
+            '',
+            '# 구조·성능 규칙(의미 판정)까지 켜려면: [auto, architecture, performance]',
+            'presets: auto',
+            '']
+    if not stacks.ids:
+        out += ['# 감지 실패 — 이 레포의 스택을 직접 지정하세요. 예) [laravel]', 'stacks: []', '']
+    out += ['# 끌 규칙 — 끄기 전에 severity 나 exclude 로 해결되는지 먼저 보고, 끄면 이유를 남기세요',
+            'disable: []',
+            '',
+            '# 강도 조정. 예) core/php-line-too-long: warn',
+            'severity: {}',
+            '']
+    out.append('# 검사하지 않을 경로. 예) ["legacy/**"]')
+    if hints:
+        out.append('# 이 레포에 있는 생성·레거시 후보: %s — 확인 후 필요한 것만 넣으세요'
+                   % ', '.join('"%s/**"' % d for d in hints))
+    out += ['exclude: []',
+            '',
+            'semantic_review:',
+            '  enabled: false          # 켜면 후보가 있을 때만 convention-reviewer 에이전트가 판정',
+            '']
+    return '\n'.join(out)
+
+
+def init(args):
+    root = git_toplevel(project_dir(args.cwd))
+    if rulelib.legacy_layout(root):
+        print('%s 가 있습니다 — 새로 만들지 말고 scripts/migrate.py 로 옮기세요'
+              % rulelib.LEGACY_DIRNAME, file=sys.stderr)
+        return 2
+    target = os.path.join(rulelib.repo_dir(root), 'config.yaml')
+    text = draft_config(root)
+    if args.stdout:
+        print(text)
+        return 0
+    if os.path.exists(target) and not args.force:
+        print('이미 있습니다: %s  (덮어쓰려면 --force, 미리보기는 --stdout)' % target,
+              file=sys.stderr)
+        return 1
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, 'w', encoding='utf-8') as fh:
+        fh.write(text)
+    print('썼습니다: %s' % os.path.relpath(target, root))
+    print('다음: detect_stack.py 로 적용 규칙을 확인하고, scan.py 로 최근 변경분을 측정하세요.')
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description='convention-guard 레포 설정 도구')
     sub = parser.add_subparsers(dest='command')
+    p_init = sub.add_parser('init', help='이 레포에 맞춘 config.yaml 초안을 만듭니다')
+    p_init.add_argument('--stdout', action='store_true', help='쓰지 않고 출력만')
+    p_init.add_argument('--force', action='store_true', help='기존 config.yaml 을 덮어씁니다')
+    p_init.add_argument('--cwd')
     p_emit = sub.add_parser('emit', help='prevent 규칙을 에이전트 컨텍스트 문서로 내보냅니다')
     p_emit.add_argument('--out', default='.claude/rules', help='규칙 파일 디렉터리')
     target = p_emit.add_mutually_exclusive_group()
@@ -244,6 +334,8 @@ def main():
                         help='prevent 가 없는 error 규칙도 제목으로 포함')
     p_emit.add_argument('--cwd')
     args = parser.parse_args()
+    if args.command == 'init':
+        return init(args)
     if args.command == 'emit':
         return emit(args)
     parser.print_help()

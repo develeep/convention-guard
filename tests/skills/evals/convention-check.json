@@ -1,0 +1,33 @@
+[
+  {
+    "skills": ["convention-check"],
+    "query": "PR 올리기 전에 이 브랜치 컨벤션 검사해줘",
+    "files": ["fixture: main 에서 분기한 feature 브랜치, next.js 레포, app/page.tsx 에 console.log 와 공개가 목적인 NEXT_PUBLIC_MAPBOX_TOKEN"],
+    "expected_behavior": [
+      "scan.py --range origin/main..HEAD (또는 main..HEAD) 로 브랜치 변경분만 검사한다",
+      "출력을 그대로 붙여넣지 않고 각 위치를 Read 로 열어 위반인지 판단한다",
+      "공개 토큰 지적은 오탐으로 판단해 dismiss.py 로 --reason 과 --by agent 를 붙여 기록하고, console.log 는 위반으로 보고한다",
+      "고치라는 요청이 없으므로 코드를 수정하지 않는다"
+    ]
+  },
+  {
+    "skills": ["convention-check"],
+    "query": "지금 바뀐 거 검사하고 걸리는 거 고쳐줘",
+    "files": ["fixture: pint.json 없는 PHP 레포, 새 파일에 ( int )$x 캐스트 공백과 dd($x)"],
+    "expected_behavior": [
+      "워킹 트리 기본 범위로 scan.py 를 실행한다",
+      "scan.py --fix 로 자동 수정 가능한 항목을 먼저 보여주고 --fix --write 로 적용한다",
+      "dd() 는 직접 제거한 뒤 같은 범위로 다시 검사해 남은 것과 새로 생긴 것이 없는지 확인한다"
+    ]
+  },
+  {
+    "skills": ["convention-check"],
+    "query": "N+1 같은 것도 같이 봐줘",
+    "files": ["fixture: semantic_review.enabled, 컨트롤러 index() 에 eager load 없이 foreach 안에서 $order->items 접근"],
+    "expected_behavior": [
+      "직접 파일을 읽어 N+1 을 판정하지 않고 scan.py --review 로 판정 배치를 만든다",
+      "출력된 review.py show 명령 한 줄을 convention-guard:convention-reviewer 에이전트에게 전달한다",
+      "에이전트가 돌려준 VIOLATION 만 규칙·위치·이유로 보고한다"
+    ]
+  }
+]

@@ -41,8 +41,8 @@ def review_section(review, skipped=False):
            % (len(review['items']), ', '.join('%s %d' % kv for kv in sorted(counts.items())))]
     if skipped:
         out.append('  지난번 판정 요청이 실행되지 않았습니다. 이번에는 꼭 판정을 맡기세요.')
-    out += ['  정규식만으로는 위반인지 알 수 없는 후보입니다. convention-guard 플러그인의',
-            '  convention-reviewer 에이전트에게 아래 명령 한 줄을 그대로 전달해 판정을 맡기세요:',
+    out += ['  정규식만으로는 위반인지 알 수 없는 후보입니다. convention-guard:convention-reviewer',
+            '  에이전트에게 아래 명령 한 줄을 그대로 전달해 판정을 맡기세요:',
             '    python3 "%s" show "%s"' % (script_path('review.py'),
                                            review['batch'].replace(os.sep, '/')),
             '  에이전트가 돌려준 VIOLATION 만 고치세요. 후보 파일을 직접 다시 판정할 필요는 없습니다.']

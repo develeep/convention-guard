@@ -1,6 +1,6 @@
 {
   "name": "develeep-convention-guard",
-  "description": "코딩 컨벤션을 자동 검사하는 convention-guard 플러그인",
+  "description": "AI 코딩 에이전트의 작업을 팀 컨벤션으로 검증하는 convention-guard 플러그인",
   "owner": {
     "name": "shlee",
     "email": "seunghoonlee0508@gmail.com"
@@ -9,13 +9,15 @@
     {
       "name": "convention-guard",
       "source": "./",
-      "description": "루프 완료 시점에 이번 변경분만 검사해 팀 코딩 컨벤션을 피드백합니다. Laravel·Next·Nest·Go 스택 자동 감지.",
+      "version": "1.0.0",
+      "description": "작업이 끝날 때마다 이번 변경분을 팀 컨벤션으로 검사하고, 고친 뒤 다시 검증합니다. 후보가 있을 때만 서브에이전트가 의미 판정. Laravel·Next·Nest·Go.",
       "author": {
         "name": "shlee"
       },
       "keywords": [
         "convention",
-        "code-style",
+        "code-review",
+        "verification",
         "lint",
         "psr-12"
       ],

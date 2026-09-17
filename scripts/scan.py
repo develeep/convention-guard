@@ -170,7 +170,7 @@ def main(argv=None):
             if fixed or fixes:
                 print(autofix.diff(fixed if args.write else fixes))
         if review and review['batch']:
-            print('\n심층 판정 대기 후보 %d건%s — convention-reviewer 에이전트에게 전달하세요:'
+            print('\n심층 판정 대기 후보 %d건%s — convention-guard:convention-reviewer 에이전트에게 전달하세요:'
                   % (review['candidates'],
                      ' (예산 초과로 %d건 미룸)' % review['deferred'] if review['deferred'] else ''))
             print('  python3 "%s" show "%s"' % (report.script_path('review.py'), review['batch']))

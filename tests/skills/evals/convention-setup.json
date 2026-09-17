@@ -1,0 +1,33 @@
+[
+  {
+    "skills": ["convention-setup"],
+    "query": "이 라라벨 레포에 convention-guard 세팅해줘",
+    "files": ["fixture: tests/helpers/fixtures.py laravel_repo + app/Legacy 디렉터리에 dd() 30개 커밋"],
+    "expected_behavior": [
+      "detect_stack.py 로 감지 결과를 먼저 확인하고 laravel, php 스택을 보고한다",
+      "setup.py init 으로 mode: report 초안을 쓰고, 추측이 아니라 scan.py --range / --all 측정 결과로 설정을 조정한다",
+      "지적이 app/Legacy 에 몰린 것을 레거시 신호로 보고 규칙을 끄지 않고 exclude 에 경로를 넣는다",
+      "setup.py emit 미리보기를 보여준 뒤 예방 규칙을 내보내고, 스택·조정 내용·남는 지적 수를 보고 템플릿대로 요약한다"
+    ]
+  },
+  {
+    "skills": ["convention-setup"],
+    "query": "convention-guard 업데이트했는데 설정 오류가 난대. 고쳐줘",
+    "files": ["fixture: .claude/convention-rules/config.yaml (0.x, max_rules·block_level·주석 포함) + rules/ 로컬 규칙 1개"],
+    "expected_behavior": [
+      "새 config 를 만들지 않고 migrate.py 미리보기부터 실행한다",
+      "migrate.py --write 후 detect_stack.py 노트에 error 가 없는지 확인한다",
+      "원본 config 의 주석이 보존됐는지와 로컬 규칙이 계속 적용되는지 보고한다"
+    ]
+  },
+  {
+    "skills": ["convention-setup"],
+    "query": "컨벤션 검사가 너무 많이 걸려서 일을 못 하겠어. 설정 좀 다시 잡아줘",
+    "files": ["fixture: pint.json 없는 PHP 레포, 최근 커밋에 php-control-structure-spacing 수십 건"],
+    "expected_behavior": [
+      "scan.py --range HEAD~20..HEAD 로 규칙별 건수를 측정해 가장 많이 걸리는 규칙을 찾는다",
+      "포맷 규칙이 대부분이면 규칙을 끄기보다 examples/formatters 의 포맷터 설정 도입을 권고한다",
+      "disable 대신 severity 나 exclude 를 먼저 쓰고, 조정 전후 남는 지적 수를 비교해 보고한다"
+    ]
+  }
+]

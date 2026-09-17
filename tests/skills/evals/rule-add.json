@@ -1,0 +1,33 @@
+[
+  {
+    "skills": ["rule-add"],
+    "query": "리뷰 때마다 '슬랙은 NotificationService 로 보내세요'라고 달아. 규칙으로 만들어줘",
+    "files": ["fixture: laravel 레포, app/Services/NotificationService.php 안에만 Http::post(hooks.slack.com) 가 있고 app/Jobs 에 직접 호출 2곳"],
+    "expected_behavior": [
+      "이 레포 전용이므로 .claude/convention-guard/rules/ 에 warn 강도로 만든다",
+      "Grep 으로 직접 호출과 NotificationService 사용 사례를 둘 다 찾고, NotificationService.php 를 applies_to.exclude 로 뺀다",
+      "when_line_added 앵커를 고르고 match 와 헷갈리는 정상 코드를 no_match 에 넣는다",
+      "test_rule_fixtures.py --repo 와 scan.py --all --rule 로 검증한 뒤 걸린 위치 일부를 열어 실제 위반인지 확인하고 보고한다"
+    ]
+  },
+  {
+    "skills": ["rule-add"],
+    "query": "마이그레이션 파일 만들 때 down() 빠뜨리지 않게 해줘",
+    "files": ["fixture: laravel 레포, core/laravel-migration-needs-down 가 이미 적용 중"],
+    "expected_behavior": [
+      "detect_stack.py 로 같은 검사를 하는 core 규칙이 이미 있는지 확인한다",
+      "새 규칙을 만들지 않고 이미 적용 중임을 알린다 (강도 조정이 필요하면 override 나 config severity 를 제안)"
+    ]
+  },
+  {
+    "skills": ["rule-add"],
+    "query": "서비스 클래스에서 response() 로 HTTP 응답 만드는 거 막고 싶어. 근데 가끔 응답 객체를 그냥 전달만 하는 경우도 있어",
+    "files": ["fixture: laravel 레포, app/Services 에 response()->json 을 반환하는 곳 1곳과 Response 를 인자로 받아 전달만 하는 곳 1곳"],
+    "expected_behavior": [
+      "줄 하나로는 '만듦'과 '전달'을 가를 수 없음을 설명하고 semantic_review 규칙으로 만든다",
+      "게이트를 app/Services 의 response()/Response:: 줄로 좁히고 context 에 current_function 과 imports 를 둔다",
+      "instruction 에 VIOLATION/VALID 조건을 한 문장씩 쓰고 '판단할 수 없으면 VALID'를 넣는다",
+      "fixtures 는 게이트만 검사한다는 점을 알고 검증한다"
+    ]
+  }
+]
