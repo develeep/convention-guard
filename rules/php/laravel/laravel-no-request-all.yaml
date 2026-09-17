@@ -2,16 +2,16 @@ id: laravel-no-request-all
 title: 검증 없는 $request->all() 금지
 severity: warn
 applies_to:
-  stack: [laravel]
+  stacks: [laravel]
   files: ["app/**/*.php"]
   exclude: ["**/vendor/**"]
-triggers:
-  code_regex: '\$request->all\s*\(\s*\)'
-context_injection: |
+detect:
+  when_line_added: '\$request->all\s*\(\s*\)'
+message: |
   검증되지 않은 입력을 통째로 넘기면 mass assignment 위험이 있습니다.
   FormRequest 를 만들고 $request->validated() 를 쓰세요.
 tests:
-  should_match:
+  match:
     - 'User::create($request->all());'
-  should_not_match:
+  no_match:
     - 'User::create($request->validated());'

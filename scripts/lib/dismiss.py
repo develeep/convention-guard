@@ -28,14 +28,14 @@ import os
 import time
 
 from .candidate import fingerprint  # noqa: F401  (re-exported)
-from .rules import LOCAL_DIRNAME
+from .rules import repo_dir
 from .yamlio import read as read_yaml
 
 FILENAME = 'dismissed.yaml'
 
 
 def path(root):
-    return os.path.join(root, LOCAL_DIRNAME, FILENAME)
+    return os.path.join(repo_dir(root), FILENAME)
 
 
 def load(root):

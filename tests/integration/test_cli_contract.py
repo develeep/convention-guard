@@ -88,7 +88,7 @@ def case_dismiss_is_exact(tmp):
                        env=env, cwd=repo)
     check('a --line that does not match is refused', wrong.returncode == 1, wrong.stdout)
     check('and nothing is written',
-          not os.path.exists(os.path.join(repo, '.claude', 'convention-rules',
+          not os.path.exists(os.path.join(repo, '.claude', 'convention-guard',
                                           'dismissed.yaml')))
     unknown = run_script('dismiss.py', ['--cwd', repo, '--rule', 'core/no-such-rule',
                                         '--file', rel, '--whole-file', '--reason', 'x'],
@@ -108,8 +108,8 @@ def case_collect_survives_garbage(tmp):
 
 def case_cap_holds(tmp):
     repo, data = laravel(tmp)
-    write(repo, '.claude/convention-rules/config.yaml',
-          'once_per_session: false\nmax_consecutive_blocks: 2\n')
+    write(repo, '.claude/convention-guard/config.yaml',
+          'once_per_session: false\nlimits:\n  max_consecutive_blocks: 2\n')
     commit(repo, 'config')
     session = Session(repo, data, 'cap')
     rel = 'app/Svc/A.php'

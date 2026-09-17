@@ -2,15 +2,15 @@ id: next-no-img-tag
 title: next/image 대신 <img> 사용
 severity: warn
 applies_to:
-  stack: [next]
+  stacks: [next]
   files: ["**/*.{tsx,jsx}"]
-triggers:
-  code_regex: '<img\s'
-context_injection: |
+detect:
+  when_line_added: '<img\s'
+message: |
   next/image 의 Image 를 쓰면 최적화와 레이아웃 시프트 방지를 함께 얻습니다.
   외부 도메인 이미지 등 불가피한 경우라면 이유를 주석으로 남기세요.
 tests:
-  should_match:
+  match:
     - '      <img src={url} alt="" />'
-  should_not_match:
+  no_match:
     - '      <Image src={url} alt="" />'

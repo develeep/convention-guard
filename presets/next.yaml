@@ -1,0 +1,6 @@
+name: next
+description: "Next.js App Router·이미지·공개 환경변수 규칙"
+# 이 태그 중 하나가 감지되면 presets: auto 에서 켜집니다. 비어 있으면 명시해야 켜집니다.
+stacks: ["next", "next-app"]
+rules:
+  - core/next-*

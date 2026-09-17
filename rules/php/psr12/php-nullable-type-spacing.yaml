@@ -3,16 +3,16 @@ title: nullable 타입의 ? 와 타입 사이 공백 금지
 severity: warn
 superseded_by: [pint.json, .php-cs-fixer.php, .php-cs-fixer.dist.php]
 applies_to:
-  stack: [php]
+  stacks: [php]
   files: ["**/*.php"]
   exclude: ["**/vendor/**"]
-triggers:
-  code_regex: '[(,:]\s*\?\s+[A-Za-z_\\]'
-context_injection: |
+detect:
+  when_line_added: '[(,:]\s*\?\s+[A-Za-z_\\]'
+message: |
   ? 와 타입 사이에 공백을 두지 않습니다. 예) ?string $arg1, ?int &$arg2): ?string
 tests:
-  should_match:
+  match:
     - '    public function f(? string $arg1): ? string'
-  should_not_match:
+  no_match:
     - '    public function f(?string $arg1): ?string'
     - '    $v = $cond ? foo() : bar();'

@@ -45,7 +45,7 @@ def hook_reason(lint_failures, lint_notes, errors, warns, repeats=frozenset()):
             out.append('  [%s] %s%s' % (rule['id'], rule['title'], mark))
             for cand in cands:
                 out.append('    %s:%d  %s' % (cand.file, cand.line, cand.snippet))
-            for line in (rule.get('injection') or '').strip().split('\n'):
+            for line in (rule.get('message') or '').strip().split('\n'):
                 if line:
                     out.append('    > %s' % line)
             out.append('')
@@ -93,7 +93,7 @@ class Palette:
 
 def findings(hits):
     return [{'rule_id': rule['id'], 'title': rule['title'], 'severity': rule['severity'],
-             'source': rule['source'], 'guidance': rule.get('injection') or '',
+             'source': rule['source'], 'guidance': rule.get('message') or '',
              'locations': [c.to_dict() for c in cands]}
             for rule, cands in hits]
 

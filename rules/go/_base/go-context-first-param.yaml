@@ -1,21 +1,20 @@
 id: go-context-first-param
 title: context.Context 는 첫 번째 인자
 severity: warn
-in_context: true
-context_line: context.Context 는 언제나 함수의 첫 번째 인자입니다.
+prevent: context.Context 는 언제나 함수의 첫 번째 인자입니다.
 applies_to:
-  stack: [go]
+  stacks: [go]
   files: ["**/*.go"]
   exclude: ["**/vendor/**", "**/*_test.go"]
-triggers:
+detect:
   file_regex: 'func\s+(\([^)]*\)\s*)?\w+\([^)]*?,\s*\w+\s+context\.Context'
-context_injection: |
+message: |
   context.Context 는 언제나 첫 번째 인자입니다. 취소·타임아웃 전파가
   호출 체인 전체에서 일관되게 동작하려면 위치가 고정돼야 합니다.
 tests:
-  should_match:
+  match:
     - "func (s *Service) Fetch(id string, ctx context.Context) error {"
     - "func Fetch(\n\tid string,\n\tctx context.Context,\n) error {"
-  should_not_match:
+  no_match:
     - "func (s *Service) Fetch(ctx context.Context, id string) error {"
     - "func Fetch(ctx context.Context) error {"

@@ -1,11 +1,11 @@
 """The one checking pipeline every entry point runs.
 
-    scope -> stacks -> rules -> linters -> detection -> dismissals -> result
+    scope -> stacks -> rules (presets, config, applicability) -> linters
+          -> detection -> dismissals -> deterministic | semantic
 
-The Stop hook, scan.py, dismiss.py and the semantic queue differ only in how
-they build the ChangeScope and what they do with the Result. Anything that
-decides *whether something is reported* belongs here, so no two callers can
-drift apart.
+The Stop hook, scan.py, dismiss.py and review.py differ only in how they build
+the ChangeScope and what they do with the Result. Anything that decides
+*whether something is reported* belongs here, so no two callers can drift.
 """
 
 from . import detect, dismiss as dismisslib, lint, rules as rulelib, stack as stacklib
@@ -14,22 +14,24 @@ from .paths import plugin_root as default_plugin_root
 
 
 class Result:
-    def __init__(self, scope, stacks, rules, notes, lint_blocking, lint_notes, lint_raw,
-                 hits, semantic_hits, dismissals):
+    def __init__(self, scope, stacks, ruleset, applicable, lint_blocking, lint_notes,
+                 lint_raw, hits, semantic_hits, dismissals):
         self.scope = scope
         self.stacks = stacks
-        self.rules = rules                  # every loaded, enabled rule
-        self.notes = notes                  # [(level, text)] from loading
+        self.ruleset = ruleset              # RuleSet: rules in play, inactive, notes, presets
+        self.rules = ruleset.rules
+        self.notes = ruleset.notes
+        self.applicable = applicable        # rules that could fire on this scope
         self.lint_blocking = lint_blocking  # linter failures anchored to this change
         self.lint_notes = lint_notes        # linter findings elsewhere in touched files
         self.lint_raw = lint_raw
-        self.hits = hits                    # [(rule, [Candidate])], deterministic rules
-        self.semantic_hits = semantic_hits  # [(rule, [Candidate])], review-gated rules
-        self.dismissals = dismissals        # number of recorded dismissals applied
+        self.hits = hits                    # [(rule, [Candidate])] judged by the agent
+        self.semantic_hits = semantic_hits  # [(rule, [Candidate])] judged by a reviewer
+        self.dismissals = dismissals        # recorded dismissals that were applied
 
-    def applicable_rules(self):
-        return [r for r in self.rules
-                if rulelib.stack_ok(r, self.stacks.tags, self.stacks.versions)]
+    @property
+    def errors(self):
+        return [text for level, text in self.notes if level == 'error']
 
 
 def detect_stacks(root, cfg, plugin_root=None):
@@ -38,19 +40,19 @@ def detect_stacks(root, cfg, plugin_root=None):
     return Stacks.from_detected(detected)
 
 
-def load_rules(root, plugin_root=None, include_disabled=False):
-    rules, notes, _ = rulelib.load_all(root, root=plugin_root or default_plugin_root(),
-                                       include_disabled=include_disabled)
-    return rules, notes
+def load_rules(root, cfg, stacks, plugin_root=None):
+    return rulelib.load(root, plugin_root or default_plugin_root(), cfg, stacks.tags)
 
 
 def run(scope, cfg, plugin_root=None, run_lint=True, cap=None, use_dismiss=True,
         rule_filter=None):
     root = scope.root
     stacks = detect_stacks(root, cfg, plugin_root)
-    rules, notes = load_rules(root, plugin_root)
+    ruleset = load_rules(root, cfg, stacks, plugin_root)
+    rules = ruleset.rules
     if rule_filter:
         rules = [r for r in rules if rule_filter(r)]
+        ruleset.rules = rules
 
     is_dismissed = detect._never_dismissed
     dismissals = 0
@@ -60,18 +62,18 @@ def run(scope, cfg, plugin_root=None, run_lint=True, cap=None, use_dismiss=True,
         dismissals = len(entries)
 
     lint_blocking, lint_notes, lint_raw = [], [], []
-    if run_lint and cfg.get('run_linters', True) and stacks.lint and scope:
+    if run_lint and cfg['linters']['enabled'] and stacks.lint and scope:
         lint_raw = lint.run(root, stacks.lint, scope.paths(),
-                            timeout=int(cfg.get('lint_timeout', 90)))
+                            timeout=int(cfg['linters']['timeout']))
         lint_blocking, lint_notes = lint.split_by_change(lint_raw, scope)
 
-    active = [r for r in rules
-              if not (cfg.get('respect_supersede', True) and rulelib.superseded(r, root))]
-    cap = int(cap if cap is not None else cfg.get('max_hits_per_rule', 3))
-    plain = [r for r in active if r.get('kind') != 'semantic']
-    gated = [r for r in active if r.get('kind') == 'semantic']
-    hits = detect.run(plain, scope, stacks, cap, is_dismissed)
-    semantic_hits = detect.run(gated, scope, stacks, cap, is_dismissed)
+    applicable = rulelib.applicable(rules, stacks, scope.paths(), root,
+                                    respect_supersede=cfg.get('respect_supersede', True))
+    cap = int(cap if cap is not None else cfg.limit('max_locations_per_rule'))
+    hits = detect.run([r for r in applicable if not r['review']], scope, stacks, cap,
+                      is_dismissed)
+    semantic_hits = detect.run([r for r in applicable if r['review']], scope, stacks, cap,
+                               is_dismissed)
 
-    return Result(scope, stacks, rules, notes, lint_blocking, lint_notes, lint_raw,
+    return Result(scope, stacks, ruleset, applicable, lint_blocking, lint_notes, lint_raw,
                   hits, semantic_hits, dismissals)

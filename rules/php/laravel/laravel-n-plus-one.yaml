@@ -1,21 +1,22 @@
 id: laravel-n-plus-one
 title: 반복문 안에서 관계 접근 (N+1)
 severity: warn
-context_line: 컬렉션을 반복하기 전에 with()/load() 로 관계를 eager load 하세요. 반복문 안의 ->relation 접근은 쿼리를 N번 냅니다.
+prevent: 컬렉션을 반복하기 전에 with()/load() 로 관계를 eager load 하세요. 반복문 안의 ->relation 접근은 쿼리를 N번 냅니다.
 applies_to:
-  stack: [laravel]
+  stacks: [laravel]
   files: ["app/**/*.php"]
   exclude: ["**/vendor/**"]
-triggers:
-  review_when: '\bforeach\s*\(|->each\s*\(|->map\s*\('
-review_prompt: |
-  반복문 안에서 Eloquent 관계에 접근해 쿼리가 N번 나가는 곳이 있는지 판단하세요.
-  - 반복 대상 컬렉션이 with()/load() 로 eager load 되었는지 거슬러 확인할 것
-  - 반복문 안의 ->relation 접근, ->count(), ->exists() 가 쿼리를 유발하는지
-  - 이미 eager load 되어 있거나 컬렉션이 메모리상 배열이면 위반이 아님
-  확실하지 않으면 위반으로 보고하지 마세요. 오탐 하나가 규칙 전체의 신뢰를 깎습니다.
+detect:
+  when_line_added: '\bforeach\s*\(|->each\s*\(|->map\s*\('
+semantic_review:
+  instruction: |
+    반복문 안에서 Eloquent 관계에 접근해 쿼리가 N번 나가는 곳이 있는지 판단하세요.
+    - 반복 대상 컬렉션이 with()/load() 로 eager load 되었는지 거슬러 확인할 것
+    - 반복문 안의 ->relation 접근, ->count(), ->exists() 가 쿼리를 유발하는지
+    - 이미 eager load 되어 있거나 컬렉션이 메모리상 배열이면 위반이 아님
+    확실하지 않으면 위반으로 보고하지 마세요. 오탐 하나가 규칙 전체의 신뢰를 깎습니다.
 tests:
-  should_match:
+  match:
     - '        foreach ($orders as $order) {'
-  should_not_match:
+  no_match:
     - '        $total = array_sum($amounts);'

@@ -3,18 +3,18 @@ title: PHP 전용 파일의 닫는 태그 ?> 금지
 severity: error
 superseded_by: [pint.json, .php-cs-fixer.php, .php-cs-fixer.dist.php]
 applies_to:
-  stack: [php]
+  stacks: [php]
   files: ["app/**/*.php", "src/**/*.php", "routes/**/*.php", "config/**/*.php", "database/**/*.php"]
   exclude: ["**/vendor/**", "**/*.blade.php", "resources/views/**"]
-triggers:
-  code_regex: '^\s*\?>\s*$'
-context_injection: |
+detect:
+  when_line_added: '^\s*\?>\s*$'
+message: |
   PHP 코드만 있는 파일에서는 닫는 태그를 생략합니다.
   뒤에 붙은 공백이나 개행이 그대로 출력돼 "headers already sent" 를 냅니다.
 tests:
-  should_match:
+  match:
     - '?>'
     - '  ?>  '
-  should_not_match:
+  no_match:
     - '$x = "?>";'
     - '    // ?> 를 쓰지 말 것'

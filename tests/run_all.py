@@ -19,14 +19,16 @@ ROOT = os.path.dirname(HERE)
 
 
 def suites(repo=None):
-    found = [('규칙 픽스처', [os.path.join(ROOT, 'scripts', 'test_rules.py')]
-              + (['--repo', repo] if repo else []))]
+    found = []
     for dirpath, dirnames, filenames in os.walk(HERE):
         dirnames[:] = sorted(d for d in dirnames if d not in ('helpers', '__pycache__'))
         for name in sorted(filenames):
             if name.startswith('test_') and name.endswith('.py'):
                 path = os.path.join(dirpath, name)
-                found.append((os.path.relpath(path, HERE), [path]))
+                cmd = [path]
+                if repo and name == 'test_rule_fixtures.py':
+                    cmd += ['--repo', repo]
+                found.append((os.path.relpath(path, HERE), cmd))
     return found
 
 

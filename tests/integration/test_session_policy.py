@@ -31,7 +31,7 @@ def repo_files(**config):
         files['app/Svc/%s.php' % name] = \
             HDR + 'class %s { public function f() { return 1; } }\n' % name
     if config:
-        files['.claude/convention-rules/config.yaml'] = ''.join(
+        files['.claude/convention-guard/config.yaml'] = ''.join(
             '%s: %s\n' % (key, json.dumps(value)) for key, value in config.items())
     return files
 
@@ -131,7 +131,7 @@ def case_dismissal(repo, data):
                       env=session.env, cwd=repo)
     check('dismiss.py succeeds', proc.returncode == 0, proc.stdout + proc.stderr)
     check('the record lands in the repo',
-          os.path.isfile(os.path.join(repo, '.claude', 'convention-rules',
+          os.path.isfile(os.path.join(repo, '.claude', 'convention-guard',
                                       'dismissed.yaml')), proc.stdout)
 
     session.touch(rel)

@@ -9,7 +9,7 @@ import os
 import re
 
 from .paths import project_dir
-from .yamlio import read as read_yaml
+from .yamlio import read_cached as read_yaml
 
 
 def load_defs(plugin_root):

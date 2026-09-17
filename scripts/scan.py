@@ -40,7 +40,7 @@ def build_scope(root, args, cfg):
         return ChangeScope.git_range(root, args.range)
     if args.staged:
         return ChangeScope.staged(root)
-    configured = args.base_ref if args.base_ref is not None else cfg.get('base_ref')
+    configured = args.base_ref if args.base_ref is not None else cfg['scope']['base_ref']
     base_ref = gitdiff.resolve_base_ref(root, configured)
     if configured and configured != 'auto' and not base_ref:
         raise ScopeError('base ref 를 찾을 수 없습니다: %s' % configured)
@@ -101,7 +101,6 @@ def main(argv=None):
         counts[rule['severity']] = counts.get(rule['severity'], 0) + 1
     threshold = RANK[args.severity]
     shown = [h for h in result.hits if RANK.get(h[0]['severity'], 9) <= threshold]
-    applicable = result.applicable_rules()
     payload = {
         'head': {
             'root': root,
@@ -109,7 +108,7 @@ def main(argv=None):
             'stacks': result.stacks.ids,
             'file_count': len(scope),
             'rules_total': len(result.rules),
-            'rules_applicable': len(applicable),
+            'rules_applicable': len(result.applicable),
             'semantic': sum(len(c) for _, c in result.semantic_hits),
             'lint_failures': result.lint_blocking,
             'lint_notes': result.lint_notes,

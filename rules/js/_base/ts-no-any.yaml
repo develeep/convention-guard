@@ -2,18 +2,18 @@ id: ts-no-any
 title: 명시적 any 지양
 severity: warn
 applies_to:
-  stack: [ts]
+  stacks: [ts]
   files: ["**/*.{ts,tsx}"]
   exclude: ["**/*.d.ts", "**/*.test.*", "**/*.spec.*", "**/node_modules/**"]
-triggers:
-  code_regex: ':\s*any(\[\])?\s*(?=[,;)=>\}]|$)'
-context_injection: |
+detect:
+  when_line_added: ':\s*any(\[\])?\s*(?=[,;)=>\}]|$)'
+message: |
   any 는 타입 검사를 통째로 끕니다. 구체 타입이나 unknown + 좁히기를 쓰세요.
   불가피하면 왜 any 인지 주석을 남기세요.
 tests:
-  should_match:
+  match:
     - 'function f(x: any) {'
     - 'const rows: any[] = [];'
-  should_not_match:
+  no_match:
     - 'const x: unknown = y;'
     - 'type Company = { name: string };'

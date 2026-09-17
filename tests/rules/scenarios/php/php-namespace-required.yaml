@@ -1,0 +1,33 @@
+rule: core/php-namespace-required
+stacks: [php]
+cases:
+  - name: 새 클래스 파일에 namespace 가 없으면 걸림
+    after:
+      src/Foo.php: |
+        <?php
+
+        declare(strict_types=1);
+
+        class Foo {}
+    expect: ["src/Foo.php:1"]
+
+  - name: namespace 없는 레거시 파일을 고쳐도 조용함
+    before:
+      app/Old.php: |
+        <?php
+
+        class Old {}
+    after:
+      app/Old.php: |
+        <?php
+
+        class Old { public $name; }
+    expect: []
+
+  - name: 적용 대상이 아닌 경로의 새 파일은 조용함
+    after:
+      bootstrap/app.php: |
+        <?php
+
+        return 1;
+    expect: []

@@ -1,0 +1,42 @@
+rule: core/go-context-first-param
+stacks: [go]
+cases:
+  - name: 여러 줄 시그니처에서 context 가 뒤에 오면 걸림
+    after:
+      pkg/store/store.go: |
+        package store
+
+        func Fetch(
+        	id string,
+        	ctx context.Context,
+        ) error {
+        	return nil
+        }
+    expect: ["pkg/store/store.go:3"]
+
+  - name: context 가 첫 인자면 조용함
+    after:
+      pkg/store/store.go: |
+        package store
+
+        func Fetch(ctx context.Context, id string) error {
+        	return nil
+        }
+    expect: []
+
+  - name: 레거시 함수 본문만 고치면 조용함
+    before:
+      pkg/store/legacy.go: |
+        package store
+
+        func Old(id string, ctx context.Context) error {
+        	return nil
+        }
+    after:
+      pkg/store/legacy.go: |
+        package store
+
+        func Old(id string, ctx context.Context) error {
+        	return ctx.Err()
+        }
+    expect: []

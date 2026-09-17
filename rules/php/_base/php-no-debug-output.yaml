@@ -2,17 +2,17 @@ id: php-no-debug-output
 title: 디버그 출력 잔여물
 severity: error
 applies_to:
-  stack: [php]
+  stacks: [php]
   files: ["**/*.php"]
   exclude: ["**/vendor/**", "**/tests/**"]
-triggers:
-  code_regex: '(?<![\w$>])(var_dump|print_r|dd|dump|ray)\s*\('
-context_injection: |
+detect:
+  when_line_added: '(?<![\w$>])(var_dump|print_r|dd|dump|ray)\s*\('
+message: |
   디버그 출력이 남아 있습니다. 제거하고, 필요하면 Log 파사드로 남기세요.
 tests:
-  should_match:
+  match:
     - '    dd($user);'
     - 'var_dump($request->all());'
-  should_not_match:
+  no_match:
     - '$this->dump($x);'
     - 'Log::debug($user);'

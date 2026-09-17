@@ -35,7 +35,7 @@ SEARCH_CAP = 200
 
 def current_candidates(root, cfg, rule_id):
     """Run the same pipeline the hook runs, so the fingerprint always agrees."""
-    scope = ChangeScope.working_tree(root, gitdiff.resolve_base_ref(root, cfg.get('base_ref')))
+    scope = ChangeScope.working_tree(root, gitdiff.resolve_base_ref(root, cfg['scope']['base_ref']))
     result = pipeline.run(scope, cfg, run_lint=False, cap=SEARCH_CAP, use_dismiss=False,
                           rule_filter=lambda r: r['id'] == rule_id)
     if not result.rules:

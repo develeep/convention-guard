@@ -3,18 +3,18 @@ title: 제어 구조 키워드와 괄호 공백
 severity: warn
 superseded_by: [pint.json, .php-cs-fixer.php, .php-cs-fixer.dist.php]
 applies_to:
-  stack: [php]
+  stacks: [php]
   files: ["**/*.php"]
   exclude: ["**/vendor/**"]
-triggers:
-  code_regex: '(?<![\w$>])(if|elseif|for|foreach|while|switch|catch)(\(|\s\(\s|\s{2,}\()'
-context_injection: |
+detect:
+  when_line_added: '(?<![\w$>])(if|elseif|for|foreach|while|switch|catch)(\(|\s\(\s|\s{2,}\()'
+message: |
   키워드 뒤에 공백 하나, 여는 괄호 뒤에는 공백이 없어야 합니다.
   예) if ($expr) { ... }
 tests:
-  should_match:
+  match:
     - '        if($a === $b) {'
     - '        foreach ( $rows as $row ) {'
-  should_not_match:
+  no_match:
     - '        if ($a === $b) {'
     - '        $this->if($a);'

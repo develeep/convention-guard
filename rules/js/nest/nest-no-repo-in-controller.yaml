@@ -2,14 +2,14 @@ id: nest-no-repo-in-controller
 title: 컨트롤러에서 레포지토리 직접 주입
 severity: warn
 applies_to:
-  stack: [nest]
+  stacks: [nest]
   files: ["**/*.controller.ts"]
-triggers:
-  code_regex: '(Repository<|@InjectRepository|getRepository\s*\()'
-context_injection: |
+detect:
+  when_line_added: '(Repository<|@InjectRepository|getRepository\s*\()'
+message: |
   컨트롤러는 HTTP 경계만 담당합니다. 데이터 접근은 서비스 계층을 통해 가세요.
 tests:
-  should_match:
+  match:
     - '    private readonly repo: Repository<User>,'
-  should_not_match:
+  no_match:
     - '    private readonly users: UserService,'

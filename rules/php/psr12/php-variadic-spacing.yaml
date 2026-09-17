@@ -3,17 +3,17 @@ title: 가변인자 ... 와 인수 사이 공백 금지
 severity: warn
 superseded_by: [pint.json, .php-cs-fixer.php, .php-cs-fixer.dist.php]
 applies_to:
-  stack: [php]
+  stacks: [php]
   files: ["**/*.php"]
   exclude: ["**/vendor/**"]
-triggers:
-  code_regex: '\.\.\.\s+[&$]'
-context_injection: |
+detect:
+  when_line_added: '\.\.\.\s+[&$]'
+message: |
   ... 과 인수 이름 사이, 그리고 & 와 ... 사이에 공백을 두지 않습니다.
   예) public function process(string $algorithm, ...$parts)
 tests:
-  should_match:
+  match:
     - '    public function process(string $algorithm, ... $parts)'
-  should_not_match:
+  no_match:
     - '    public function process(string $algorithm, ...$parts)'
     - '    public function process(&...$parts)'

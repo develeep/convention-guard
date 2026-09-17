@@ -1,22 +1,33 @@
-# 레포에 두는 파일: <repo>/.claude/convention-rules/config.yaml
-# 로컬 커스터마이징의 90%는 이 파일 하나로 끝납니다.
+# 레포에 두는 파일: <repo>/.claude/convention-guard/config.yaml
+# 플러그인 기본값(config.yaml)에서 바꿀 키만 적습니다. 이 파일이 팀 설정이고 최종 우선입니다.
+
+# 도입 초기 2~3주는 report 로 기록만 쌓고, 로그를 본 뒤 fix 로 올리세요.
+mode: fix
+
+# auto = common + security + 감지된 스택 프리셋. 구조·성능 규칙은 명시해서 켭니다.
+presets: [auto, architecture]
 
 # 감지가 빗나갈 때만 강제 지정 (보통은 비워둡니다)
 stacks: []
 
-# 이 레포에서는 끌 공통 규칙
+# 이 레포에서 끌 공통 규칙 — 왜 끄는지 반드시 남기세요
 disable:
-  - core/js-no-console
+  - core/js-no-console      # 디버그 로그를 관례적으로 커밋하는 레포
 
-# 강도만 조정 (error -> warn 으로 내리면 로그에 downgraded 로 남습니다)
+# 끄는 것보다 강도를 내리는 편이 거의 항상 낫습니다
 severity:
   core/ts-no-any: info
 
-# 레거시 디렉터리는 통째로 제외
+# 레거시·생성 코드는 경로째 제외
 exclude:
   - "legacy/**"
   - "app/Legacy/**"
 
-# 동작 튜닝 (플러그인 기본값 덮어쓰기)
-max_rules: 3
-base_ref: auto
+scope:
+  base_ref: auto            # 세션 중 커밋한 변경까지 검사
+
+limits:
+  max_error_rules: 3
+
+semantic_review:
+  enabled: true             # N+1·계층 경계 후보가 있을 때만 판정 서브에이전트를 부릅니다

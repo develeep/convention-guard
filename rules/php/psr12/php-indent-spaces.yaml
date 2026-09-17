@@ -3,15 +3,15 @@ title: 들여쓰기는 공백 4칸 (탭 금지)
 severity: warn
 superseded_by: [pint.json, .php-cs-fixer.php, .php-cs-fixer.dist.php]
 applies_to:
-  stack: [php]
+  stacks: [php]
   files: ["**/*.php"]
   exclude: ["**/vendor/**"]
-triggers:
-  code_regex: '^\t'
-context_injection: |
+detect:
+  when_line_added: '^\t'
+message: |
   들여쓰기는 공백 4칸입니다. 탭을 쓰지 마세요.
 tests:
-  should_match:
+  match:
     - "\tprivate string $name;"
-  should_not_match:
+  no_match:
     - "    private string $name;"

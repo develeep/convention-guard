@@ -1,0 +1,8 @@
+name: js
+description: "JavaScript/TypeScript 공통: console 잔여물, 빈 catch, any"
+# 이 태그 중 하나가 감지되면 presets: auto 에서 켜집니다. 비어 있으면 명시해야 켜집니다.
+stacks: ["js", "ts"]
+rules:
+  - core/js-no-console
+  - core/js-no-empty-catch
+  - core/ts-no-any

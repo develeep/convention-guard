@@ -132,7 +132,7 @@ def on_stop(payload):
         return None
     try:
         scope = ChangeScope.from_touched(root, touched,
-                                         _base_ref(root, cfg.get('base_ref')))
+                                         _base_ref(root, cfg['scope']['base_ref']))
     except ScopeError:
         return None
     if not scope:
@@ -149,7 +149,11 @@ def on_stop(payload):
     # measured with a generous cap so an old finding is not read as fixed just
     # because newer ones pushed it out of the first few; display is capped below
     result = pipeline.run(scope, cfg, run_lint=not already, cap=PENDING_CAP)
-    shown_cap = int(cfg["max_hits_per_rule"])
+    if result.errors:
+        # a broken or un-migrated config must not quietly check with defaults
+        # the team did not choose
+        return notice('convention-guard: 설정 오류로 검사를 건너뜁니다 — %s' % result.errors[0])
+    shown_cap = cfg.limit('max_locations_per_rule')
 
     # 3. measure the previous block before the per-prompt guard returns
     followups = _resolve_pending(pending, result)
@@ -180,8 +184,8 @@ def on_stop(payload):
             if not (cfg['once_per_session'] and rule['id'] in fired
                     and rule['id'] not in unresolved)]
     hits.sort(key=lambda h: (_rank(h[0]), h[0]['id'] not in unresolved, -len(h[1])))
-    errors = [h for h in hits if h[0]['severity'] == 'error'][:int(cfg['max_rules'])]
-    warns = [h for h in hits if h[0]['severity'] == 'warn'][:int(cfg['max_warns'])]
+    errors = [h for h in hits if h[0]['severity'] == 'error'][:cfg.limit('max_error_rules')]
+    warns = [h for h in hits if h[0]['severity'] == 'warn'][:cfg.limit('max_warn_rules')]
     infos = [h for h in hits if h[0]['severity'] == 'info']
     repeats = unresolved & {h[0]['id'] for h in hits}
 
@@ -189,9 +193,9 @@ def on_stop(payload):
         state.setdefault('checked_prompt_ids', []).append(str(prompt_id))
     state['unresolved'] = sorted(repeats)
 
-    report_only = str(cfg.get('block_level', 'error')).lower() == 'report'
+    report_only = cfg.report_only
     streak = int(state.get('consecutive_blocks', 0))
-    capped = streak >= int(cfg['max_consecutive_blocks'])
+    capped = streak >= cfg.limit('max_consecutive_blocks')
     has_blocking = bool(result.lint_blocking or errors)
     blocking = has_blocking and not report_only and not capped
     shown = (errors + warns) if blocking else []
@@ -218,7 +222,7 @@ def on_stop(payload):
                           % (len(errors), len(result.lint_blocking), streak))
         if report_only and has_blocking:
             return notice('convention-guard: error %d건 / 린트 실패 %d건 기록 '
-                          '(block_level=report 라 차단하지 않았습니다)'
+                          '(mode=report 라 차단하지 않았습니다)'
                           % (len(errors), len(result.lint_blocking)))
         parts = []
         if warns:
@@ -267,17 +271,15 @@ def semantic_queue(payload):
     cfg = configlib.load(root)
     state = statelib.load(session, 'semantic')
 
-    if not cfg.get('semantic_review'):
+    if not cfg['semantic_review']['enabled']:
         return 'EMPTY'
     if prompt_id is not None and str(prompt_id) in state.get('reviewed_prompt_ids', []):
-        return 'EMPTY'
-    if state.get('reviews', 0) >= int(cfg['max_semantic_reviews_per_session']):
         return 'EMPTY'
     touched = statelib.read_touched(session)
     if not touched:
         return 'EMPTY'
     try:
-        scope = ChangeScope.from_touched(root, touched, _base_ref(root, cfg.get('base_ref')))
+        scope = ChangeScope.from_touched(root, touched, _base_ref(root, cfg['scope']['base_ref']))
     except ScopeError:
         return 'EMPTY'
     if not scope:
@@ -290,9 +292,9 @@ def semantic_queue(payload):
         if rule['id'] in reviewed:
             continue
         items.append({'rule_id': rule['id'], 'title': rule['title'],
-                      'severity': rule['severity'], 'question': rule['review_prompt'],
+                      'severity': rule['severity'], 'question': rule['review']['instruction'],
                       'candidates': [c.to_dict() for c in cands]})
-        if len(items) >= int(cfg['max_semantic_rules']):
+        if len(items) >= int(cfg['semantic_review']['max_candidates']):
             break
     if not items:
         return 'EMPTY'

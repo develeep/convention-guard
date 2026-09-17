@@ -1,0 +1,45 @@
+rule: core/next-client-hook-needs-directive
+stacks: [js, react, next, next-app]
+cases:
+  - name: use client 없이 훅을 추가하면 걸림
+    after:
+      app/counter.tsx: |
+        import { useState } from 'react';
+
+        export function Counter() {
+          const [n, setN] = useState(0);
+          return n;
+        }
+    expect: ["app/counter.tsx:4"]
+
+  - name: use client 가 있으면 조용함
+    after:
+      app/counter.tsx: |
+        'use client';
+
+        import { useState } from 'react';
+
+        export function Counter() {
+          const [n, setN] = useState(0);
+          return n;
+        }
+    expect: []
+
+  - name: 이미 훅을 쓰던 파일에서 훅이 아닌 줄만 고치면 조용함
+    before:
+      components/legacy.tsx: |
+        import { useState } from 'react';
+
+        export function Legacy() {
+          const [n] = useState(0);
+          return n;
+        }
+    after:
+      components/legacy.tsx: |
+        import { useState } from 'react';
+
+        export function Legacy() {
+          const [n] = useState(0);
+          return n + 1;
+        }
+    expect: []

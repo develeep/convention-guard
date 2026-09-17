@@ -1,4 +1,5 @@
-# 공통 규칙을 통째로 복사하지 않고 필요한 키만 덮어씁니다.
+# 레포에 두는 파일: <repo>/.claude/convention-guard/rules/override-blade-query.yaml
+# 공통 규칙을 통째로 복사하지 않고 바꿀 키만 적습니다. 원본 규칙에 깊은 병합됩니다.
 override: core/laravel-no-query-in-blade
 severity: warn
 applies_to:

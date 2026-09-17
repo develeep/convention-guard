@@ -1,0 +1,41 @@
+rule: core/laravel-route-needs-test
+stacks: [php, laravel]
+cases:
+  - name: 라우트만 바꾸고 테스트가 없으면 걸림
+    before:
+      routes/api.php: |
+        <?php
+
+        Route::get('/users', [UserController::class, 'index']);
+    after:
+      routes/api.php: |
+        <?php
+
+        Route::get('/users', [UserController::class, 'index']);
+        Route::post('/users', [UserController::class, 'store']);
+    expect: ["routes/api.php:1"]
+
+  - name: 테스트를 함께 바꾸면 조용함
+    after:
+      routes/api.php: |
+        <?php
+
+        Route::post('/users', [UserController::class, 'store']);
+      tests/Feature/UserTest.php: |
+        <?php
+
+        class UserTest extends TestCase {}
+    expect: []
+
+  - name: 라우트를 건드리지 않으면 기존 라우트 파일이 있어도 조용함
+    before:
+      routes/api.php: |
+        <?php
+
+        Route::get('/users', [UserController::class, 'index']);
+    after:
+      app/Services/Users.php: |
+        <?php
+
+        class Users {}
+    expect: []

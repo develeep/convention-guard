@@ -8,7 +8,9 @@ Each rule kind differs in what it looks at and in what anchors a finding to
   requires  조건 + 파일 전체            조건이 '추가된 줄'에 있어야 함
   absent    새 파일 전체               파일이 새것이어야 함
   paired    변경 집합                  변경 집합 자체가 앵커
-  semantic  추가된 줄 (게이트)          게이트일 뿐, 판정은 리뷰어가 함
+
+A rule with semantic_review uses the same detectors; its candidates are
+routed to a reviewer instead of straight to the agent (see pipeline.py).
 """
 
 from . import rules as rulelib
@@ -72,7 +74,7 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed):
 
         if kind == 'line':
             for lineno, text in scope.lines(relpath):
-                if rule['compiled'].search(text) and add(relpath, lineno, clip(text)):
+                if rule['compiled_when'].search(text) and add(relpath, lineno, clip(text)):
                     return found
 
         elif kind == 'absent':
@@ -80,7 +82,7 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed):
             # missing declaration is the repo's history, not this change
             if not scope.is_new(relpath):
                 continue
-            if not rule['compiled_absent'].search(scope.added_body(relpath)):
+            if not rule['compiled_must'].search(scope.added_body(relpath)):
                 if add(relpath, 1, '(새 파일에 해당 선언이 없음)'):
                     return found
 
@@ -106,13 +108,6 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed):
                 continue
             for lineno, text in scope.lines(relpath):
                 if rule['compiled_when'].search(text):
-                    if add(relpath, lineno, clip(text)):
-                        return found
-                    break
-
-        elif kind == 'semantic':
-            for lineno, text in scope.lines(relpath):
-                if rule['compiled_review'].search(text):
                     if add(relpath, lineno, clip(text)):
                         return found
                     break

@@ -36,6 +36,32 @@ def read(path):
         return load(fh.read()) or {}
 
 
+_memo = {}
+
+
+def read_cached(path):
+    """read(), memoized on (mtime, size) for the life of the process.
+
+    The Stop hook parses every rule, preset and stack file on every turn; the
+    persistent cache in lib/cache.py builds on this for across-process reuse.
+    """
+    try:
+        st = os.stat(path)
+    except OSError:
+        return read(path)          # let the caller see the real error
+    sig = (st.st_mtime_ns, st.st_size)
+    hit = _memo.get(path)
+    if hit and hit[0] == sig:
+        return hit[1]
+    from . import cache
+    value = cache.get('yaml', path, sig)
+    if value is cache.MISS:
+        value = read(path)
+        cache.put('yaml', path, sig, value)
+    _memo[path] = (sig, value)
+    return value
+
+
 def scalar(value):
     """One YAML scalar that round-trips through both parsers."""
     if value is None:

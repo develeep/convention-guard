@@ -21,12 +21,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import (LARAVEL_COMPOSER, ROOT, check, commit, git,  # noqa: E402
                      make_repo, run_cases, tempdir, write)
-from lib import detect, gitdiff, rules as rulelib, stack as stacklib  # noqa: E402
+from lib import config, detect, gitdiff, rules as rulelib, stack as stacklib  # noqa: E402
 from lib.scope import ChangeScope  # noqa: E402
 
 
 def hit_ids(tmp, tags, changed, new_files):
-    all_rules, _notes, _cfg = rulelib.load_all(tmp, root=ROOT)
+    all_rules = rulelib.load(tmp, ROOT, config.DEFAULTS, tags).rules
     scope = ChangeScope(tmp, changed, new_files, 'test')
     return {rule['id'] for rule, _ in detect.run(all_rules, scope, detect.Stacks(tags), 5)}
 

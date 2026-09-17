@@ -1,0 +1,30 @@
+rule: core/php-no-debug-output
+stacks: [php]
+cases:
+  - name: 추가한 줄의 dd 는 걸림
+    before:
+      app/Svc.php: |
+        <?php
+
+        dd($legacy);
+    after:
+      app/Svc.php: |
+        <?php
+
+        dd($legacy);
+        var_dump($new);
+    expect: ["app/Svc.php:4"]
+
+  - name: 레거시 dd 만 있는 파일은 조용함
+    before:
+      app/Svc.php: |
+        <?php
+
+        dd($legacy);
+    after:
+      app/Svc.php: |
+        <?php
+
+        dd($legacy);
+        $x = 1;
+    expect: []
