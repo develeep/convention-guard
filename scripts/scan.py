@@ -23,7 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import config as configlib, gitdiff, pipeline, report  # noqa: E402
+from lib import config as configlib, gitdiff, pipeline, report, semantic  # noqa: E402
 from lib.paths import git_toplevel, project_dir  # noqa: E402
 from lib.scope import ChangeScope, ScopeError  # noqa: E402
 
@@ -68,8 +68,24 @@ def parse_args(argv=None):
                         help="비교 기준 ref. 'auto' 면 기본 브랜치와의 merge-base")
     parser.add_argument('--no-dismiss', action='store_true',
                         help='dismissed.yaml 의 기각 기록을 무시하고 전부 봅니다')
+    parser.add_argument('--review', action='store_true',
+                        help='semantic 규칙 후보를 판정 배치로 만들고, 캐시된 VIOLATION 판정을 결과에 포함')
     parser.add_argument('--cwd', help='레포 경로 (기본: 현재 디렉터리)')
     return parser.parse_args(argv)
+
+
+def review_semantic(result, cfg):
+    """(extra findings, review info) for --review: cached VIOLATIONs become
+    findings, candidates without a verdict become a batch for the reviewer."""
+    triage = semantic.triage(result, cfg)
+    grouped = {}
+    for rule, cand, _verdict in triage.violations:
+        grouped.setdefault(rule['id'], (rule, []))[1].append(cand)
+    path, items, deferred = semantic.build_batch(result.scope.root, None, triage.pending, cfg,
+                                                 label='scan')
+    info = {'batch': path, 'candidates': len(items), 'deferred': len(deferred),
+            'cached_violations': len(triage.violations), 'cleared': len(triage.cleared)}
+    return list(grouped.values()), info
 
 
 def main(argv=None):
@@ -96,11 +112,16 @@ def main(argv=None):
         print('일치하는 규칙 없음: %s' % args.rule, file=sys.stderr)
         return EXIT_UNINSPECTABLE
 
+    hits, review = list(result.hits), None
+    if args.review and result.semantic_hits:
+        extra, review = review_semantic(result, cfg)
+        hits += extra
+
     counts = {'error': 0, 'warn': 0, 'info': 0}
-    for rule, _ in result.hits:
+    for rule, _ in hits:
         counts[rule['severity']] = counts.get(rule['severity'], 0) + 1
     threshold = RANK[args.severity]
-    shown = [h for h in result.hits if RANK.get(h[0]['severity'], 9) <= threshold]
+    shown = [h for h in hits if RANK.get(h[0]['severity'], 9) <= threshold]
     payload = {
         'head': {
             'root': root,
@@ -113,6 +134,7 @@ def main(argv=None):
             'lint_failures': result.lint_blocking,
             'lint_notes': result.lint_notes,
             'dismissed': result.dismissals,
+            'review': review,
         },
         'counts': counts,
         'findings': report.findings(shown),
@@ -122,13 +144,18 @@ def main(argv=None):
     else:
         color = not (args.no_color or not sys.stdout.isatty())
         print(report.render_text(payload, report.Palette(color)))
+        if review and review['batch']:
+            print('\n심층 판정 대기 후보 %d건%s — convention-reviewer 에이전트에게 전달하세요:'
+                  % (review['candidates'],
+                     ' (예산 초과로 %d건 미룸)' % review['deferred'] if review['deferred'] else ''))
+            print('  python3 "%s" show "%s"' % (report.script_path('review.py'), review['batch']))
 
     if load_errors:
         return EXIT_UNINSPECTABLE
     if args.fail_on == 'never':
         return EXIT_PASS
     # the exit code judges every finding, not just the ones --severity displayed
-    worst = min([RANK[rule['severity']] for rule, _ in result.hits], default=9)
+    worst = min([RANK[rule['severity']] for rule, _ in hits], default=9)
     return EXIT_FINDINGS if (result.lint_blocking or worst <= RANK[args.fail_on]) else EXIT_PASS
 
 

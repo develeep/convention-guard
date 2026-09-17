@@ -2,8 +2,9 @@
 
 scripts/collect.py and scripts/check.py only parse stdin and print what these
 functions return. Checking is the pipeline's job; the verification cycle
-(cycle.py) is the state machine; this module decides *when* each runs and
-*what to do* with the result -- block, report, or stay quiet.
+(cycle.py) is the state machine; semantic.py decides what needs a reviewer;
+this module decides *when* each runs and *what to do* with the result --
+block, report, or stay quiet.
 
 Stop, in order:
   1. config broken      -> say so and skip (never check with unchosen defaults)
@@ -11,14 +12,18 @@ Stop, in order:
                            otherwise re-scan and verify
   3. no cycle           -> question turn? nothing changed? stay quiet
                            else check, apply the budget, block and open a cycle
+
+Semantic review never runs on its own. Only when candidates of a
+semantic_review rule exist and the verdict cache has nothing for them does
+the block ask the main agent to hand one batch path to the convention-reviewer
+subagent. No candidates, no AI call.
 """
 
-import json
 import os
 
 from . import (config as configlib, cycle as cyclelib, dismiss as dismisslib, gitdiff, log,
-               pipeline, report, state as statelib)
-from .candidate import parse_key
+               pipeline, report, semantic, state as statelib)
+from .candidate import VIOLATION, parse_key
 from .paths import git_toplevel, hook_project_dir
 from .scope import ChangeScope, ScopeError
 
@@ -98,11 +103,27 @@ class StopContext:
         self.cfg = configlib.load(self.root)
         self.state = statelib.load(self.session)
 
+    @property
+    def semantic_on(self):
+        return bool(self.cfg['semantic_review']['enabled'])
+
     def save(self):
         statelib.save(self.session, self.state)
 
     def event(self, record):
         log.event(dict(record, session=self.session))
+
+
+class Scan:
+    """One re-scan: the pipeline result plus what the verdict cache says about
+    its semantic candidates."""
+
+    def __init__(self, result, triage):
+        self.result, self.triage = result, triage
+
+    @property
+    def errors(self):
+        return self.result.errors
 
 
 def on_stop(payload):
@@ -115,23 +136,22 @@ def on_stop(payload):
 
     state = ctx.state
     cycle = state.get('cycle')
-    result = None
-    scanned = False
+    scan, scanned = None, False
     if cycle and _belongs_to_new_request(ctx, cycle):
-        result, scanned = _scan(ctx), True
-        if result is not None and result.errors:
-            return config_error(result.errors[0])
-        _close(ctx, cycle, _classify(ctx, cycle, result), abandoned=True)
+        scan, scanned = _scan(ctx), True
+        if scan is not None and scan.errors:
+            return config_error(scan.errors[0])
+        _close(ctx, cycle, _classify(ctx, cycle, scan), abandoned=True)
         cycle = None
 
     if not ctx.continuing:
         state['closed_in_continuation'] = False
 
     if cycle:
-        result = _scan(ctx)
-        if result is not None and result.errors:
-            return config_error(result.errors[0])
-        return _verify(ctx, cycle, result)
+        scan = _scan(ctx)
+        if scan is not None and scan.errors:
+            return config_error(scan.errors[0])
+        return _verify(ctx, cycle, scan)
 
     if ctx.continuing and state.get('closed_in_continuation'):
         # this request already had its cycle; another hook kept the agent going
@@ -142,13 +162,14 @@ def on_stop(payload):
         return None
 
     if not scanned:
-        result = _scan(ctx)
-    if result is None:
-        _clean_turn(ctx)
+        scan = _scan(ctx)
+    if scan is None:
+        ctx.state['consecutive_blocks'] = 0
+        ctx.save()
         return None
-    if result.errors:
-        return config_error(result.errors[0])
-    return _open(ctx, result)
+    if scan.errors:
+        return config_error(scan.errors[0])
+    return _open(ctx, scan)
 
 
 def _belongs_to_new_request(ctx, cycle):
@@ -160,8 +181,8 @@ def _belongs_to_new_request(ctx, cycle):
 
 
 def _scan(ctx):
-    """Pipeline result for everything touched this session, or None when
-    there is nothing to inspect (no edits, not a repo, all reverted)."""
+    """Everything touched this session, or None when there is nothing to
+    inspect (no edits, not a repo, all reverted)."""
     touched = statelib.read_touched(ctx.session)
     if not touched:
         return None
@@ -172,30 +193,37 @@ def _scan(ctx):
         return None
     if not scope:
         return None
-    return pipeline.run(scope, ctx.cfg, cap=VERIFY_CAP)
-
-
-def _clean_turn(ctx):
-    ctx.state['consecutive_blocks'] = 0
-    ctx.save()
+    result = pipeline.run(scope, ctx.cfg, cap=VERIFY_CAP)
+    triage = None
+    if ctx.semantic_on and not result.errors and result.semantic_hits:
+        triage = semantic.triage(result, ctx.cfg, quiet=lambda rule: _quiet(ctx, rule))
+    return Scan(result, triage)
 
 
 def _quiet(ctx, rule):
     return ctx.cfg['once_per_session'] and rule['id'] in (ctx.state.get('fired_rules') or [])
 
 
-def _current(ctx, result):
-    """{key: entry} for every candidate and blocking lint failure right now,
-    minus rules the session already settled (once_per_session)."""
+def _findings(ctx, scan):
+    """[(rule, [Candidate])]: deterministic hits plus cached semantic VIOLATIONs."""
+    hits = [(rule, cands) for rule, cands in scan.result.hits if not _quiet(ctx, rule)]
+    if scan.triage:
+        grouped = {}
+        for rule, cand, _verdict in scan.triage.violations:
+            grouped.setdefault(rule['id'], (rule, []))[1].append(cand)
+        hits += list(grouped.values())
+    return hits
+
+
+def _current(ctx, scan):
+    """{key: entry} for every finding and blocking lint failure right now."""
     current = {}
-    if result is None:
+    if scan is None:
         return current
-    for rule, cands in result.hits:
-        if _quiet(ctx, rule):
-            continue
+    for rule, cands in _findings(ctx, scan):
         for cand in cands:
             current[cand.key] = cyclelib.entry(rule, cand)
-    for fail in result.lint_blocking:
+    for fail in scan.result.lint_blocking:
         current[cyclelib.lint_key(fail)] = cyclelib.lint_entry(fail)
     return current
 
@@ -212,8 +240,32 @@ def _dismissed_predicate(root):
     return is_dismissed
 
 
-def _classify(ctx, cycle, result):
-    return cyclelib.classify(cycle, _current(ctx, result), _dismissed_predicate(ctx.root))
+def _classify(ctx, cycle, scan):
+    review = cycle.get('review') or {}
+    if review.get('batch'):
+        # a candidate the reviewer called a VIOLATION is one the agent was told
+        # to fix: from here on it is tracked like any other flagged finding
+        recorded = semantic.read_verdicts(review['batch']) or {}
+        for review_key, verdict in recorded.items():
+            item = review['items'].get(review_key)
+            if item and verdict.get('verdict') == VIOLATION:
+                cycle['opened'].setdefault(item['key'], dict(item))
+    return cyclelib.classify(cycle, _current(ctx, scan), _dismissed_predicate(ctx.root))
+
+
+def _pending_review(ctx, cycle, scan):
+    """(skipped, needs_review): semantic candidates without a verdict, split by
+    whether the reviewer was already asked about them in this cycle."""
+    if scan is None or not scan.triage:
+        return [], []
+    review = cycle.get('review') or {}
+    asked = set(review.get('items') or {})
+    ran = bool(review.get('batch')) and semantic.read_verdicts(review['batch']) is not None
+    skipped, needs = [], []
+    for entry in scan.triage.pending:
+        cand = entry[1]
+        (skipped if cand.review_key in asked and not ran else needs).append(entry)
+    return skipped, needs
 
 
 def _log_outcome(ctx, cycle, outcome, abandoned=False):
@@ -226,8 +278,11 @@ def _log_outcome(ctx, cycle, outcome, abandoned=False):
                        'abandoned': abandoned})
 
 
-def _close(ctx, cycle, outcome, abandoned=False):
+def _close(ctx, cycle, outcome, abandoned=False, unreviewed=()):
     _log_outcome(ctx, cycle, outcome, abandoned)
+    for _rule, cand, _pack in unreviewed:
+        ctx.event({'event': 'review_skipped', 'cycle': cycle['id'], 'rule_id': cand.rule_id,
+                   'key': cand.key, 'file': cand.file, 'reason': 'attempts'})
     if abandoned:
         ctx.event(dict({'event': 'abandoned', 'cycle': cycle['id']}, **outcome.counts()))
     state = ctx.state
@@ -245,41 +300,70 @@ def _close(ctx, cycle, outcome, abandoned=False):
     ctx.save()
 
 
-def _verify(ctx, cycle, result):
-    outcome = _classify(ctx, cycle, result)
+def _request_review(ctx, cycle, pending, label):
+    """Write a batch and remember it on the cycle. Returns the report section input."""
+    path, items, deferred = semantic.build_batch(ctx.root, ctx.session, pending, ctx.cfg,
+                                                 label=label)
+    if not path:
+        return None
+    by_key = {cand.review_key: (rule, cand) for rule, cand, _ in pending}
+    cycle['review'] = {'batch': path, 'items': {
+        item['review_key']: dict(cyclelib.entry(*by_key[item['review_key']]),
+                                 key=item['key'])
+        for item in items}}
+    ctx.event({'event': 'review_requested', 'cycle': cycle['id'], 'batch': path,
+               'rules': sorted({i['rule_id'] for i in items}), 'candidates': len(items),
+               'deferred': len(deferred)})
+    return {'batch': path, 'items': items, 'deferred': len(deferred)}
+
+
+def _verify(ctx, cycle, scan):
+    outcome = _classify(ctx, cycle, scan)
+    skipped, needs = _pending_review(ctx, cycle, scan)
     cfg = ctx.cfg
     streak = int(ctx.state.get('consecutive_blocks', 0))
-    again = bool(outcome.blocking() and not cfg.report_only
-                 and cycle['attempt'] < cfg.limit('max_verify_attempts')
-                 and streak < cfg.limit('max_consecutive_blocks'))
+    wants = bool(outcome.blocking() or skipped or needs)
+    again = (wants and not cfg.report_only
+             and cycle['attempt'] < cfg.limit('max_verify_attempts')
+             and streak < cfg.limit('max_consecutive_blocks'))
     if not again:
-        _close(ctx, cycle, outcome)
-        if not outcome.remaining():
+        _close(ctx, cycle, outcome, unreviewed=skipped + needs)
+        if not outcome.remaining() and not (skipped or needs):
             return None
         counts = outcome.counts()
-        return notice('convention-guard: 재검증 — 고쳐짐 %d / 기각 %d / 남음 %d / 새로 생김 %d. '
+        return notice('convention-guard: 재검증 — 고쳐짐 %d / 기각 %d / 남음 %d / 새로 생김 %d%s. '
                       '더 차단하지 않고 기록만 남깁니다.'
-                      % (counts['fixed'], counts['dismissed'], counts['still'], counts['new']))
+                      % (counts['fixed'], counts['dismissed'], counts['still'], counts['new'],
+                         ' / 판정 못 한 후보 %d' % len(skipped + needs) if skipped or needs
+                         else ''))
 
     _log_outcome(ctx, cycle, outcome)
+    for _rule, cand, _pack in skipped:
+        ctx.event({'event': 'review_skipped', 'cycle': cycle['id'], 'rule_id': cand.rule_id,
+                   'key': cand.key, 'file': cand.file, 'reason': 'not_run'})
     cycle['attempt'] += 1
     last_chance = cycle['attempt'] >= cfg.limit('max_verify_attempts')
     cycle['opened'] = outcome.remaining()
-    cycle['seen'] = sorted(set(cycle.get('seen') or ()) | set(_current(ctx, result)))
+    cycle['seen'] = sorted(set(cycle.get('seen') or ()) | set(_current(ctx, scan)))
+    cycle['review'] = None
+    review = _request_review(ctx, cycle, skipped + needs, 'verify') if (skipped or needs) \
+        else None
     ctx.state['cycle'] = cycle
     ctx.state['consecutive_blocks'] = streak + 1
     ctx.state['blocks'] = int(ctx.state.get('blocks', 0)) + 1
     ctx.save()
     ctx.event({'event': 'block', 'cycle': cycle['id'], 'attempt': cycle['attempt'],
-               'kind': 'verify', 'keys': sorted(outcome.blocking())})
+               'kind': 'verify', 'keys': sorted(outcome.blocking()),
+               'review': bool(review)})
     counts = outcome.counts()
-    return block(report.verify_reason(outcome, last_chance),
-                 'convention-guard: 재검증 — 남음 %d / 새로 생김 %d'
-                 % (counts['still'], counts['new']))
+    return block(report.verify_reason(outcome, last_chance, review, skipped=bool(skipped)),
+                 'convention-guard: 재검증 — 남음 %d / 새로 생김 %d%s'
+                 % (counts['still'], counts['new'],
+                    ' / 심층 판정 %d건 요청' % len(review['items']) if review else ''))
 
 
-def _open(ctx, result):
-    cfg, state = ctx.cfg, ctx.state
+def _open(ctx, scan):
+    cfg, state, result = ctx.cfg, ctx.state, scan.result
     shown_cap = cfg.limit('max_locations_per_rule')
     unresolved = set(state.get('unresolved') or [])
 
@@ -289,7 +373,7 @@ def _open(ctx, result):
                    'anchored': fail['anchored'], 'findings': len(fail.get('locations') or []),
                    'blocking': fail['cmd'] in lint_cmds})
 
-    hits = [(rule, cands) for rule, cands in result.hits if not _quiet(ctx, rule)]
+    hits = _findings(ctx, scan)
 
     def is_repeat(cands):
         return any(c.key in unresolved for c in cands)
@@ -301,10 +385,11 @@ def _open(ctx, result):
     warns = warns[:cfg.limit('max_warn_rules')]
     infos = [(r, c) for r, c in hits if r['severity'] == 'info']
     repeats = {r['id'] for r, c in errors + warns if is_repeat(c)}
+    pending = list(scan.triage.pending) if scan.triage else []
 
     streak = int(state.get('consecutive_blocks', 0))
     capped = streak >= cfg.limit('max_consecutive_blocks')
-    has_blocking = bool(result.lint_blocking or errors)
+    has_blocking = bool(result.lint_blocking or errors or pending)
     blocking = has_blocking and not cfg.report_only and not capped
     shown = (errors + warns) if blocking else []
     shown_keys = {c.key for _, cands in shown for c in cands}
@@ -315,7 +400,8 @@ def _open(ctx, result):
                        'file': cand.file, 'line': cand.line, 'severity': rule['severity'],
                        'source': rule['source'], 'base_severity': rule.get('base_severity'),
                        'stacks': result.stacks.ids, 'shown': cand.key in shown_keys,
-                       'repeat': cand.key in unresolved, 'mode': cfg['mode']})
+                       'repeat': cand.key in unresolved, 'mode': cfg['mode'],
+                       'semantic': bool(rule['review'])})
 
     if not blocking:
         # the streak only resets on a turn with nothing to block: a turn the cap
@@ -323,14 +409,19 @@ def _open(ctx, result):
         if not has_blocking or cfg.report_only:
             state['consecutive_blocks'] = 0
         ctx.save()
+        why = 'mode=report' if cfg.report_only else 'cap'
+        for _rule, cand, _pack in pending:
+            ctx.event({'event': 'review_skipped', 'rule_id': cand.rule_id, 'key': cand.key,
+                       'file': cand.file, 'reason': why})
+        extra = ' / 판정 대기 후보 %d건' % len(pending) if pending else ''
         if capped and has_blocking:
-            return notice('convention-guard: error %d건 / 린트 실패 %d건 기록 '
+            return notice('convention-guard: error %d건 / 린트 실패 %d건%s 기록 '
                           '(연속 차단 %d회 상한에 걸려 차단하지 않았습니다)'
-                          % (len(errors), len(result.lint_blocking), streak))
+                          % (len(errors), len(result.lint_blocking), extra, streak))
         if cfg.report_only and has_blocking:
-            return notice('convention-guard: error %d건 / 린트 실패 %d건 기록 '
+            return notice('convention-guard: error %d건 / 린트 실패 %d건%s 기록 '
                           '(mode=report 라 차단하지 않았습니다)'
-                          % (len(errors), len(result.lint_blocking)))
+                          % (len(errors), len(result.lint_blocking), extra))
         parts = []
         if warns:
             parts.append('warn %d건 (%s)' % (len(warns), ', '.join(r['id'] for r, _ in warns)))
@@ -345,67 +436,29 @@ def _open(ctx, result):
     opened = {c.key: cyclelib.entry(r, c) for r, cands in shown for c in cands}
     for fail in result.lint_blocking:
         opened[cyclelib.lint_key(fail)] = cyclelib.lint_entry(fail)
-    cycle = cyclelib.new_cycle(ctx.prompt_id, opened, _current(ctx, result))
+    seen = set(_current(ctx, scan)) | {cand.key for _, cand, _ in pending}
+    cycle = cyclelib.new_cycle(ctx.prompt_id, opened, seen)
+    review = _request_review(ctx, cycle, pending, 'open') if pending else None
+    if not (opened or review):
+        ctx.save()
+        return None
     state['cycle'] = cycle
     state['unresolved'] = []
     state['consecutive_blocks'] = streak + 1
     state['blocks'] = int(state.get('blocks', 0)) + 1
     ctx.save()
     ctx.event({'event': 'block', 'cycle': cycle['id'], 'attempt': 0, 'kind': 'open',
-               'keys': sorted(opened)})
+               'keys': sorted(opened), 'review': bool(review)})
 
-    reason = report.hook_reason(result.lint_blocking, result.lint_notes, errors, warns, repeats)
-    summary = 'convention-guard: %s%s%s' % (
+    reason = report.hook_reason(result.lint_blocking, result.lint_notes, errors, warns, repeats,
+                                review=review)
+    summary = 'convention-guard: %s%s%s%s' % (
         '린트 실패 %d건 ' % len(result.lint_blocking) if result.lint_blocking else '',
         'error %d건 / warn %d건' % (len(errors), len(warns)),
-        ' / info %d건' % len(infos) if infos else '')
+        ' / info %d건' % len(infos) if infos else '',
+        ' / 심층 판정 %d건 요청' % len(review['items']) if review else '')
     return block(reason, summary)
 
 
 def _rank(rule):
     return {'error': 0, 'warn': 1, 'info': 2}.get(rule['severity'], 3)
-
-
-# ---------------------------------------------------------------- semantic gate
-
-def semantic_queue(payload):
-    """Gate for the optional `type: agent` Stop hook. Returns 'EMPTY' or JSON."""
-    if not isinstance(payload, dict):
-        return 'EMPTY'
-    root = git_toplevel(hook_project_dir(payload))
-    session = payload.get('session_id')
-    prompt_id = payload.get('prompt_id') or payload.get('turn_number')
-    cfg = configlib.load(root)
-    state = statelib.load(session, 'semantic')
-    if not cfg['semantic_review']['enabled']:
-        return 'EMPTY'
-    if prompt_id is not None and str(prompt_id) in state.get('reviewed_prompt_ids', []):
-        return 'EMPTY'
-    touched = statelib.read_touched(session)
-    if not touched:
-        return 'EMPTY'
-    try:
-        scope = ChangeScope.from_touched(
-            root, touched, gitdiff.resolve_base_ref(root, cfg['scope']['base_ref']))
-    except ScopeError:
-        return 'EMPTY'
-    if not scope:
-        return 'EMPTY'
-    result = pipeline.run(scope, cfg, run_lint=False)
-    reviewed = set(state.get('reviewed_rules') or [])
-    items = []
-    for rule, cands in result.semantic_hits:
-        if rule['id'] in reviewed:
-            continue
-        items.append({'rule_id': rule['id'], 'title': rule['title'],
-                      'severity': rule['severity'], 'question': rule['review']['instruction'],
-                      'candidates': [c.to_dict() for c in cands]})
-        if len(items) >= int(cfg['semantic_review']['max_candidates']):
-            break
-    if not items:
-        return 'EMPTY'
-    if prompt_id is not None:
-        state.setdefault('reviewed_prompt_ids', []).append(str(prompt_id))
-    state['reviewed_rules'] = sorted(reviewed | {i['rule_id'] for i in items})
-    statelib.save(session, state, 'semantic')
-    return json.dumps({'repo': root, 'items': items}, ensure_ascii=False, indent=2)

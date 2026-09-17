@@ -27,7 +27,6 @@ DEFAULT_STATE = {
     'cycle': None,             # the open verification cycle, if any (see cycle.py)
     'unresolved': [],          # candidate keys a closed cycle left unfixed
     'closed_in_continuation': False,
-    'verdicts': {},            # semantic review verdicts by review key
 }
 
 
@@ -103,23 +102,6 @@ def clear_touched(session_id, keep=()):
 
 
 # ---------------------------------------------------------------- housekeeping
-
-def remember_plugin_root():
-    """Leave the plugin's install path where a subagent can find it."""
-    root = os.environ.get('CLAUDE_PLUGIN_ROOT')
-    if not root:
-        return None
-    target = os.path.join(data_dir(), 'plugin-root')
-    try:
-        if os.path.isfile(target):
-            with open(target, 'r', encoding='utf-8') as fh:
-                if fh.read().strip() == root:
-                    return target
-        atomic_write(target, root)
-    except OSError:
-        return None
-    return target
-
 
 def gc_old_sessions(max_age_days=7):
     cutoff = time.time() - max_age_days * 86400

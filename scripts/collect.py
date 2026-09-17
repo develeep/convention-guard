@@ -11,13 +11,16 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import hooks, state  # noqa: E402
+from lib import hooks  # noqa: E402
 
 
 def main():
     try:
-        state.remember_plugin_root()
-        hooks.on_post_tool_use(json.load(sys.stdin))
+        payload = json.load(sys.stdin)
+    except Exception:
+        return 0            # not a hook payload; nothing to record
+    try:
+        hooks.on_post_tool_use(payload)
     except Exception as exc:  # a recording hook must never interrupt the agent
         print('[convention-guard] %s' % exc, file=sys.stderr)
     return 0
