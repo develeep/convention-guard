@@ -13,11 +13,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import (Session, check, make_repo, run_cases, write)  # noqa: E402
-from lib import engine, lint  # noqa: E402
+from lib import lint  # noqa: E402
+from lib.scope import ChangeScope  # noqa: E402
 
 
 def ctx_for(root, changed):
-    return engine.Context(root, changed, set(), set(), {})
+    return ChangeScope(root, changed, set(), 'test')
 
 
 def case_parsers():

@@ -23,25 +23,19 @@ rewritten line is a new decision. Omit `hash` to dismiss a rule for a whole
 file.
 """
 
-import hashlib
 import json
 import os
 import time
 
-from .paths import read_yaml
+from .candidate import fingerprint  # noqa: F401  (re-exported)
 from .rules import LOCAL_DIRNAME
+from .yamlio import read as read_yaml
 
 FILENAME = 'dismissed.yaml'
 
 
 def path(root):
     return os.path.join(root, LOCAL_DIRNAME, FILENAME)
-
-
-def fingerprint(snippet):
-    """Whitespace-insensitive fingerprint of the dismissed code."""
-    norm = ' '.join(str(snippet).split())
-    return hashlib.sha1(norm.encode('utf-8')).hexdigest()[:10]
 
 
 def load(root):
@@ -75,6 +69,13 @@ def load(root):
             keys.add((rule_id, relpath))
         kept.append(entry)
     return frozenset(keys), kept
+
+
+def predicate(keys):
+    """is_dismissed(rule_id, relpath, digest) over the keys load() returned."""
+    def is_dismissed(rule_id, relpath, digest):
+        return (rule_id, relpath) in keys or (rule_id, relpath, digest) in keys
+    return is_dismissed
 
 
 def _yaml_line(key, value):

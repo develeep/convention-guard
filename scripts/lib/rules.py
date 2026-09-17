@@ -15,7 +15,10 @@ without copy-pasting the regex. Repo-wide switches live in
 import os
 import re
 
-from .paths import plugin_root, project_dir, read_yaml
+import functools
+
+from .paths import plugin_root, project_dir
+from .yamlio import read as read_yaml
 from .stack import version_ok
 
 LOCAL_DIRNAME = os.path.join('.claude', 'convention-rules')
@@ -24,6 +27,7 @@ SEVERITIES = ('error', 'warn', 'info')
 
 # ---------------------------------------------------------------- globs
 
+@functools.lru_cache(maxsize=2048)
 def glob_re(pattern):
     out, i = ['(?s)\\A'], 0
     p = pattern.replace('\\', '/')
@@ -59,7 +63,7 @@ def glob_re(pattern):
     return re.compile(''.join(out))
 
 
-def _match_any(patterns, relpath):
+def match_any(patterns, relpath):
     for pat in patterns or []:
         if glob_re(pat).match(relpath):
             return True
@@ -74,7 +78,7 @@ def _iter_rule_files(base):
     for dirpath, dirnames, filenames in os.walk(base):
         dirnames[:] = [d for d in dirnames if not d.startswith('.')]
         for name in sorted(filenames):
-            if name in ('config.yaml', 'config.yml'):
+            if name in ('config.yaml', 'config.yml', 'dismissed.yaml', 'dismissed.yml'):
                 continue
             if name.endswith(('.yaml', '.yml')):
                 yield os.path.join(dirpath, name)
@@ -335,11 +339,11 @@ def stack_ok(rule, tags, versions):
 
 
 def applies(rule, relpath, tags, versions):
-    if _match_any(rule.get('repo_exclude'), relpath):
+    if match_any(rule.get('repo_exclude'), relpath):
         return False
-    if _match_any(rule.get('exclude'), relpath):
+    if match_any(rule.get('exclude'), relpath):
         return False
-    if rule.get('files') and not _match_any(rule['files'], relpath):
+    if rule.get('files') and not match_any(rule['files'], relpath):
         return False
     return stack_ok(rule, tags, versions)
 
@@ -414,3 +418,6 @@ def superseded(rule, root):
 
 def severity_rank(rule):
     return {'error': 0, 'warn': 1, 'info': 2}.get(rule['severity'], 3)
+
+
+_match_any = match_any  # pre-1.0 name

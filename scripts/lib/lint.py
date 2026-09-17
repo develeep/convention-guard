@@ -26,7 +26,7 @@ import shlex
 import shutil
 import subprocess
 
-from .rules import _match_any
+from .rules import match_any as _match_any
 
 MAX_OUTPUT = 3000
 UNIX_RE = re.compile(r'^(?P<file>[^\s:][^:]*):(?P<line>\d+)(?::\d+)?:\s*(?P<msg>.*)$')

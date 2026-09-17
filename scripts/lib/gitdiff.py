@@ -1,4 +1,4 @@
-"""Added lines only.
+"""Git primitives: added lines only.
 
 Checking whole files makes every rule fire on pre-existing code the moment a
 file is touched, which is how these systems get turned off in week two.
@@ -6,6 +6,9 @@ Only lines the diff marks as added are ever scanned.
 
 One `git diff` covers the whole touched set: a process per file is 20x slower
 for no benefit, and on Windows the spawn cost dominates everything else here.
+
+Every call runs with core.quotePath=false. The default C-quotes non-ASCII
+paths ("\\355\\225\\234.php"), and a quoted path matches no glob and no file.
 """
 
 import os
@@ -14,32 +17,59 @@ import subprocess
 
 HUNK = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@')
 SKIP_EXT = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.pdf', '.zip',
-            '.gz', '.tar', '.lock', '.woff', '.woff2', '.ttf', '.mp4', '.svg'}
+            '.gz', '.tar', '.lock', '.woff', '.woff2', '.ttf', '.mp4', '.svg',
+            '.jar', '.so', '.dll', '.exe', '.bin', '.pyc'}
+# Files past this size are generated or vendored far more often than written
+# by hand, and reading them whole on every Stop costs more than it finds.
 MAX_BYTES = 400_000
 # argv ceiling is generous everywhere we run, but a 500-file touch list with
 # long paths can still approach it, so the diff is chunked.
 CHUNK = 200
-DIFF_FLAGS = ['diff', '-U0', '--no-color', '--no-renames',
+DIFF_FLAGS = ['diff', '-U0', '--no-color', '--no-renames', '--no-ext-diff',
               '--src-prefix=a/', '--dst-prefix=b/']
+GIT_TIMEOUT = 30
 
 
-def _git(root, args, timeout=15):
+class GitError(Exception):
+    pass
+
+
+def git(root, args, timeout=GIT_TIMEOUT, stdin=None):
+    """(returncode, stdout, stderr). Never raises."""
     try:
-        proc = subprocess.run(['git'] + args, cwd=root, capture_output=True,
-                              text=True, errors='replace', timeout=timeout)
-        return proc.returncode, proc.stdout
-    except (OSError, subprocess.SubprocessError):
-        return 1, ''
+        proc = subprocess.run(['git', '-c', 'core.quotePath=false'] + list(args),
+                              cwd=root, capture_output=True, text=True,
+                              errors='replace', timeout=timeout, input=stdin)
+        return proc.returncode, proc.stdout, proc.stderr
+    except (OSError, subprocess.SubprocessError) as exc:
+        return 1, '', str(exc)
+
+
+def git_lines(root, args):
+    """stdout lines, or GitError with git's own message."""
+    code, out, err = git(root, args)
+    if code != 0:
+        raise GitError('git %s: %s' % (' '.join(args), (err or out).strip() or 'failed'))
+    return [line for line in out.splitlines() if line]
 
 
 def is_repo(root):
-    code, out = _git(root, ['rev-parse', '--is-inside-work-tree'])
+    code, out, _ = git(root, ['rev-parse', '--is-inside-work-tree'])
     return code == 0 and out.strip() == 'true'
 
 
+def ref_exists(root, ref):
+    code, _, _ = git(root, ['rev-parse', '--verify', '--quiet', ref + '^{commit}'])
+    return code == 0
+
+
 def untracked(root):
-    code, out = _git(root, ['ls-files', '--others', '--exclude-standard'])
+    code, out, _ = git(root, ['ls-files', '--others', '--exclude-standard'])
     return set(out.splitlines()) if code == 0 else set()
+
+
+def tracked(root):
+    return git_lines(root, ['ls-files'])
 
 
 def staged_added(root):
@@ -49,11 +79,9 @@ def staged_added(root):
     and an absence rule ("this new file has no namespace") must still treat it
     as new -- otherwise staging silently switches those rules off.
     """
-    code, out = _git(root, ['diff', '--cached', '--name-only',
-                            '--diff-filter=A', 'HEAD'])
+    code, out, _ = git(root, ['diff', '--cached', '--name-only', '--diff-filter=A', 'HEAD'])
     if code != 0:      # no HEAD yet: everything in the index is new
-        code, out = _git(root, ['diff', '--cached', '--name-only',
-                                '--diff-filter=A'])
+        code, out, _ = git(root, ['diff', '--cached', '--name-only', '--diff-filter=A'])
     return set(out.splitlines()) if code == 0 else set()
 
 
@@ -65,36 +93,38 @@ def new_files(root):
 def ignored(root, relpaths):
     if not relpaths:
         return set()
-    try:
-        proc = subprocess.run(['git', 'check-ignore', '--stdin'], cwd=root,
-                              input='\n'.join(relpaths), capture_output=True,
-                              text=True, errors='replace', timeout=15)
-        return set(proc.stdout.splitlines())
-    except (OSError, subprocess.SubprocessError):
-        return set()
+    code, out, _ = git(root, ['check-ignore', '--stdin'], stdin='\n'.join(relpaths))
+    return set(out.splitlines()) if code in (0, 1) else set()
 
 
-def _whole_file(root, relpath):
-    path = os.path.join(root, relpath)
+def scannable(root, rel):
+    if os.path.splitext(rel)[1].lower() in SKIP_EXT:
+        return False
+    path = os.path.join(root, rel)
     try:
-        if os.path.getsize(path) > MAX_BYTES:
-            return []
-        with open(path, 'r', encoding='utf-8', errors='replace') as fh:
-            return [(i + 1, line.rstrip('\n')) for i, line in enumerate(fh)]
+        return os.path.isfile(path) and os.path.getsize(path) <= MAX_BYTES
     except OSError:
-        return []
+        return False
 
 
 def read_text(root, relpath):
     """Whole current contents of a working-tree file, or '' if unreadable."""
-    path = os.path.join(root, relpath)
+    if not scannable(root, relpath):
+        return ''
     try:
-        if os.path.getsize(path) > MAX_BYTES:
-            return ''
-        with open(path, 'r', encoding='utf-8', errors='replace') as fh:
+        with open(os.path.join(root, relpath), 'r', encoding='utf-8', errors='replace') as fh:
             return fh.read()
     except OSError:
         return ''
+
+
+def read_lines(root, relpath):
+    """[(lineno, text)] for the whole file -- every line counts as added."""
+    text = read_text(root, relpath)
+    if not text:
+        return []
+    return [(i + 1, line.rstrip('\r')) for i, line in enumerate(text.split('\n'))
+            if not (i == text.count('\n') and line == '')]
 
 
 def _header_path(raw):
@@ -106,7 +136,7 @@ def _header_path(raw):
     return raw or None
 
 
-def _parse_diff(text):
+def parse_diff(text):
     """{relpath: [(lineno, added text)]} for a multi-file unified diff.
 
     The parser tracks whether it is inside a hunk before treating `+++`/`---`
@@ -130,16 +160,14 @@ def _parse_diff(text):
         if not in_hunk or cur is None:
             continue
         if line.startswith('+'):
-            out.setdefault(cur, []).append((lineno, line[1:]))
+            out.setdefault(cur, []).append((lineno, line[1:].rstrip('\r')))
             lineno += 1
-        elif line.startswith('-') or line.startswith('\\'):
-            continue
         elif line.startswith(' '):
             lineno += 1       # -U0 emits none, but stay in sync if it ever does
     return out
 
 
-def _merge(*groups):
+def merge(*groups):
     """Union added lines from several diffs. Line numbers all refer to the
     current working-tree file, so the earliest text for a line wins."""
     seen = {}
@@ -149,17 +177,23 @@ def _merge(*groups):
     return [(n, seen[n]) for n in sorted(seen)]
 
 
-def diff_lines(root, relpaths, diff_args):
-    """{relpath: [(lineno, text)]} from one batched `git diff` per chunk."""
+def diff_lines(root, relpaths, diff_args, strict=False):
+    """{relpath: [(lineno, text)]} from one batched `git diff` per chunk.
+
+    strict=True raises GitError instead of treating a failed diff as "no
+    change" -- a CI gate that reads a typo'd range as clean is worse than none.
+    """
     result = {}
     rels = [r for r in dict.fromkeys(relpaths) if r]
     for start in range(0, len(rels), CHUNK):
         chunk = rels[start:start + CHUNK]
-        code, out = _git(root, DIFF_FLAGS + list(diff_args) + ['--'] + chunk)
+        code, out, err = git(root, DIFF_FLAGS + list(diff_args) + ['--'] + chunk)
         if code != 0:
+            if strict:
+                raise GitError('git diff %s: %s' % (' '.join(diff_args), err.strip()))
             continue
-        for rel, lines in _parse_diff(out).items():
-            result[rel] = _merge(result.get(rel), lines)
+        for rel, lines in parse_diff(out).items():
+            result[rel] = merge(result.get(rel), lines)
     return result
 
 
@@ -180,30 +214,32 @@ def added_lines(root, relpaths, base_ref=None):
 
     diffable = []
     for rel in rels:
-        if rel in skipped:
-            continue
-        if os.path.splitext(rel)[1].lower() in SKIP_EXT:
-            continue
-        if not os.path.isfile(os.path.join(root, rel)):
+        if rel in skipped or not scannable(root, rel):
             continue
         if rel in fresh:
-            lines = _whole_file(root, rel)
+            lines = read_lines(root, rel)
             if lines:
                 result[rel] = lines
         else:
             diffable.append(rel)
 
-    refs = ['HEAD'] + ([base_ref] if base_ref else [])
+    has_head = ref_exists(root, 'HEAD')
+    refs = (['HEAD'] if has_head else []) + ([base_ref] if base_ref else [])
     for ref in refs:
         for rel, lines in diff_lines(root, diffable, [ref]).items():
-            result[rel] = _merge(result.get(rel), lines)
+            result[rel] = merge(result.get(rel), lines)
+    if not has_head:          # empty repo: staged files are all new
+        for rel in diffable:
+            lines = read_lines(root, rel)
+            if lines:
+                result[rel] = lines
     return {rel: lines for rel, lines in result.items() if lines}
 
 
 def default_branch(root):
     """The upstream default branch, asked rather than guessed: a stale local
     `master` next to a live `main` would otherwise pick the wrong base."""
-    code, out = _git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'])
+    code, out, _ = git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'])
     if code == 0 and out.strip():
         return out.strip().split('refs/remotes/')[-1]
     return None
@@ -214,12 +250,11 @@ def resolve_base_ref(root, configured):
     if not configured:
         return None
     if configured != 'auto':
-        code, _ = _git(root, ['rev-parse', '--verify', '--quiet', configured])
-        return configured if code == 0 else None
+        return configured if ref_exists(root, configured) else None
     candidates = [c for c in (default_branch(root),) if c]
     candidates += ['origin/main', 'origin/master', 'main', 'master']
     for candidate in candidates:
-        code, out = _git(root, ['merge-base', 'HEAD', candidate])
+        code, out, _ = git(root, ['merge-base', 'HEAD', candidate])
         if code == 0 and out.strip():
             return out.strip()
     return None

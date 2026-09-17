@@ -15,7 +15,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import ROOT, check, make_repo, run_cases, write  # noqa: E402
-from lib import engine, gitdiff, rules as rulelib, stack as stacklib  # noqa: E402
+from lib import detect, gitdiff, rules as rulelib, stack as stacklib  # noqa: E402
+from lib.scope import ChangeScope  # noqa: E402
 
 
 def case_own_config_is_not_content(tmp):
@@ -29,10 +30,9 @@ def case_own_config_is_not_content(tmp):
     detected = stacklib.detect(ROOT, tmp, forced=['next'])
     all_rules, _notes, _cfg = rulelib.load_all(tmp, root=ROOT)
     changed = gitdiff.added_lines(tmp, gitdiff.untracked(tmp), None)
-    ctx = engine.Context(tmp, changed, gitdiff.untracked(tmp) & set(changed),
-                         detected['tags'], detected['versions'])
-    offenders = [loc['file'] for hit in engine.collect(all_rules, ctx, 10)
-                 for loc in hit['locations'] if '.claude' in loc['file']]
+    scope = ChangeScope(tmp, changed, gitdiff.untracked(tmp) & set(changed), 'test')
+    hits = detect.run(all_rules, scope, detect.Stacks.from_detected(detected), 10)
+    offenders = [c.file for _, cands in hits for c in cands if '.claude' in c.file]
     check('own config is never scanned as content', not offenders, offenders)
 
 

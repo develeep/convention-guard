@@ -19,7 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib.paths import log_path  # noqa: E402
+from lib.log import log_path, read as read_log  # noqa: E402
 
 
 def load(path):
@@ -97,12 +97,13 @@ def verdict(entry):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--log', default=log_path())
+    parser.add_argument('--log', default=None, help='로그 경로 (기본: 플러그인 데이터 디렉터리)')
     parser.add_argument('--json', action='store_true')
     parser.add_argument('--min-fired', type=int, default=1)
     args = parser.parse_args()
 
-    rows = load(args.log)
+    args.log = args.log or log_path()
+    rows = read_log(args.log)
     if not rows:
         print('로그가 비어 있습니다: %s' % args.log)
         print('훅이 아직 돌지 않았거나 CLAUDE_PLUGIN_DATA 경로가 다릅니다.')

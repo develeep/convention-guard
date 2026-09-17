@@ -17,7 +17,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from lib import rules as rulelib  # noqa: E402
-from lib.paths import plugin_root, read_yaml  # noqa: E402
+from lib.paths import plugin_root  # noqa: E402
+from lib.yamlio import read as read_yaml  # noqa: E402
 
 GREEN, RED, YELLOW, RESET = '\033[32m', '\033[31m', '\033[33m', '\033[0m'
 if not sys.stdout.isatty():
@@ -52,9 +53,9 @@ def _matcher(kind, rule):
     if kind == 'paired':
         def check(sample):
             paths = [sample] if isinstance(sample, str) else list(sample)
-            if not any(rulelib._match_any(rule['when_changed'], p) for p in paths):
+            if not any(rulelib.match_any(rule['when_changed'], p) for p in paths):
                 return False
-            return not any(rulelib._match_any(rule['require_changed'], p)
+            return not any(rulelib.match_any(rule['require_changed'], p)
                            for p in paths)
         return check
     if kind == 'absent':
