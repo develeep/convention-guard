@@ -59,8 +59,10 @@ python3 ~/.claude/plugins/convention-guard/scripts/check.py --explain
 이 명령이 없으면 디버깅이 지옥이 됩니다.** 뭔가 이상하면 항상 여기부터 보세요.
 
 처음 도입하는 레포라면 `convention-setup` 스킬에 맡기세요. 스택·린터·레거시 규모를
-측정하고, **이 레포가 이미 지키는 컨벤션을 찾아 규칙을 추천하고**, `config.yaml` 과
-`AGENTS.md` 까지 씁니다 (아래 두 절).
+측정하고, 카탈로그 후보의 준수율을 재고, `config.yaml` 과 `AGENTS.md` 까지 씁니다.
+
+거기서 한 걸음 더 — **코드베이스 전체를 훑어 이 팀의 관습을 캐내 규칙과 문서로
+만드는 것**은 `convention-discover` 스킬입니다 (아래 [컨벤션 발굴 사이클](#컨벤션-발굴-사이클)).
 
 ## 규칙 2층 구조
 
@@ -162,6 +164,62 @@ python3 scripts/survey.py --adopt candidate/<id> --severity warn
 카탈로그에 없는 이 레포만의 관습은 `<repo>/.claude/convention-rules/candidates/` 에
 같은 형식으로 두면 똑같이 측정됩니다. 형식은 `candidates/README.md` 에 있습니다.
 에이전트가 발견한 것도 **숫자로 검증된 뒤에만** 목록에 오릅니다.
+
+### 가설 하나만 즉석 측정 — `--probe`
+
+카탈로그에 없는 관습을 발견했을 때, 후보 파일을 쓰기 전에 숫자만 먼저 봅니다.
+아무것도 쓰지 않고 훅과 같은 엔진·같은 판정을 씁니다.
+
+```bash
+python3 scripts/survey.py \
+  --probe '\b[A-Z]\w+::(where|find|create)\s*\(' \
+  --conforming '\$this->\w*(service|repository)\w*->' \
+  --files 'app/Http/Controllers/**/*.php'
+```
+
+```
+준수 4 / 위반 1  (대상 5개)   준수율 80%   추천
+  위반 app/Http/Controllers/Legacy.php:4  return Order::where("user_id", $id)->get();
+  준수 app/Http/Controllers/C0.php
+```
+
+`--kind file`(여러 줄 패턴), `--flags i`, `--exclude 'legacy/**'`, `--examples 20`.
+**`--conforming` 은 필수입니다** — 정상 패턴이 없으면 준수율을 셀 수 없고, 준수율이
+없으면 컨벤션인지 취향인지 구분할 방법이 없습니다.
+
+측정을 통과한 것만 후보 파일로 옮기세요. 후보를 거치는 이유는 그래야 **측정이 재현**
+되고, 다음 사람이 같은 숫자를 다시 볼 수 있기 때문입니다.
+
+## 컨벤션 발굴 사이클
+
+공통 규칙 + 카탈로그 후보로도 안 담기는 것이 팀마다 있습니다. 사내 네이밍, 자체
+헬퍼 사용법, 레이어 방향, 에러 처리 전략 — 그건 코드를 읽어야 나옵니다.
+`convention-discover` 스킬이 그 한 사이클을 돕니다.
+
+```
+1. 구조 파악   지식 그래프(codebase-memory 류)가 있으면 질의로, 없으면 git census 로
+2. 슬라이스    레이어×스택으로 나눠 대표 파일 3~5개만 읽기 (서브에이전트 병렬)
+3. 측정        가설마다 survey.py --probe. 3개 파일 미만 반복은 컨벤션이 아님
+4. 후보·규칙   통과한 것만 candidates/ → survey.py --adopt → test_rules.py
+5. 주입        emit_rules.py --agents-md --include local --budget 0
+6. 문서        정규식이 못 잡는 것은 관리 블록 밖(사람 소유)에 근거 숫자와 함께
+```
+
+5번에서 **훅과 중복되는 것을 허용합니다.** 컨텍스트는 예방이고 훅은 검출인데, 측정으로
+확인된 레포 규칙은 개수가 레포의 실제 관습만큼으로 묶여 있어 목록이 무한정 길어지지
+않습니다. 중복 비용은 한 줄, 누락 비용은 되돌리는 작업입니다.
+
+| `--include` | 넣는 것 |
+|---|---|
+| `preventive` (기본) | `semantic` + `in_context: true` — 검출이 어렵고 예방이 싼 것 |
+| `local` | 위 + **이 레포에서 채택한 규칙 전부** (`convention-discover` 의 기본값) |
+| `all` | 적용되는 모든 규칙. 팀이 공통 규칙조차 처음 볼 때만 |
+
+`--budget 0` 은 그룹당 상한(기본 12개)을 해제합니다.
+
+발굴 과정에서 만든 코드베이스 지도는 `<repo>/.claude/convention-rules/codebase-map.md`
+에 남습니다. 규칙 로더는 `.yaml` 만 읽고 이 경로는 스캔 대상에서도 제외되므로,
+문서가 자기 자신을 지적하는 일은 없습니다.
 
 ## 규칙 파일 형식
 
@@ -568,6 +626,11 @@ python3 scripts/emit_rules.py            # .claude/rules/ 에 생성
 내보내는 대상은 `semantic` 규칙(정규식 판정 불가라 예방이 유일한 수단)과
 `in_context: true` 로 표시한 소수뿐입니다. 기본 예산은 파일당 12개입니다.
 
+예외는 `--include local` 입니다. 측정으로 채택한 레포 규칙(`local/**`)은 발명한 규칙이
+아니라 **코드가 이미 하고 있는 것**이라 목록 길이가 레포의 실제 관습만큼으로 묶여
+있습니다. 거기서는 훅과의 중복을 허용합니다 — 자세한 것은
+[컨벤션 발굴 사이클](#컨벤션-발굴-사이클).
+
 ### paths 스코핑
 
 `.claude/rules/*.md` 는 `paths:` 프론트매터를 지원해서 **해당 파일을 읽을 때만**
@@ -755,22 +818,24 @@ python3 -m compileall -q scripts       # 문법
 3. 태그 푸시
 4. 설치한 쪽에서 `/plugin marketplace update develeep-convention-guard`
 
-## 함께 오는 스킬 4개
+## 함께 오는 스킬 5개
 
 플러그인에 번들되어 있어 설치하면 바로 뜹니다.
 
 | 스킬 | 언제 | 하는 일 |
 |---|---|---|
-| `convention-setup` | 새 레포에 도입할 때 | 스택·린터·레거시 규모를 측정하고, 전수조사로 규칙을 추천해 고른 것만 채택하고, `config.yaml` 과 `AGENTS.md` 작성 |
+| `convention-setup` | 새 레포에 도입할 때 | 스택·린터·레거시 규모를 측정하고, 카탈로그 후보를 재서 고른 것만 채택하고, `config.yaml` 과 `AGENTS.md` 작성 |
+| `convention-discover` | 팀 관습이 규칙에 하나도 안 담겼을 때 | 코드베이스를 슬라이스로 훑어 관습을 찾고, `--probe` 로 준수율을 재고, 통과한 것만 규칙·`AGENTS.md`·`codebase-map.md` 로 |
 | `convention-check` | 커밋·PR 직전 | 훅 없이 지금 검사. 오탐은 걸러 `dismiss.py` 로 기록 |
 | `rule-add` | 리뷰 지적이 반복될 때 | 트리거 종류를 고르고 정규식·픽스처를 짜서 테스트까지 |
 | `rule-tune` | 2~3주에 한 번 | 로그의 수정률·기각 수로 오탐 규칙을 찾아 좁히거나 승격·삭제 |
 
-`convention-setup` 은 규칙 추천(`survey.py`)과 문서 생성(`emit_rules.py --agents-md`)까지
-한 사이클로 처리합니다.
+`setup` 과 `discover` 의 경계는 명확합니다. **`setup` 은 이 레포에 맞게 켜는 일**이고,
+**`discover` 는 이 레포의 컨벤션을 코드에서 캐내는 일**입니다. 셋업 없이 발굴하면
+스택 감지가 틀린 상태로 측정하게 되므로 순서가 있습니다.
 
-네 개가 한 사이클입니다. `setup` 으로 켜고 → `check` 로 확인하며 쓰고 →
-리뷰에서 나온 것을 `add` 로 규칙화하고 → `tune` 으로 쓸모없는 것을 걷어냅니다.
+`setup` 으로 켜고 → `discover` 로 팀 관습을 규칙·문서로 만들고 → `check` 로 확인하며
+쓰고 → 리뷰에서 나온 것을 `add` 로 규칙화하고 → `tune` 으로 쓸모없는 것을 걷어냅니다.
 
 ## 훅 없이 실행하기
 
@@ -798,9 +863,11 @@ Stop 훅과 **같은 엔진**(`lib/engine.py`)을 씁니다. 수동 실행과 �
 D=~/.claude/plugins/convention-guard/scripts
 
 python3 "$D/survey.py"                    # 규칙 후보 추천
+python3 "$D/survey.py" --probe '<위반>' --conforming '<정상>' --files '<글롭>'
 python3 "$D/dismiss.py" --list            # 기각 기록
 python3 "$D/log_report.py"                # 규칙 건강도
 python3 "$D/emit_rules.py" --agents-md    # AGENTS.md 갱신
+python3 "$D/emit_rules.py" --agents-md --include local --budget 0   # 채택 규칙까지 전부
 python3 "$D/check.py" --explain           # 무엇이 켜져 있는지
 ```
 

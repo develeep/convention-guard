@@ -119,8 +119,64 @@ def case_follows_repo_eol(tmp):
           repr(agents[:80]))
 
 
+LOCAL_RULE = """id: local-service-returns-dto
+title: 서비스는 DTO 를 반환한다
+severity: warn
+applies_to:
+  stack: ["*"]
+  files: ["app/**/*.php"]
+triggers:
+  code_regex: ':\\s*array\\b'
+context_injection: |
+  서비스가 배열을 반환하고 있습니다. 이 레포는 DTO 를 반환합니다.
+  호출부가 키 철자에 의존하지 않도록 DTO 로 감싸세요.
+"""
+
+
+def adopt_local_rule(tmp):
+    base = os.path.join(tmp, '.claude', 'convention-rules')
+    os.makedirs(base, exist_ok=True)
+    with open(os.path.join(base, 'local-service-returns-dto.yaml'), 'w',
+              encoding='utf-8') as fh:
+        fh.write(LOCAL_RULE)
+
+
+def case_include_local(tmp):
+    print('case_include_local:')
+    make_repo(tmp)
+    adopt_local_rule(tmp)
+
+    emit(tmp, '--agents-md')
+    check('기본 모드는 채택 규칙을 넣지 않음 (훅이 잡는다)',
+          '서비스는 DTO' not in (read(tmp, 'AGENTS.md') or ''),
+          read(tmp, 'AGENTS.md'))
+
+    emit(tmp, '--agents-md', '--include', 'local')
+    agents = read(tmp, 'AGENTS.md') or ''
+    check('--include local 은 채택 규칙을 넣음', '서비스는 DTO' in agents, agents)
+    # a context_injection is a wrapped block scalar: taking only its first
+    # line cuts the advice mid-sentence and the agent has to guess the rest
+    check('여러 줄 설명이 문장 단위로 들어감',
+          'DTO 로 감싸세요' in agents, agents)
+    check('관리 블록은 여전히 하나', agents.count(END) == 1, agents)
+
+
+def case_budget_zero(tmp):
+    print('case_budget_zero:')
+    make_repo(tmp)
+    emit(tmp, '--agents-md', '--include', 'all', '--budget', '1')
+    capped = read(tmp, 'AGENTS.md') or ''
+    check('예산을 넘으면 생략을 알림', '생략됨' in capped, capped)
+
+    emit(tmp, '--agents-md', '--include', 'all', '--budget', '0')
+    full = read(tmp, 'AGENTS.md') or ''
+    bullets = [l for l in full.split('\n') if l.startswith('- ')]
+    check('--budget 0 은 상한 해제 (0개가 아니라 전부)',
+          len(bullets) > 12 and '생략됨' not in full, len(bullets))
+
+
 CASES = [case_fresh_repo, case_preserves_human_text, case_existing_manual_import,
-         case_follows_repo_eol]
+         case_follows_repo_eol, case_include_local, case_budget_zero]
 
 
 def main():

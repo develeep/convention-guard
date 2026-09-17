@@ -12,14 +12,22 @@ ignored, and the hook was already going to catch those. So only rules where
 *detection is hard but prevention is cheap* are emitted -- semantic rules by
 default, plus anything marked `in_context: true`.
 
+`--include` widens that on purpose. Rules this repo *measured and adopted*
+(`local/**`, via survey.py) are a different case: they describe what the code
+already does, the list is as long as the repo's own conventions and no longer,
+and stating them up front costs one line each. Overlapping with the hook there
+is the point -- prevention before detection.
+
 `.claude/rules/*.md` supports `paths:` frontmatter, so each generated file is
 scoped to the globs its rules apply to. A Laravel file only enters context when
 Claude actually touches PHP.
 
-    python3 emit_rules.py                 # .claude/rules/ 에 쓰기
-    python3 emit_rules.py --stdout        # 미리보기
-    python3 emit_rules.py --claude-md     # CLAUDE.md 관리 블록으로
-    python3 emit_rules.py --hook          # SessionStart 훅 JSON 으로
+    python3 emit_rules.py                    # .claude/rules/ 에 쓰기
+    python3 emit_rules.py --stdout           # 미리보기
+    python3 emit_rules.py --agents-md        # AGENTS.md + CLAUDE.md import
+    python3 emit_rules.py --claude-md        # CLAUDE.md 관리 블록으로
+    python3 emit_rules.py --hook             # SessionStart 훅 JSON 으로
+    python3 emit_rules.py --include local    # 채택한 레포 규칙까지 전부
 """
 
 import argparse
@@ -38,6 +46,18 @@ END = '<!-- convention-guard:end -->'
 HEADINGS = {
     'common': '공통', 'php': 'PHP', 'js': 'JavaScript / TypeScript',
     'go': 'Go', 'local': '이 레포 전용', 'user': '개인',
+}
+# the heading says what the list is; the preamble says why it is this short --
+# and that answer changes with --include, so it cannot be one sentence
+PREAMBLES = {
+    'preventive': '기계적으로 판정되는 나머지 규칙은 작업 완료 시점에 훅이 검사하므로 여기 '
+                  '적지 않습니다. 아래는 나중에 잡기 어렵거나, 잡혔을 때 되돌리는 비용이 '
+                  '큰 것들입니다.',
+    'local': '아래는 이 레포에서 측정으로 확인한 컨벤션과, 예방이 싼 규칙들입니다. 훅이 '
+             '완료 시점에 같은 것을 다시 검사합니다 — 중복이지만 쓰기 전에 아는 편이 '
+             '되돌리는 것보다 쌉니다.',
+    'all': '아래는 이 레포에 적용되는 규칙 전부입니다. 훅이 완료 시점에 같은 것을 다시 '
+           '검사하므로, 여기서는 예방만 담당합니다.',
 }
 
 
@@ -62,18 +82,49 @@ def should_emit(rule):
     return rule.get('kind') == 'semantic'
 
 
+INCLUDE_MODES = ('preventive', 'local', 'all')
+
+
+def wanted(rule, mode):
+    """Which rules reach the context, per --include.
+
+    `local` exists because an adopted rule is not a guess: survey.py measured
+    the repo before it was written, so the list is bounded by the repo's real
+    conventions. `all` is the deliberate override -- everything applicable,
+    hook overlap included.
+    """
+    if mode == 'all':
+        return True
+    if mode == 'local' and group_of(rule) == 'local':
+        return rule.get('in_context') is not False
+    return should_emit(rule)
+
+
 def one_line(rule):
+    """One line per rule, and a whole sentence.
+
+    `context_injection` is a wrapped block scalar, so its first *line* usually
+    ends mid-sentence. Taking the first paragraph and collapsing it keeps the
+    advice complete; truncated advice reads like a generator bug and the agent
+    has to guess the rest.
+    """
     if rule.get('context_line'):
         return rule['context_line']
     body = rule.get('injection') or rule.get('review_prompt') or ''
+    picked = []
     for line in body.split('\n'):
-        line = line.strip().lstrip('-').strip()
-        if line and not line.startswith(('예)', '- ')):
-            return re.sub(r'\s+', ' ', line)
-    return rule['title']
+        line = line.strip()
+        if not line or line.startswith(('예)', '- ', '* ')):
+            if picked:            # the paragraph ended; examples stay out
+                break
+            continue
+        picked.append(line.lstrip('-').strip())
+    if not picked:
+        return rule['title']
+    return re.sub(r'\s+', ' ', ' '.join(picked))
 
 
-def render(group, rules, paths, budget):
+def render(group, rules, paths, budget, preamble=None):
     out = []
     if paths:
         out.append('---')
@@ -85,9 +136,9 @@ def render(group, rules, paths, budget):
     out.append('')
     out.append('# %s 컨벤션 — 쓰기 전에 알아야 할 것' % HEADINGS.get(group, group))
     out.append('')
-    out.append('기계적으로 판정되는 나머지 규칙은 작업 완료 시점에 훅이 검사하므로 여기 적지 '
-               '않습니다. 아래는 나중에 잡기 어렵거나, 잡혔을 때 되돌리는 비용이 큰 것들입니다.')
-    out.append('')
+    if preamble:
+        out.append(preamble)
+        out.append('')
     for rule in rules[:budget]:
         # a hand-written context_line is already imperative; a title is a
         # violation name and reads wrong as prevention
@@ -179,9 +230,11 @@ def main():
                         help='파일 대신 CLAUDE.md 안의 관리 블록으로')
     parser.add_argument('--hook', action='store_true',
                         help='SessionStart 훅용 JSON 출력')
-    parser.add_argument('--budget', type=int, default=12, help='파일당 규칙 상한')
-    parser.add_argument('--all-severities', action='store_true',
-                        help='in_context 표시와 무관하게 error 규칙까지 포함')
+    parser.add_argument('--budget', type=int, default=12,
+                        help='파일당 규칙 상한 (0 = 무제한)')
+    parser.add_argument('--include', choices=INCLUDE_MODES, default='preventive',
+                        help='preventive: semantic·in_context 만 (기본) / '
+                             'local: 채택한 레포 규칙까지 / all: 적용되는 규칙 전부')
     parser.add_argument('--cwd')
     args = parser.parse_args()
 
@@ -199,14 +252,19 @@ def main():
         stack = rule.get('stack') or []
         if stack and '*' not in stack and not (set(stack) & tags):
             continue
-        if should_emit(rule) or (args.all_severities and rule['severity'] == 'error'):
+        if wanted(rule, args.include):
             picked.append(rule)
 
     if not picked:
         msg = ('컨텍스트에 넣을 규칙이 없습니다. semantic 규칙을 만들거나 '
-               '규칙에 in_context: true 를 붙이세요.')
+               '규칙에 in_context: true 를 붙이세요. 이 레포에서 채택한 규칙을 '
+               '전부 넣으려면 --include local 을 쓰세요.')
         print(json.dumps({}) if args.hook else msg)
         return 0
+
+    budget = args.budget if args.budget > 0 else len(picked)
+    preamble = PREAMBLES.get(args.include, PREAMBLES['preventive'])
+    single_doc = bool(args.claude_md or args.agents_md)
 
     groups = {}
     for rule in sorted(picked, key=lambda r: (rulelib.severity_rank(r), r['id'])):
@@ -222,7 +280,10 @@ def main():
             for pattern in rule['files']:
                 if pattern not in paths:
                     paths.append(pattern)
-        blocks[group] = render(group, rules, paths, args.budget)
+        # one document repeats one preamble per group for no reason; it goes
+        # once at the top there instead
+        blocks[group] = render(group, rules, paths, budget,
+                               preamble=None if single_doc else preamble)
 
     if args.hook:
         text = '\n'.join(b.split(END)[0].split(BEGIN)[-1].strip()
@@ -232,18 +293,18 @@ def main():
             'additionalContext': text}}, ensure_ascii=False))
         return 0
 
-    if args.claude_md or args.agents_md:
+    if single_doc:
         # One flat list, no path scoping: every line here loads in every
         # session. That is the trade for a single file the whole team -- and
         # every other agent tool -- can read in review.
         parts = []
-        for block in blocks.values():
-            body = block.split(BEGIN, 1)[-1].split(END)[0].strip()
+        for group_block in blocks.values():
+            body = group_block.split(BEGIN, 1)[-1].split(END)[0].strip()
             if body:
-                # one document, so the group titles are sections under the
-                # project's own H1, not H1s of their own
+                # the group titles become sections under the project's own H1
                 parts.append(re.sub(r'(?m)^# ', '## ', body))
-        block = '%s\n\n%s\n\n%s\n' % (BEGIN, '\n\n'.join(parts), END)
+        block = '%s\n\n%s\n\n%s\n\n%s\n' % (BEGIN, preamble,
+                                            '\n\n'.join(parts), END)
         if args.stdout:
             print(block)
             return 0

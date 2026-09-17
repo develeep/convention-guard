@@ -9,6 +9,11 @@ description: 이 레포에 맞는 convention-guard 설정을 만듭니다. 레�
 **도입 첫날의 목표는 규칙을 많이 켜는 게 아니라, 걸리는 것이 전부 진짜이게 만드는 것**입니다.
 그래야 에이전트가 reason 을 진지하게 읽습니다.
 
+**이 스킬의 범위는 "이 레포에 맞게 켜는 것" 까지입니다.** 코드베이스 전체를 훑어
+팀 관습을 발굴하고 그걸 규칙·문서로 만드는 일은 `convention-discover` 가 합니다.
+여기서는 카탈로그 후보를 재는 데까지만 하고(5-1), 사용자가 "우리 코드 컨벤션을
+뽑아달라"고 하면 셋업을 끝낸 뒤 그 스킬로 넘기세요.
+
 ## 1. 현재 상태 파악 (추측하지 말고 실행할 것)
 
 ```bash
@@ -160,18 +165,19 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --rule local/ --no-color
 
 ### 카탈로그에 없는 이 레포만의 컨벤션
 
-`survey.py` 는 플러그인 카탈로그(`candidates/**`)를 잽니다. 레포를 훑다가 카탈로그에
-없는 관습을 발견했다면 — 사내 네이밍, 자체 헬퍼 사용법, 팀 전용 에러 처리 —
-후보 파일을 직접 써서 같은 방식으로 **측정한 뒤에만** 제안하세요.
+`survey.py` 는 플러그인 카탈로그(`candidates/**`)를 잽니다. 사내 네이밍, 자체 헬퍼
+사용법, 팀 전용 에러 처리처럼 카탈로그에 없는 관습은 **`convention-discover` 의
+일**입니다. 코드베이스를 슬라이스로 나눠 훑고, 가설마다 준수율을 재고, 통과한 것만
+후보·규칙·문서로 만드는 한 사이클이 거기 있습니다.
 
-```
-<repo>/.claude/convention-rules/candidates/<id>.yaml
-```
+셋업 중에 관습이 눈에 띄었다면 목록으로만 적어 사용자에게 전달하고, 규칙은 만들지
+마세요. **"그렇게 보였다"로 만든 규칙이 오탐의 출처입니다** — 숫자가 먼저입니다.
 
-형식은 `${CLAUDE_PLUGIN_ROOT}/candidates/README.md` 에 있습니다. `probe.conforming`
-(정상 패턴)과 `tests` 픽스처가 필수입니다. 쓴 다음 `survey.py` 를 다시 돌려 준수율이
-실제로 높게 나오는지 확인하세요. **"그렇게 보였다"로 규칙을 만들지 마세요 —
-숫자가 없으면 제안하지 않는 게 맞습니다.**
+```bash
+# 가설 하나를 지금 당장 재보고 싶을 때 (아무것도 쓰지 않습니다)
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/survey.py" \
+  --probe '<위반 정규식>' --conforming '<정상 정규식>' --files '<대상 글롭>'
+```
 
 ## 6. 검증하고 설명하기
 
@@ -205,6 +211,14 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/emit_rules.py"            # .claude/rules
 **전체 규칙을 넣지 마세요.** 기계가 판정할 수 있는 것은 훅이 잡습니다. 컨텍스트에 넣을 것은
 `semantic` 규칙(정규식으로 판정 불가)과 `in_context: true` 로 표시한 소수뿐이고,
 기본 예산은 파일당 12개입니다. 목록이 길어지면 묻힙니다.
+
+예외는 5-1 에서 **채택한 규칙**입니다. 그건 측정으로 확인한 이 레포의 컨벤션이라
+개수가 레포의 실제 관습만큼으로 묶여 있습니다. 훅과 중복돼도 예방 쪽이 이득이니
+`--include local` 로 함께 내보내세요 (`--budget 0` 은 그룹당 상한 해제).
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/emit_rules.py" --include local --budget 0
+```
 
 생성물은 커밋하세요. 팀원 리뷰 대상이고, 플러그인을 안 쓰는 사람에게도 문서가 됩니다.
 관리 블록(`<!-- convention-guard:begin -->`) 밖의 수기 내용은 재생성해도 보존됩니다.
@@ -256,3 +270,5 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/emit_rules.py" --agents-md           # �
 4. 예방 규칙만 `.claude/rules/` 로 내보내기 (5~10개, 그 이상은 묻힙니다)
 5. `AGENTS.md` 는 200줄 아래로 유지
 6. `rule-tune` 스킬로 수정률을 본 뒤 건강한 규칙만 `error` 로 승격
+7. 팀 관습을 제대로 캐려면 `convention-discover` — 코드베이스를 훑어 측정하고
+   규칙·문서까지 한 사이클로 돕니다. 셋업이 끝난 뒤에 돌리세요

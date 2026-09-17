@@ -185,6 +185,37 @@ def case_cli(tmp):
     check('없는 후보를 채택하려 하면 실패', proc.returncode == 2, proc.stdout)
 
 
+def case_probe(tmp):
+    print('case_probe:')
+    make_repo(tmp, 4, 1)
+    # the promise of --probe is "same engine, same verdict, nothing written".
+    # If it counted differently from a candidate file, the number an agent
+    # decides on would not be the number the rule later produces.
+    cand = surveylib.build_probe(r'\b[A-Z]\w+::(where|find)\s*\(',
+                                 r'\$this->\w*[sS]ervice\w*->',
+                                 ['app/**/*.php'])
+    row = surveylib.probe(cand, tmp)['row']
+    check('후보 파일 없이 같은 숫자',
+          (row['conforming'], row['violating']) == (4, 1), row)
+    check('같은 판정', row['verdict'] == 'recommend', row)
+    check('아무것도 쓰지 않음',
+          not os.path.exists(os.path.join(tmp, rulelib.LOCAL_DIRNAME)),
+          os.listdir(tmp))
+
+    multi = surveylib.build_probe(r'class \w+ \{\n', r'\$this->', ['app/**/*.php'],
+                                  kind='file')
+    check('--kind file 은 다줄 트리거로 컴파일', multi['kind'] == 'file', multi['kind'])
+
+    env = dict(os.environ, CLAUDE_PLUGIN_ROOT=ROOT, CLAUDE_PROJECT_DIR=tmp)
+    script = os.path.join(ROOT, 'scripts', 'survey.py')
+    proc = subprocess.run(['python3', script, '--probe', r'Order::'], cwd=tmp,
+                          capture_output=True, text=True, env=env)
+    check('정상 패턴 없이는 측정 거부', proc.returncode == 2, proc.stderr[:200])
+    proc = subprocess.run(['python3', script, '--probe', '[', '--conforming', 'x'],
+                          cwd=tmp, capture_output=True, text=True, env=env)
+    check('깨진 정규식은 오류로 끝남', proc.returncode == 2, proc.stderr[:200])
+
+
 def case_candidate_is_not_a_rule(tmp):
     print('case_candidate_is_not_a_rule:')
     make_repo(tmp, 4, 1)
@@ -210,7 +241,8 @@ def case_candidate_is_not_a_rule(tmp):
           row)
 
 
-CASES = [case_verdicts, case_adopt, case_cli, case_candidate_is_not_a_rule]
+CASES = [case_verdicts, case_adopt, case_cli, case_probe,
+         case_candidate_is_not_a_rule]
 
 
 def main():
