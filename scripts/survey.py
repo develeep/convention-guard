@@ -13,16 +13,9 @@
     python3 survey.py --adopt local-id ...  # 골라서 레포 규칙으로 승격
     python3 survey.py --adopt <id> --severity error
 
-    # 후보 파일을 쓰기 전에 가설 하나만 즉석 측정
-    python3 survey.py --probe '<위반>' --conforming '<정상>' --files 'app/**/*.php'
-
 `--adopt` 는 후보 파일에서 카탈로그 전용 키(`probe`/`rationale`/`covered_by`)를 떼고
 `<repo>/.claude/convention-rules/` 에 씁니다. 그대로 규칙이 되므로 픽스처도 함께
 따라가고, 바로 `test_rules.py` 로 검증됩니다.
-
-`--probe` 는 아무것도 쓰지 않고 같은 엔진·같은 판정으로 숫자만 냅니다. 레포를 훑다
-발견한 관습을 후보 파일로 만들기 전에 거르는 용도입니다 — 인상은 규칙이 될 수 없고,
-세어보지 않은 관습은 오탐이 됩니다.
 """
 
 import argparse
@@ -134,7 +127,7 @@ def build_context(root, files, tags, versions):
     return engine.Context(root, changed, set(changed), tags, versions)
 
 
-def measure(cand, ctx, active_rule_ids, cap=200, examples=3):
+def measure(cand, ctx, active_rule_ids, cap=200):
     applicable = [f for f in ctx.files()
                   if rulelib.applies(cand, f, ctx.tags, ctx.versions)]
     locations = engine.scan(cand, ctx, cap)
@@ -189,8 +182,8 @@ def measure(cand, ctx, active_rule_ids, cap=200, examples=3):
         'verdict': verdict,
         'suggested_severity': 'error' if verdict == 'already' else 'warn',
         'examples': [{'file': loc['file'], 'line': loc['line'],
-                      'snippet': loc['snippet']} for loc in locations[:examples]],
-        'conforming_examples': conforming[:examples],
+                      'snippet': loc['snippet']} for loc in locations[:3]],
+        'conforming_examples': conforming[:3],
     }
 
 
@@ -222,97 +215,6 @@ def survey(cwd=None, dirs=None, limit=MAX_FILES):
         'rows': rows,
         'notes': notes,
     }, candidates
-
-
-# ---------------------------------------------------------------- probing
-
-PROBE_TRIGGERS = {'line': 'code_regex', 'file': 'file_regex'}
-
-
-def build_probe(violating, conforming, files=None, exclude=None,
-                kind='line', flags=''):
-    """A candidate that lives only for this one command.
-
-    Writing a YAML file per hunch is too slow to iterate on, and a hunch that
-    was never counted has no business becoming a rule. So the regex pair goes
-    through the same normalization, the same engine and the same verdicts as
-    the catalog -- the only difference is that nothing is persisted.
-    """
-    raw = {
-        'id': 'probe/adhoc',
-        'title': '즉석 측정',
-        'severity': 'warn',
-        'applies_to': {'stack': ['*'], 'files': list(files or []),
-                       'exclude': list(exclude or [])},
-        'triggers': {PROBE_TRIGGERS[kind]: violating, 'flags': flags},
-    }
-    cand = rulelib._normalize(raw, '<probe>', 'probe')
-    cand['kind'] = rulelib._compile(cand)
-    cand['compiled_conforming'] = re.compile(
-        conforming, re.M | (re.I if 'i' in str(flags) else 0))
-    cand.update({
-        'catalog_source': 'probe',
-        'bare_id': 'adhoc',
-        'adopted_id': '',       # nothing to collide with: this is not a rule
-        'rationale': '',
-        'covered_by': None,
-        'repo_exclude': [],
-    })
-    return cand
-
-
-def probe(cand, cwd=None, limit=MAX_FILES, examples=8):
-    root = project_dir(cwd)
-    repo_cfg = rulelib.load_repo_config(cwd) or {}
-    detected = stacklib.detect(plugin_root(), cwd, forced=repo_cfg.get('stacks'))
-    all_rules, rule_notes, _cfg = rulelib.load_all(cwd)
-    active = {r['id'] for r in all_rules}
-    repo_exclude = (all_rules[0].get('repo_exclude') if all_rules else None) or []
-
-    files, matched_total = tracked_files(root, [cand], repo_exclude, limit)
-    ctx = build_context(root, files, detected['tags'], detected['versions'])
-    return {
-        'root': root,
-        'stacks': detected['stacks'],
-        'files_scanned': len(files),
-        'files_truncated': max(0, matched_total - len(files)),
-        'row': measure(cand, ctx, active, examples=examples),
-        'notes': [n for n in rule_notes if n[0] == 'error'],
-    }
-
-
-def render_probe(report):
-    row = report['row']
-    ratio = ('%.0f%%' % (row['adherence'] * 100)
-             if row['adherence'] is not None else '-')
-    out = ['convention-guard 즉석 측정',
-           '%s  |  스택: %s  |  파일 %d개 조사'
-           % (report['root'], ', '.join(report['stacks']) or '감지 실패',
-              report['files_scanned']),
-           '']
-    if report['files_truncated']:
-        out.append('(파일 %d개는 상한을 넘어 제외 — --max-files 로 조정)'
-                   % report['files_truncated'])
-    out.append('준수 %d / 위반 %d  (대상 %d개)   준수율 %s   %s'
-               % (row['conforming'], row['violating'], row['scanned'],
-                  ratio, VERDICT_TEXT[row['verdict']]))
-    out.append('')
-    for ex in row['examples']:
-        out.append('  위반 %s:%d  %s' % (ex['file'], ex['line'], ex['snippet']))
-    for rel in row['conforming_examples']:
-        out.append('  준수 %s' % rel)
-    out.append('')
-    if row['verdict'] in ('already', 'recommend'):
-        out.append('이 숫자가 맞으면 후보 파일로 옮기세요 (권장 강도: %s):'
-                   % row['suggested_severity'])
-        out.append('  <repo>/.claude/convention-rules/candidates/<id>.yaml')
-        out.append('  위반 예시를 몇 개 열어 정규식 오탐이 아닌지 먼저 확인하세요.')
-    else:
-        out.append('규칙으로 만들지 마세요. 위반 예시가 실제 위반이 아니면 '
-                   '정규식을 좁히고 다시 재세요.')
-    for level, text in report['notes']:
-        out.append('  %-5s %s' % (level, text))
-    return '\n'.join(out)
 
 
 # ---------------------------------------------------------------- adopting
@@ -438,20 +340,6 @@ def main():
                         help='채택할 때 쓸 강도 (기본: 후보의 권장값)')
     parser.add_argument('--all-verdicts', action='store_true',
                         help='추천하지 않는 후보까지 전부 출력')
-    parser.add_argument('--probe', metavar='REGEX',
-                        help='후보 파일 없이 위반 패턴 하나를 즉석 측정 '
-                             '(--conforming 필수)')
-    parser.add_argument('--conforming', metavar='REGEX',
-                        help='--probe 의 정상 패턴. 이게 걸리는 파일을 준수로 셉니다')
-    parser.add_argument('--files', nargs='+', metavar='GLOB', default=[],
-                        help='--probe 대상 글롭 (기본: 추적되는 파일 전부)')
-    parser.add_argument('--exclude', nargs='+', metavar='GLOB', default=[],
-                        help='--probe 에서 제외할 글롭')
-    parser.add_argument('--kind', choices=sorted(PROBE_TRIGGERS), default='line',
-                        help='line: 한 줄 패턴 (기본) / file: 여러 줄 패턴')
-    parser.add_argument('--flags', default='', help="정규식 플래그 (i)")
-    parser.add_argument('--examples', type=int, default=8,
-                        help='--probe 가 보여줄 예시 수 (기본 8)')
     parser.add_argument('--json', action='store_true')
     parser.add_argument('--max-files', type=int, default=MAX_FILES)
     parser.add_argument('--cwd', help='레포 경로 (기본: 현재 디렉터리)')
@@ -461,29 +349,6 @@ def main():
     if not gitdiff.is_repo(root):
         print('git 레포가 아닙니다: %s' % root, file=sys.stderr)
         return 2
-
-    if args.probe:
-        if not args.conforming:
-            print('--probe 에는 --conforming 이 필요합니다. 정상 패턴이 없으면 '
-                  '준수율을 셀 수 없고, 그러면 컨벤션인지 알 수 없습니다.',
-                  file=sys.stderr)
-            return 2
-        try:
-            cand = build_probe(args.probe, args.conforming, args.files,
-                               args.exclude, args.kind, args.flags)
-        except re.error as exc:
-            print('정규식 오류: %s' % exc, file=sys.stderr)
-            return 2
-        except ValueError as exc:
-            print('%s' % exc, file=sys.stderr)
-            return 2
-        report = probe(cand, args.cwd, limit=args.max_files,
-                       examples=args.examples)
-        if args.json:
-            print(json.dumps(report, ensure_ascii=False, indent=2))
-        else:
-            print(render_probe(report))
-        return 0
 
     report, candidates = survey(args.cwd, limit=args.max_files)
 
