@@ -69,7 +69,44 @@ def hook_reason(lint_failures, lint_notes, errors, warns, repeats=frozenset()):
     out.append('다시 지적하지 않고, 로그에는 "기각"으로 기록됩니다.')
     out.append('  %s' % dismiss_hint(first[0]['id'] if first else None,
                                      first[1][0] if first else None))
-    out.append('처리 후 다시 완료를 선언하면 이번 요청에 대해서는 재검사하지 않습니다.')
+    out.append('처리한 뒤 완료하면 같은 범위를 다시 검사해, 남았거나 수정하면서 새로 생긴 것만 알려드립니다.')
+    return clip_reason('\n'.join(out))
+
+
+def verify_reason(outcome, last_chance):
+    """The re-scan after a block: what is left, and what the fix introduced."""
+    counts = outcome.counts()
+    out = ['■ 재검증 — 고쳐짐 %d / 기각 %d / 그대로 %d / 새로 생김 %d'
+           % (counts['fixed'], counts['dismissed'], counts['still'], counts['new']), '']
+
+    def render(title, items):
+        if not items:
+            return
+        out.append(title)
+        by_rule = {}
+        for meta in items.values():
+            by_rule.setdefault((meta['rule_id'], meta['title']), []).append(meta)
+        for (rule_id, title_text), metas in sorted(by_rule.items()):
+            if rule_id == 'lint':
+                out.append('  $ %s' % title_text)
+                for meta in metas:
+                    out.append('    %s' % meta['snippet'])
+                continue
+            out.append('  [%s] %s' % (rule_id, title_text))
+            for meta in sorted(metas, key=lambda m: (m['file'], m['line'])):
+                out.append('    %s:%d  %s' % (meta['file'], meta['line'], meta['snippet']))
+        out.append('')
+
+    blocking = outcome.blocking()
+    render('■ 아직 그대로입니다', {k: v for k, v in outcome.still.items() if k in blocking})
+    render('■ 수정하면서 새로 생겼습니다', {k: v for k, v in outcome.new.items() if k in blocking})
+    first = next(iter(blocking.values()), None)
+    out.append('위반이면 고치고, 오탐이면 고치지 말고 기각으로 남기세요.')
+    if first and first['rule_id'] != 'lint':
+        out.append('  python3 "%s" --rule %s --file %s --line %d --reason "<한 줄 이유>"'
+                   % (script_path('dismiss.py'), first['rule_id'], first['file'], first['line']))
+    if last_chance:
+        out.append('이번이 마지막 재검증입니다. 다음 완료 때는 남은 항목을 기록만 하고 차단하지 않습니다.')
     return clip_reason('\n'.join(out))
 
 

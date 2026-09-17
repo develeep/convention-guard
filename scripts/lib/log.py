@@ -10,6 +10,10 @@ from .paths import data_dir, user_option
 # so a year of sessions cannot turn log_report.py into a memory problem.
 MAX_BYTES = 5 * 1024 * 1024
 
+# 2 = 1.0 events: candidate / block / verify / verdict / review_requested /
+# dismissed / lint / autofix / abandoned. Readers skip rows without it.
+SCHEMA = 2
+
 
 def log_path():
     """Where firings.jsonl lives. The log_dir option moves only this file --
@@ -38,6 +42,7 @@ def event(record):
     """Append one record. Never raises: logging must not break a hook."""
     record = dict(record)
     record.setdefault('ts', time.strftime('%Y-%m-%dT%H:%M:%S%z'))
+    record.setdefault('schema', SCHEMA)
     path = log_path()
     _rotate(path)
     try:

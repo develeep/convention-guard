@@ -17,14 +17,17 @@ import time
 from .paths import atomic_write, data_dir, safe_name
 
 TOUCHED_CAP = 500
+VERSION = 2
 
 DEFAULT_STATE = {
-    'checked_prompt_ids': [],
-    'fired_rules': [],
-    'consecutive_blocks': 0,
+    'version': VERSION,
+    'consecutive_blocks': 0,   # blocks in a row without a clean turn (loop guard)
     'blocks': 0,
-    'pending': [],
-    'unresolved': [],
+    'fired_rules': [],         # rules whose findings were fixed this session (once_per_session)
+    'cycle': None,             # the open verification cycle, if any (see cycle.py)
+    'unresolved': [],          # candidate keys a closed cycle left unfixed
+    'closed_in_continuation': False,
+    'verdicts': {},            # semantic review verdicts by review key
 }
 
 
@@ -43,10 +46,12 @@ def load(session_id, kind=''):
                 state = json.load(fh)
         except (OSError, ValueError):
             state = {}
-    if not isinstance(state, dict):
-        state = {}
+    if not isinstance(state, dict) or (not kind and state.get('version') != VERSION):
+        state = {}          # a pre-1.0 session file: start clean rather than misread it
     for key, value in DEFAULT_STATE.items():
-        state.setdefault(key, list(value) if isinstance(value, list) else value)
+        if isinstance(value, (list, dict)):
+            value = type(value)(value)
+        state.setdefault(key, value)
     return state
 
 
