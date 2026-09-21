@@ -15,9 +15,11 @@ What was cut is marked `… N줄 생략`, so the reviewer knows to Read further
 only when the pack is genuinely not enough.
 
 `context_hash` fingerprints the primary region (the function, or the snippet
-window when no function is found). A verdict is cached under it: rewriting any
-line of the function -- e.g. adding the eager load a VIOLATION asked for --
-makes the old verdict stale and the candidate is judged again.
+window when no function is found) and `related_hash` the context around it the
+reviewer was shown (related files, imports). A verdict is cached under both:
+rewriting any line of the function -- e.g. adding the eager load a VIOLATION
+asked for -- or changing the Model the pack carried makes the old verdict stale
+and the candidate is judged again.
 """
 
 import hashlib
@@ -167,6 +169,10 @@ def _clip_region(lines, start, end, focus, max_lines):
 
 # ---------------------------------------------------------------- pack
 
+def _fingerprint(text):
+    return hashlib.sha1(' '.join(str(text).split()).encode('utf-8')).hexdigest()[:10]
+
+
 class Pack:
     def __init__(self, relpath, line, lang):
         self.file, self.line, self.language = relpath, line, lang
@@ -184,13 +190,28 @@ class Pack:
 
     @property
     def context_hash(self):
-        norm = ' '.join(self.primary.split())
-        return hashlib.sha1(norm.encode('utf-8')).hexdigest()[:10]
+        return _fingerprint(self.primary)
+
+    @property
+    def related_hash(self):
+        """Fingerprint of the context outside the primary region that the
+        reviewer was actually shown -- the related files and the imports. A
+        verdict read them, so a verdict has to expire when they change, even
+        though the candidate's own function did not.
+
+        `changed_hunks` is left out on purpose: it follows the change scope,
+        not the code being judged, so it would expire verdicts for edits
+        elsewhere in the file that the reviewer never reasoned about.
+        """
+        return _fingerprint('\n'.join(
+            '%s\n%s' % (s['title'], s['text']) for s in self.sections
+            if s['kind'] in ('related_files', 'imports')))
 
     def to_dict(self):
         return {'file': self.file, 'line': self.line, 'language': self.language,
                 'lines': self.lines, 'truncated': self.truncated,
-                'context_hash': self.context_hash, 'sections': self.sections}
+                'context_hash': self.context_hash, 'related_hash': self.related_hash,
+                'sections': self.sections}
 
 
 def build(scope, cand, review, list_files=None):

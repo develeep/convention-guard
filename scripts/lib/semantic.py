@@ -8,8 +8,13 @@
       -> batch file for the reviewer          (scripts/review.py show / record)
 
 The cache is what keeps a Stop from paying for the same judgment twice: the
-key is rule:file:context_hash, so an unchanged function is never re-reviewed
-and any edit to it is. It lives in the plugin data dir -- not the repo --
+key is rule:file:review_hash, where review_hash folds together the rule
+definition that asked the question (schema.definition_hash: detect gate +
+semantic_review) and the context the answer used (the primary region and the
+related files/imports the pack carried). So an unchanged function judged under
+an unchanged rule is never re-reviewed, and an edit to the function, to the
+Model it queries, or to the rule's instruction sends it back to the reviewer.
+It lives in the plugin data dir -- not the repo --
 because a verdict is a model's opinion, not a team decision; a team decision
 is a dismissal in dismissed.yaml.
 
@@ -23,7 +28,7 @@ import json
 import os
 import time
 
-from . import context as contextlib, gitdiff
+from . import candidate, context as contextlib, gitdiff
 from .candidate import FALSE_POSITIVE, VALID, VERDICTS, VIOLATION  # noqa: F401
 from .log import log_path
 from .paths import atomic_write, data_dir, safe_name
@@ -81,8 +86,16 @@ def tracked_files(root):
         return []
 
 
+def review_hash(rule, pack):
+    """Identity of one semantic judgment: the rule definition that asked the
+    question, plus the context the reviewer answered it from."""
+    return candidate.fingerprint('%s|%s|%s' % (rule.get('definition_hash') or '',
+                                               pack.context_hash, pack.related_hash))
+
+
 def annotate(result):
-    """[(rule, cand, pack)] for every semantic candidate; sets cand.context_hash."""
+    """[(rule, cand, pack)] for every semantic candidate; sets the candidate's
+    context_hash and review_hash."""
     listing = {}
 
     def list_files():
@@ -95,6 +108,7 @@ def annotate(result):
         for cand in cands:
             pack = contextlib.build(result.scope, cand, rule['review'], list_files)
             cand.context_hash = pack.context_hash
+            cand.review_hash = review_hash(rule, pack)
             out.append((rule, cand, pack))
     return out
 

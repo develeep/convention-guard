@@ -31,7 +31,8 @@ def clip(text, limit=SNIPPET_LIMIT):
 
 
 class Candidate:
-    __slots__ = ('rule_id', 'file', 'line', 'snippet', 'code_hash', 'context_hash')
+    __slots__ = ('rule_id', 'file', 'line', 'snippet', 'code_hash', 'context_hash',
+                 'review_hash')
 
     def __init__(self, rule_id, file, line, snippet, context_hash=None):
         self.rule_id = rule_id
@@ -40,6 +41,8 @@ class Candidate:
         self.snippet = snippet
         self.code_hash = fingerprint(snippet)
         self.context_hash = context_hash
+        # set by semantic.annotate(): rule definition + primary + related context
+        self.review_hash = None
 
     @property
     def key(self):
@@ -48,9 +51,12 @@ class Candidate:
 
     @property
     def review_key(self):
-        """What a semantic verdict is cached under. Falls back to the code hash
-        until a context pack has been built for the candidate."""
-        return '%s:%s:%s' % (self.rule_id, self.file, self.context_hash or self.code_hash)
+        """What a semantic verdict is cached under: the rule definition that
+        asked the question and the context the answer was based on, both folded
+        into `review_hash` by semantic.annotate(). Falls back to the context
+        hash, then the code hash, before a pack has been built."""
+        return '%s:%s:%s' % (self.rule_id, self.file,
+                             self.review_hash or self.context_hash or self.code_hash)
 
     def to_dict(self):
         out = {'file': self.file, 'line': self.line, 'snippet': self.snippet,

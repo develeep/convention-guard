@@ -13,12 +13,17 @@ Per rule:
     still        flagged, still there when the cycle closed
     dismissed    declined as a false positive (dismiss.py)
     new          introduced by a fix (the fix broke this rule)
-    verdicts     reviewer VIOLATION / VALID / FALSE_POSITIVE
+    verdicts     reviewer VIOLATION / VALID / FALSE_POSITIVE, counted apart:
+                 VALID means the gate was fair but the code is fine,
+                 FALSE_POSITIVE means the gate itself caught the wrong code
     autofix      lines auto-fix rewrote
 
     fix rate     fixed / (fixed + still)
     dismiss rate dismissed / (fixed + still + dismissed)
     precision    VIOLATION / all verdicts        (semantic rules: how good the gate is)
+    fp rate      FALSE_POSITIVE / all verdicts   (semantic rules: gate caught the
+                                                  wrong code -- fix the regex, not
+                                                  the instruction)
 
 Only schema-2 events (1.0) are read; 0.x rows are skipped and counted.
 """
@@ -122,6 +127,8 @@ def verdict(entry):
     total_verdicts = sum(entry['verdicts'].values())
     if decided and entry['dismissed'] / decided >= 0.5:
         return '오탐 확정 — 팀이 기각함, 조건을 좁히세요'
+    if total_verdicts >= MIN_DECIDED and entry['verdicts']['FALSE_POSITIVE'] / total_verdicts >= 0.5:
+        return '게이트가 엉뚱함 — 리뷰어가 후보 자체를 오탐으로 판정, detect 정규식을 고치세요'
     if total_verdicts >= MIN_DECIDED and entry['verdicts']['VIOLATION'] / total_verdicts < 0.2:
         return '게이트가 넓음 — 리뷰어가 대부분 위반 아님으로 판정, detect 를 좁히세요'
     if entry['new'] >= 2 and entry['new'] >= entry['fixed']:
@@ -152,6 +159,9 @@ def summarize(stats):
             'fix_rate': entry['fixed'] / acted if acted else None,
             'dismiss_rate': entry['dismissed'] / decided if decided else None,
             'precision': entry['verdicts']['VIOLATION'] / total_verdicts if total_verdicts else None,
+            'false_positive_rate': (entry['verdicts']['FALSE_POSITIVE'] / total_verdicts
+                                    if total_verdicts else None),
+            'reviewed': total_verdicts,
             'top_files': [f for f, _ in entry['files'].most_common(3) if f],
             'dismiss_reasons': entry['dismiss_reasons'][-3:],
             'verdict': verdict(entry),
@@ -178,6 +188,17 @@ def render(items, linters, rows, legacy, path):
             pct(item['fix_rate']), pct(item['precision']), item['verdict']))
     out.append('')
     out.append('* = 의미 판정 규칙. 정밀도 = 리뷰어가 VIOLATION 으로 판정한 비율')
+    reviewed = [i for i in items if i['reviewed']]
+    if reviewed:
+        out.append('')
+        out.append('의미 판정 내역  (판정 / VIOLATION / VALID / FALSE_POSITIVE / 게이트 오탐률)')
+        for item in reviewed:
+            v = item['verdicts']
+            out.append('  %-40s %4d %4d %4d %4d %7s'
+                       % (item['rule_id'][:40], item['reviewed'], v.get('VIOLATION', 0),
+                          v.get('VALID', 0), v.get('FALSE_POSITIVE', 0),
+                          pct(item['false_positive_rate'])))
+        out.append('  VALID = 게이트는 적절했고 코드가 정상 / FALSE_POSITIVE = 게이트가 잘못 잡음')
     weak = [i for i in items if i['verdict'] not in ('건강함', '데이터 부족')]
     if weak:
         out.append('')

@@ -37,8 +37,8 @@ foreach ($orders as $order) {
 ```
 Stop
  └ semantic_review 규칙의 detect 로 후보 탐지     후보 0건 → 끝 (AI 호출 없음)
-    └ 후보마다 컨텍스트 팩 + context_hash
-       └ 판정 캐시 조회 (rule:file:context_hash)
+    └ 후보마다 컨텍스트 팩 + context_hash / related_hash
+       └ 판정 캐시 조회 (rule:file:review_hash)
           ├ VALID / FALSE_POSITIVE → 제외
           ├ VIOLATION              → 결정론 지적처럼 차단 메시지에 포함
           └ 없음                   → 배치 파일 작성
@@ -73,13 +73,21 @@ Stop
 
 ## 판정 캐시와 중복 방지
 
-| 키 | 의미 |
-|---|---|
-| `rule:file:context_hash` | context_hash = 주 영역(감싸는 함수 본문) 지문 |
+캐시 키는 `rule:file:review_hash` 이고, `review_hash` 는 **그 판정이 의존한 것 전부**를 하나로 접은 지문입니다.
 
-- 같은 함수가 그대로면 다시 판정하지 않습니다 — 세션이 달라도 (`verdict_ttl_days` 동안)
+| 조각 | 내용 | 바뀌면 |
+|---|---|---|
+| `definition_hash` | 규칙의 `detect` 게이트 + `semantic_review` (instruction, context, max_context_lines) | 질문 자체가 달라졌으므로 재판정 |
+| `context_hash` | 주 영역 — 감싸는 함수 본문 (없으면 후보 주변 창) | 판정 대상 코드가 달라졌으므로 재판정 |
+| `related_hash` | 팩에 실린 관련 파일과 import 구역 | 판정 근거가 달라졌으므로 재판정 |
+
+규칙의 `title`·`severity`·`message` 는 판정을 바꾸지 않으므로 지문에서 뺍니다 — 제목을 고쳤다고 캐시를 버리지 않습니다. `changed_hunks` 도 뺍니다: 그것은 판정 대상이 아니라 변경 범위를 따라다니는 값입니다.
+
+- 같은 함수가 그대로고 규칙도 그대로면 다시 판정하지 않습니다 — 세션이 달라도 (`verdict_ttl_days` 동안)
 - 함수의 **어느 줄이든** 바뀌면 다시 판정합니다. VIOLATION 을 고치려고 반복문 위에 `with()` 를 추가해도 판정이 갱신됩니다
-- 같은 파일의 다른 함수가 바뀌는 것은 영향이 없습니다
+- 팩에 실린 Model 에 relationship 이 추가되는 것처럼 **관련 파일이 바뀌어도** 다시 판정합니다. 리뷰어가 그 내용을 읽고 판정했기 때문입니다
+- 규칙의 instruction 이나 detect 를 고치면 그 규칙의 기존 판정은 재사용되지 않습니다
+- 같은 파일의 다른 함수, 팩에 실리지 않은 파일이 바뀌는 것은 영향이 없습니다
 
 캐시는 플러그인 데이터 디렉터리에 있고 레포에 커밋되지 않습니다. 모델의 의견은 팀 결정이 아니기 때문입니다. 팀이 합의한 예외는 `dismiss.py` 로 기각합니다.
 
@@ -115,6 +123,6 @@ semantic_review:
 
 ## 비용과 한계
 
-- 판정은 후보가 있는 턴에만, 캐시에 없는 코드에만 발생합니다. 게이트가 넓으면 비용이 커지므로 `log_report.py` 의 정밀도(리뷰어가 VIOLATION 으로 판정한 비율)가 낮은 규칙은 게이트를 좁힙니다
+- 판정은 후보가 있는 턴에만, 캐시에 없는 코드에만 발생합니다. 게이트가 넓으면 비용이 커지므로 `log_report.py` 의 정밀도(리뷰어가 VIOLATION 으로 판정한 비율)가 낮은 규칙은 게이트를 좁힙니다. `VALID` 가 많으면 게이트가 넓은 것이고, `FALSE_POSITIVE` 가 많으면 게이트가 엉뚱한 코드를 잡는 것이라 조치가 다릅니다
 - 메인 에이전트가 판정 요청을 무시할 수 있습니다. 그 경우 한 번 더 요청하고, 로그에 `review_skipped` 로 남습니다
 - `scan.py --review` 는 로컬 캐시에 의존하므로 CI 게이트에 쓰지 않습니다

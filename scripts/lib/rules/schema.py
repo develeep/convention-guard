@@ -33,6 +33,8 @@ Anchors decide what makes a finding *this change's* responsibility:
     file_regex          -                         file      a multi-line match overlapping changed lines
 """
 
+import hashlib
+import json
 import os
 import re
 
@@ -52,6 +54,14 @@ LEGACY_KEYS = {'triggers', 'context_injection', 'review_prompt', 'context_line',
 # a long controller method plus its imports; past that the pack stops being
 # "minimum sufficient" and starts being the file.
 DEFAULT_MAX_CONTEXT_LINES = 150
+
+# What a cached semantic verdict depends on: the gate that produced the
+# candidate (`detect`) and the question the reviewer answered
+# (`semantic_review`: instruction, context providers, context budget). Change
+# either and every stored verdict for the rule is about a different question,
+# so it must not be reused. Title, severity and message never move a verdict --
+# renaming a rule must not throw the cache away.
+SEMANTIC_IDENTITY = ('detect', 'semantic_review')
 
 
 class RuleError(ValueError):
@@ -124,6 +134,7 @@ def normalize(raw, path, source):
     }
     _detect(rule, raw.get('detect'))
     rule['review'] = _review(raw.get('semantic_review'))
+    rule['definition_hash'] = definition_hash(rule) if rule['review'] else None
     rule['fix'] = _fix(raw.get('fix'), rule)
     tests = rule['tests']
     if not isinstance(tests, dict) or set(tests) - {'match', 'no_match'}:
@@ -206,6 +217,13 @@ def _review(spec):
     except (TypeError, ValueError):
         raise RuleError('max_context_lines 는 정수여야 합니다')
     return {'instruction': instruction, 'context': context, 'max_context_lines': limit}
+
+
+def definition_hash(rule):
+    """10-hex fingerprint of the parts of a rule a semantic verdict depends on."""
+    payload = {'detect': rule.get('detect'), 'semantic_review': rule.get('review')}
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha1(blob.encode('utf-8')).hexdigest()[:10]
 
 
 def _fix(spec, rule):

@@ -12,6 +12,8 @@ The reviewer subagent's whole contract is `review.py show` then
 6. review.py refuses an incomplete record and writes nothing.
 7. report mode requests nothing; scan.py --review makes a batch and counts
    cached VIOLATIONs as findings.
+8. --review with no semantic candidate asks for no reviewer at all.
+9. VALID, FALSE_POSITIVE and VIOLATION are recorded as three different things.
 """
 import json
 import os
@@ -226,9 +228,69 @@ def case_scan_review(repo, data):
     check('and fails a warn gate', proc.returncode == 1, proc.returncode)
 
 
+def case_scan_review_without_candidates(repo, data):
+    """A run with nothing for a reviewer to judge must not summon one: no
+    batch, no hand-over command, no cost."""
+    with open(os.path.join(repo, CTRL), 'w', encoding='utf-8') as fh:
+        fh.write(controller(query="Order::query()->count()", loop=False))
+    env = isolated_env(data)
+    proc = run_script('scan.py', ['--cwd', repo, '--no-lint', '--review', '--json'],
+                      env=env, cwd=repo)
+    report = json.loads(proc.stdout)
+    check('the change has no semantic candidate', report['head']['semantic'] == 0, report['head'])
+    check('so --review does nothing', report['head']['review'] is None, report['head'])
+    base = os.path.join(data, 'reviews')
+    check('no batch is written', not os.path.isdir(base) or os.listdir(base) == [],
+          base)
+
+    proc = run_script('scan.py', ['--cwd', repo, '--no-lint', '--review', '--no-color'],
+                      env=env, cwd=repo)
+    check('and no reviewer command is printed', 'review.py' not in proc.stdout, proc.stdout)
+
+
+def case_verdicts_stay_distinct(repo, data):
+    """VALID and FALSE_POSITIVE both mean "not a violation", but they say
+    different things about the rule, so they are never merged: only VIOLATION
+    is handed back, and all three are counted and logged apart for rule-tune.
+    """
+    s = Session(repo, data, 'distinct')
+    first = s.turn(CTRL, controller_many(3), 'p1')
+    batch = batch_of(first)
+    shown = run_script('review.py', ['show', batch], env=s.env, cwd=repo)
+    ids = [int(i) for i in re.findall(r'^### 후보 (\d+)', shown.stdout, re.M)]
+    check('three candidates are up for judgment', len(ids) == 3, ids)
+    if len(ids) != 3:
+        return
+    wanted = dict(zip(ids, ('VIOLATION', 'VALID', 'FALSE_POSITIVE')))
+    answers = [{'id': i, 'verdict': v, 'reason': '%s 근거' % v} for i, v in wanted.items()]
+    rec = run_script('review.py', ['record', batch], stdin=json.dumps(answers),
+                     env=s.env, cwd=repo)
+    check('the mixed record is accepted', rec.returncode == 0, rec.stdout + rec.stderr)
+    check('the summary counts all three apart',
+          all(('%s 1' % v) in rec.stdout for v in ('VALID', 'FALSE_POSITIVE', 'VIOLATION')),
+          rec.stdout)
+    check('only the VIOLATION is handed back to the main agent',
+          rec.stdout.count('[core/laravel-n-plus-one]') == 1, rec.stdout)
+
+    logged = sorted(e['verdict'] for e in s.events('verdict'))
+    check('each verdict is logged under its own name',
+          logged == ['FALSE_POSITIVE', 'VALID', 'VIOLATION'], logged)
+    cached = json.load(open(os.path.join(data, 'verdicts.json'), encoding='utf-8'))
+    check('and cached under its own name',
+          sorted(v['verdict'] for v in cached[repo].values())
+          == ['FALSE_POSITIVE', 'VALID', 'VIOLATION'], cached)
+
+    report = json.loads(run_script('log_report.py', ['--json'], env=s.env, cwd=repo).stdout)
+    rule = next(r for r in report['rules'] if r['rule_id'] == 'core/laravel-n-plus-one')
+    check('rule health reads gate precision and the gate false-positive rate apart',
+          abs(rule['precision'] - 1 / 3) < 1e-9
+          and abs(rule['false_positive_rate'] - 1 / 3) < 1e-9, rule)
+
+
 CASES = [case_no_candidate_no_ai, case_violation_fix_rejudge, case_valid_is_cached,
          case_reviewer_skipped, case_record_validation, case_report_mode,
-         case_deferred_batches_continue, case_scan_review]
+         case_deferred_batches_continue, case_scan_review,
+         case_scan_review_without_candidates, case_verdicts_stay_distinct]
 
 
 def main():

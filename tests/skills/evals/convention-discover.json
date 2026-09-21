@@ -1,19 +1,27 @@
 [
   {
-    "skills": ["convention-discover"],
+    "skills": [
+      "convention-discover"
+    ],
     "query": "우리 CLAUDE.md 에 적힌 컨벤션들 실제로 검사되게 해줘",
-    "files": ["fixture: CLAUDE.md — '들여쓰기 4칸', 'store 는 FormRequest', '서비스는 HTTP 응답을 만들지 않음', 'PR 은 작게' / eslint·pint 설정 있음"],
+    "files": [
+      "fixture: CLAUDE.md — '들여쓰기 4칸', 'store 는 FormRequest', '서비스는 HTTP 응답을 만들지 않음', 'PR 은 작게' / eslint·pint 설정 있음"
+    ],
     "expected_behavior": [
       "각 항목에 출처(CLAUDE.md:줄)를 달고 분류 결정표로 린터·결정론·의미 판정·지침 전용을 나눈다",
       "들여쓰기는 포맷터 소관, 'PR 은 작게'는 지침 전용으로 분류하고 규칙으로 만들지 않는다",
-      "규칙 후보는 git grep 으로 정상·위반 파일 수를 세어 준수율을 표에 넣는다",
+      "결정론 후보는 git grep 으로 정상·위반 파일 수를 세어 준수율을 내고, 의미 판정 후보는 게이트 정규식이 잡는 건수와 표본 손판정 결과를 적는다 (준수율 %로 적지 않는다)",
       "후보표를 보여주고 사용자가 고른 것만 rule-add 로 넘긴다"
     ]
   },
   {
-    "skills": ["convention-discover"],
+    "skills": [
+      "convention-discover"
+    ],
     "query": "코드베이스 보고 우리 팀이 실제로 지키는 규칙 찾아줘",
-    "files": ["fixture: nest 레포, 최근 6개월 컨트롤러 20개 중 18개가 DTO + class-validator 사용, legacy/ 디렉터리는 표본 제외 대상"],
+    "files": [
+      "fixture: nest 레포, 최근 6개월 컨트롤러 20개 중 18개가 DTO + class-validator 사용, legacy/ 디렉터리는 표본 제외 대상"
+    ],
     "expected_behavior": [
       "git log 로 최근에 바뀐 파일에서 표본을 뽑고 legacy 디렉터리는 제외한다",
       "대표 파일을 읽어 반복되는 관습을 후보로 만들고 정상·위반 패턴을 둘 다 정의한다",
@@ -22,13 +30,32 @@
     ]
   },
   {
-    "skills": ["convention-discover"],
+    "skills": [
+      "convention-discover"
+    ],
     "query": "리뷰에서 자주 나오는 지적 규칙으로 만들 수 있는지 봐줘",
-    "files": ["fixture: gh 로 조회되는 머지된 PR 30개, 그중 4개에 'Resource 로 감싸세요' 리뷰 코멘트"],
+    "files": [
+      "fixture: gh 로 조회되는 머지된 PR 30개, 그중 4개에 'Resource 로 감싸세요' 리뷰 코멘트"
+    ],
     "expected_behavior": [
       "gh pr list / gh pr view --comments 로 반복된 지적을 모으고 PR 번호를 출처로 단다",
       "이미 적용 중인 규칙과 겹치는지 detect_stack.py 목록으로 확인한다",
       "준수율을 측정해 표로 보고하고 규칙 파일은 직접 쓰지 않는다"
+    ]
+  },
+  {
+    "skills": [
+      "convention-discover"
+    ],
+    "query": "'서비스는 HTTP 응답을 만들지 않는다' 이거 검사되게 할 수 있어?",
+    "files": [
+      "fixture: laravel 레포, app/Services/*.php 24개 파일 중 일부에 response()/abort() 호출"
+    ],
+    "expected_behavior": [
+      "정규식으로는 판정할 수 없는 항목이므로 의미 판정 규칙으로 분류한다",
+      "정상 패턴과 위반 패턴을 둘 다 만들어 준수율 %를 계산하지 않는다",
+      "게이트 정규식 하나로 후보 건수를 세고 그중 5~10건을 직접 읽어 VIOLATION / VALID / FALSE_POSITIVE 로 손판정한다",
+      "게이트 건수와 표본 판정 결과를 후보표에 적고 rule-add 에 semantic_review 규칙으로 넘긴다"
     ]
   }
 ]
