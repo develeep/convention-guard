@@ -11,6 +11,11 @@ Each rule kind differs in what it looks at and in what anchors a finding to
 
 A rule with semantic_review uses the same detectors; its candidates are
 routed to a reviewer instead of straight to the agent (see pipeline.py).
+
+`absent` and `paired` describe what a file *lacks*, so their snippet is a
+fixed phrase and their fingerprint is constant. A dismissal of one is
+therefore file-level and does not expire when the file changes -- which is
+the right granularity for "this file needs no pair", not an oversight.
 """
 
 from . import rules as rulelib
@@ -88,8 +93,12 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed):
 
         elif kind == 'file':
             # whole file, so multi-line patterns are visible -- but the match
-            # must touch a changed line, or every legacy block would fire
-            body = scope.text(relpath) or scope.added_body(relpath)
+            # must touch a changed line, or every legacy block would fire.
+            # No file text, no line numbers: counting newlines in the added
+            # lines alone would report a match at a line it is not on.
+            body = scope.text(relpath)
+            if not body:
+                continue
             touched_lines = scope.changed_linenos(relpath)
             is_new = scope.is_new(relpath)
             for match in rule['compiled_file'].finditer(body):
@@ -102,15 +111,20 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed):
 
         elif kind == 'requires':
             # the condition must be in what was just added; the requirement is
-            # looked for across the whole file, which is the context we lacked
-            body = scope.text(relpath) or scope.added_body(relpath)
-            if rule['compiled_must'].search(body):
+            # looked for across the whole file, which is the context we lacked.
+            # Without the file there is no "in file" to answer, and the added
+            # lines alone would report every file as missing the requirement.
+            body = scope.text(relpath)
+            if not body or rule['compiled_must'].search(body):
                 continue
+            before = len(found)
             for lineno, text in scope.lines(relpath):
                 if rule['compiled_when'].search(text):
                     if add(relpath, lineno, clip(text)):
                         return found
-                    break
+                    if len(found) > before:
+                        break   # one candidate per file -- but a dismissed line
+                                # is not one, so keep looking for a live trigger
 
     return found
 

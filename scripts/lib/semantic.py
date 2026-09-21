@@ -106,15 +106,18 @@ class Triage:
         self.pending = []      # [(rule, cand, pack)]     -> need a reviewer
 
 
-def triage(result, cfg, quiet=lambda rule: False):
-    """Split semantic candidates by what the cache already knows."""
+def triage(result, cfg):
+    """Split semantic candidates by what the cache already knows.
+
+    Everything is triaged, including rules the session has already settled:
+    hiding them here would also hide them from the verification cycle, which
+    has to see the code as it actually is.
+    """
     out = Triage()
     root = result.scope.root
     ttl = cfg['semantic_review']['verdict_ttl_days']
     cache = load_cache(cache_path(), ttl)
     for rule, cand, pack in annotate(result):
-        if quiet(rule):
-            continue
         verdict = lookup(root, cand.review_key, ttl, cache)
         if verdict is None:
             out.pending.append((rule, cand, pack))
@@ -138,11 +141,17 @@ def build_batch(root, session, pending, cfg, label=''):
     limit = int(cfg['semantic_review']['max_candidates'])
     budget = int(cfg['semantic_review']['context_budget_lines'])
     items, deferred, used, rules = [], [], 0, {}
+    asked = set()
     for rule, cand, pack in pending:
+        if cand.review_key in asked:
+            # same rule, same file, same context hash: two console.logs in one
+            # function are one question, and the cached verdict covers both
+            continue
         if len(items) >= limit or (items and used + pack.lines > budget):
             deferred.append((rule, cand, pack))
             continue
         used += pack.lines
+        asked.add(cand.review_key)
         rules[rule['id']] = {'title': rule['title'], 'severity': rule['severity'],
                              'instruction': rule['review']['instruction'],
                              'message': rule.get('message') or ''}

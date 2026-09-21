@@ -97,6 +97,27 @@ def case_new_violation_from_fix(repo, data):
           outcomes(s) == ['fixed', 'new'], s.events('verify'))
 
 
+def case_settled_rule_can_come_back(repo, data):
+    """once_per_session used to filter the re-scan itself, not just the report.
+
+    Every other cycle case turns it off, so nothing covered what happens when
+    a later fix re-introduces a rule the session had already settled: the
+    verification could not see it, and reported the cycle as clean.
+    """
+    s = Session(repo, data, 'settled')
+    s.turn(A, body('dd(1);'), 'p1')
+    done = s.turn(A, body('return 1;'), 'p1', stop_hook_active=True)
+    check('the first rule is settled for the session', done['decision'] is None, done)
+
+    second = s.turn(A, body("$password = 'p@ssw0rd-prod-1'; return 1;"), 'p2')
+    check('a different rule opens a new cycle', second['decision'] == 'block', second)
+
+    back = s.turn(A, body('dd(1);'), 'p2', stop_hook_active=True)
+    check('a settled rule the fix brought back is still seen',
+          back['decision'] == 'block', back)
+    check('and it is reported as new', '새로 생겼습니다' in back['reason'], back['reason'])
+
+
 def case_over_budget_is_not_new(repo, data):
     s = Session(repo, data, 'budget')
     lines = HDR + 'class A {\n' + '\n'.join(
@@ -202,6 +223,7 @@ CASES = [
     (case_fixed_passes, ''),
     (case_still_blocks_once_more, 'once_per_session: false\n'),
     (case_new_violation_from_fix, 'once_per_session: false\n'),
+    (case_settled_rule_can_come_back, ''),
     (case_over_budget_is_not_new, ''),
     (case_dismissed_in_cycle, ''),
     (case_abandoned_request, 'once_per_session: false\n'),

@@ -90,17 +90,6 @@ def read_touched(session_id):
     return list(seen)[-TOUCHED_CAP:]
 
 
-def clear_touched(session_id, keep=()):
-    path = touched_path(session_id)
-    if keep:
-        atomic_write(path, ''.join('%s\n' % rel for rel in keep))
-    else:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-
-
 # ---------------------------------------------------------------- housekeeping
 
 def gc_old_sessions(max_age_days=7):

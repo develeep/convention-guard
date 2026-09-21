@@ -12,6 +12,10 @@
 5. collect.py crashed with a traceback on a non-object JSON payload.
 6. A turn the consecutive-block cap held back reset the streak, so the cap
    produced "3 blocks, 1 rest" forever instead of stopping.
+7. A wrong-typed config value raised inside the engine, check.py swallowed it,
+   and the hook then did nothing every turn -- indistinguishable from a pass.
+8. detect_stack.py is what the skills read to explain a repo; nothing checked
+   that a stock install reports no errors.
 """
 import json
 import os
@@ -119,8 +123,37 @@ def case_cap_holds(tmp):
           decisions == ['block', 'block', None, None, None], decisions)
 
 
+def case_broken_config_is_not_silence(tmp):
+    repo, data = laravel(tmp)
+    write(repo, '.claude/convention-guard/config.yaml', 'limits:\n  max_error_rules: "넷"\n')
+    commit(repo, 'bad config')
+    bad = scan(repo, data)
+    check('a wrong-typed config value exits 2', bad.returncode == 2,
+          (bad.returncode, bad.stderr))
+    out = Session(repo, data, 'cfg').turn(
+        'app/Svc/A.php', HDR + 'class A { public function f() { dd(1); } }\n', 'p1')
+    check('and the Stop hook says it skipped instead of going quiet',
+          '설정 오류' in out['summary'], out)
+    check('the hook prints no traceback', 'Traceback' not in out['stderr'], out['stderr'])
+
+
+def case_detect_stack_reports(tmp):
+    repo, data = laravel(tmp)
+    proc = run_script('detect_stack.py', ['--cwd', repo, '--json'],
+                      env=isolated_env(data), cwd=repo)
+    check('detect_stack.py exits 0 on a healthy repo', proc.returncode == 0, proc.stderr)
+    info = json.loads(proc.stdout)
+    check('it names the detected stack', 'laravel' in info['stacks'], info['stacks'])
+    check('a stock install reports no errors',
+          [n for n in info['notes'] if n['level'] == 'error'] == [], info['notes'])
+    check('every rule carries a status and a source',
+          all(r['status'] in ('active', 'inactive') and r['source'] for r in info['rules']),
+          info['rules'][:2])
+
+
 if __name__ == '__main__':
     sys.exit(run_cases([case_scan_exit_codes, case_severity_filter_does_not_hide_exit_code,
                         case_all_includes_rules_without_globs, case_dismiss_is_exact,
-                        case_collect_survives_garbage, case_cap_holds],
+                        case_collect_survives_garbage, case_cap_holds,
+                        case_broken_config_is_not_silence, case_detect_stack_reports],
                        'CLI 계약'))

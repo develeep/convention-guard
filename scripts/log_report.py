@@ -70,6 +70,9 @@ def build(rows):
         'verdicts': collections.Counter(), 'dismiss_reasons': []})
     linters = collections.defaultdict(lambda: {'failed': 0, 'blocking': 0, 'anchored': 0})
     final = {}
+    # a candidate stays 'new' across every retry of its cycle, so counting rows
+    # would let one bad fix look like several
+    introduced = set()
     for row in rows:
         event = row.get('event')
         if event == 'lint':
@@ -91,7 +94,7 @@ def build(rows):
             entry['files'][row.get('file')] += 1
         elif event == 'verify':
             if row.get('outcome') == 'new':
-                entry['new'] += 1
+                introduced.add((row.get('cycle'), row.get('key'), rid))
             else:
                 # the last outcome a flagged candidate had in its cycle is its result
                 final[(row.get('cycle'), row.get('key'))] = (rid, row.get('outcome'))
@@ -109,6 +112,8 @@ def build(rows):
     for (_cycle, _key), (rid, outcome) in final.items():
         if outcome in ('fixed', 'still'):
             stats[rid][outcome] += 1
+    for _cycle, _key, rid in introduced:
+        stats[rid]['new'] += 1
     return stats, linters
 
 

@@ -225,7 +225,7 @@ def _scan(ctx):
             result = pipeline.run(scope, ctx.cfg, cap=VERIFY_CAP)
     triage = None
     if ctx.semantic_on and not result.errors and result.semantic_hits:
-        triage = semantic.triage(result, ctx.cfg, quiet=lambda rule: _quiet(ctx, rule))
+        triage = semantic.triage(result, ctx.cfg)
     return Scan(result, triage)
 
 
@@ -233,23 +233,30 @@ def _quiet(ctx, rule):
     return ctx.cfg['once_per_session'] and rule['id'] in (ctx.state.get('fired_rules') or [])
 
 
-def _findings(ctx, scan):
+def _findings(ctx, scan, respect_quiet=True):
     """[(rule, [Candidate])]: deterministic hits plus cached semantic VIOLATIONs."""
-    hits = [(rule, cands) for rule, cands in scan.result.hits if not _quiet(ctx, rule)]
+    quiet = _quiet if respect_quiet else (lambda _ctx, _rule: False)
+    hits = [(rule, cands) for rule, cands in scan.result.hits if not quiet(ctx, rule)]
     if scan.triage:
         grouped = {}
         for rule, cand, _verdict in scan.triage.violations:
-            grouped.setdefault(rule['id'], (rule, []))[1].append(cand)
+            if not quiet(ctx, rule):
+                grouped.setdefault(rule['id'], (rule, []))[1].append(cand)
         hits += list(grouped.values())
     return hits
 
 
 def _current(ctx, scan):
-    """{key: entry} for every finding and blocking lint failure right now."""
+    """{key: entry} for every finding and blocking lint failure right now.
+
+    once_per_session must not reach here. It decides what is worth *saying*
+    again; the cycle needs what is actually *there*, or a rule settled earlier
+    in the session could be re-introduced by a fix and be read as gone.
+    """
     current = {}
     if scan is None:
         return current
-    for rule, cands in _findings(ctx, scan):
+    for rule, cands in _findings(ctx, scan, respect_quiet=False):
         for cand in cands:
             current[cand.key] = cyclelib.entry(rule, cand)
     for fail in scan.result.lint_blocking:
@@ -414,7 +421,10 @@ def _open(ctx, scan):
     warns = warns[:cfg.limit('max_warn_rules')]
     infos = [(r, c) for r, c in hits if r['severity'] == 'info']
     repeats = {r['id'] for r, c in errors + warns if is_repeat(c)}
-    pending = list(scan.triage.pending) if scan.triage else []
+    all_pending = list(scan.triage.pending) if scan.triage else []
+    # a rule this session already settled is not worth an AI call again, but
+    # its candidates still count as "seen" so a later re-scan cannot call them new
+    pending = [entry for entry in all_pending if not _quiet(ctx, entry[0])]
 
     streak = int(state.get('consecutive_blocks', 0))
     capped = streak >= cfg.limit('max_consecutive_blocks')
@@ -465,7 +475,7 @@ def _open(ctx, scan):
     opened = {c.key: cyclelib.entry(r, c) for r, cands in shown for c in cands}
     for fail in result.lint_blocking:
         opened[cyclelib.lint_key(fail)] = cyclelib.lint_entry(fail)
-    seen = set(_current(ctx, scan)) | {cand.key for _, cand, _ in pending}
+    seen = set(_current(ctx, scan)) | {cand.key for _, cand, _ in all_pending}
     cycle = cyclelib.new_cycle(ctx.prompt_id, opened, seen)
     review = _request_review(ctx, cycle, pending, 'open') if pending else None
     if not (opened or review):

@@ -81,6 +81,20 @@ def case_config_layers():
         finally:
             del os.environ['CLAUDE_PLUGIN_OPTION_REPORT_ONLY']
 
+        # these two went through rulelib.load in tests but never through
+        # config.load, so validation silently dropped every severity override
+        # and a wrong-typed limit only blew up later, inside the hook
+        write(repo, '.claude/convention-guard/config.yaml',
+              'severity:\n  core/php-line-too-long: error\n'
+              'limits:\n  max_error_rules: "넷"\n')
+        cfg = config.load(repo, ROOT)
+        check('per-rule severity keys survive validation',
+              cfg['severity'] == {'core/php-line-too-long': 'error'}, cfg['severity'])
+        check('a wrong-typed limit is an error, not a crash later',
+              any(lv == 'error' and 'max_error_rules' in t for lv, t in cfg.notes), cfg.notes)
+        check('and the bad value does not reach the engine',
+              cfg.limit('max_error_rules') == config.DEFAULTS['limits']['max_error_rules'])
+
         write(repo, '.claude/convention-guard/config.yaml', 'max_rules: 3\nblock_level: report\n')
         cfg = config.load(repo, ROOT)
         errors = [text for level, text in cfg.notes if level == 'error']
@@ -111,6 +125,18 @@ def case_presets_and_overrides():
 
         bad = rulelib.load(repo, ROOT, dict(config.DEFAULTS, presets=['nope']), {'php'})
         check('an unknown preset is an error', any('nope' in t for _, t in bad.notes), bad.notes)
+
+        # a rule file deleted without its preset entry shipped once and only
+        # surfaced as a golden-file diff
+        with tempdir() as plug:
+            write(plug, 'presets/ghost.yaml',
+                  'name: ghost\nstacks: ["*"]\nrules:\n  - core/gone\n  - core/php-*\n')
+            ghost = rulelib.load(repo, plug, dict(config.DEFAULTS, presets=['ghost']), {'php'})
+            warns = [t for lv, t in ghost.notes if lv == 'warn']
+            check('a preset naming a rule that does not exist is reported',
+                  any('core/gone' in t for t in warns), ghost.notes)
+            check('but a glob matching nothing here is not',
+                  not any('core/php-*' in t for t in warns), ghost.notes)
 
         write(repo, '.claude/convention-guard/rules/blade.yaml',
               'override: core/laravel-no-query-in-blade\nseverity: warn\n'

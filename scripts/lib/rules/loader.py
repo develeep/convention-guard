@@ -175,6 +175,13 @@ def load(root, plugin_root, cfg, tags):
     exclude = ([exclude] if isinstance(exclude, str) else list(exclude)) + SELF_PATHS
     for rid in sorted((disabled | set(severity)) - set(raws)):
         result.notes.append(('warn', 'config: 없는 규칙 %s' % rid))
+    for name in result.presets:
+        # a literal id that matches nothing is a rule that was renamed or
+        # deleted without its preset being updated; a glob matching nothing
+        # is normal (stack presets list ids no other repo has)
+        for pattern in presets[name].patterns:
+            if not set(pattern) & set('*?[') and pattern not in raws:
+                result.notes.append(('warn', 'preset %s: 없는 규칙 %s' % (name, pattern)))
 
     for rid in order:
         entry = raws[rid]

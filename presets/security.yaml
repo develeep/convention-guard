@@ -4,5 +4,4 @@ description: "자격증명 노출·검증 없는 입력 등 보안 규칙"
 stacks: ["*"]
 rules:
   - core/no-hardcoded-secret
-  - core/next-no-public-secret
   - core/laravel-no-request-all

@@ -58,6 +58,14 @@ def main():
         extra = sorted(set(got) - set(want))
         check('%s matches golden' % key, not missing and not extra,
               'missing=%r extra=%r' % (missing, extra))
+    # A repo-wide audit that reports less than a change scan is a scope bug,
+    # not a golden update: --all once read `git ls-files` and skipped every
+    # file the change had just created.
+    for name in sorted({key.split('/')[0] for key in current}):
+        whole = set(current.get('%s/all' % name, []))
+        change = set(current.get('%s/working-tree' % name, []))
+        check('%s: --all covers what --working-tree finds' % name, change <= whole,
+              'working-tree only: %r' % sorted(change - whole))
     return finish('규칙 발동 패리티')
 
 

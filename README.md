@@ -83,7 +83,7 @@ semantic_review:
 
 | 스크립트 | 역할 |
 |---|---|
-| `scan.py` | 수동·CI 검사. `--staged` `--range` `--files` `--all` `--fix` `--review`. 종료 코드 0/1/2 |
+| `scan.py` | 수동·CI 검사. `--staged` `--range` `--files` `--all` `--fix` `--review` `--fail-on-pending`. 종료 코드 0/1/2 |
 | `detect_stack.py` | 무엇이 감지되고 어떤 규칙이 왜 적용되는지 |
 | `dismiss.py` | 오탐 기각 기록 |
 | `review.py` | 의미 판정 배치 보기·기록 (리뷰어 에이전트용) |
@@ -97,6 +97,9 @@ CI:
 ```yaml
 - run: python3 plugins/convention-guard/scripts/scan.py --range "origin/${{ github.base_ref }}..HEAD" --fail-on error --no-color
 ```
+
+의미 판정 규칙을 쓴다면 `--review --fail-on-pending` 을 더하세요. CI 에는 리뷰어를 돌릴
+에이전트가 없어서, 붙이지 않으면 판정이 남은 후보를 통과로 읽습니다.
 
 ## 문서
 

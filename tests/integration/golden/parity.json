@@ -1,6 +1,11 @@
 {
   "go/all": [
-    "core/go-no-panic pkg/store/legacy.go:4"
+    "core/go-context-first-param pkg/store/store.go:11",
+    "core/go-no-ignored-error pkg/store/store.go:16",
+    "core/go-no-panic pkg/store/legacy.go:4",
+    "core/go-no-panic pkg/store/store.go:21",
+    "core/go-wrap-error pkg/store/store.go:19",
+    "core/no-orphan-todo pkg/store/store.go:17"
   ],
   "go/working-tree": [
     "core/go-context-first-param pkg/store/store.go:11",
@@ -10,12 +15,27 @@
     "core/no-orphan-todo pkg/store/store.go:17"
   ],
   "laravel/all": [
+    "core/laravel-controller-needs-validation app/Http/Controllers/UserController.php:5",
+    "core/laravel-migration-needs-down database/migrations/2026_01_01_000000_create_orders.php:5",
+    "core/laravel-no-env-outside-config app/Http/Controllers/UserController.php:7",
+    "core/laravel-no-query-in-blade resources/views/home.blade.php:1",
+    "core/laravel-no-request-all app/Http/Controllers/UserController.php:23",
     "core/laravel-no-request-all app/Legacy/OldController.php:8",
+    "core/laravel-route-needs-test routes/api.php:1",
     "core/laravel-route-needs-test routes/web.php:1",
+    "core/no-hardcoded-secret app/Http/Controllers/UserController.php:8",
+    "core/no-orphan-todo app/Http/Controllers/UserController.php:10",
+    "core/php-cast-spacing app/Http/Controllers/UserController.php:9",
+    "core/php-line-too-long app/Http/Controllers/UserController.php:21",
+    "core/php-namespace-required app/Http/Controllers/UserController.php:1",
     "core/php-namespace-required app/Legacy/OldController.php:1",
+    "core/php-no-debug-output app/Http/Controllers/UserController.php:22",
     "core/php-no-debug-output app/Legacy/OldController.php:6",
     "core/php-no-debug-output app/Legacy/OldController.php:7",
-    "core/php-strict-types-required app/Legacy/OldController.php:1"
+    "core/php-no-empty-catch app/Http/Controllers/UserController.php:16",
+    "core/php-strict-types-required app/Http/Controllers/UserController.php:1",
+    "core/php-strict-types-required app/Legacy/OldController.php:1",
+    "core/php-use-elseif app/Http/Controllers/UserController.php:19"
   ],
   "laravel/working-tree": [
     "core/laravel-controller-needs-validation app/Http/Controllers/UserController.php:5",
@@ -35,21 +55,30 @@
     "core/php-strict-types-required app/Http/Controllers/UserController.php:1",
     "core/php-use-elseif app/Http/Controllers/UserController.php:19"
   ],
-  "nest/all": [],
+  "nest/all": [
+    "core/nest-no-raw-req-res src/users/users.controller.ts:8",
+    "core/nest-no-repo-in-controller src/users/users.controller.ts:5"
+  ],
   "nest/working-tree": [
     "core/nest-no-raw-req-res src/users/users.controller.ts:8",
     "core/nest-no-repo-in-controller src/users/users.controller.ts:5"
   ],
   "next/all": [
     "core/js-no-console app/legacy.tsx:2",
-    "core/ts-no-any app/legacy.tsx:5"
+    "core/js-no-console app/page.tsx:8",
+    "core/js-no-empty-catch app/page.tsx:11",
+    "core/next-client-hook-needs-directive app/page.tsx:6",
+    "core/next-no-img-tag app/page.tsx:13",
+    "core/no-hardcoded-secret app/page.tsx:3",
+    "core/react-no-index-key app/page.tsx:13",
+    "core/ts-no-any app/legacy.tsx:5",
+    "core/ts-no-any app/page.tsx:7"
   ],
   "next/working-tree": [
     "core/js-no-console app/page.tsx:8",
     "core/js-no-empty-catch app/page.tsx:11",
     "core/next-client-hook-needs-directive app/page.tsx:6",
     "core/next-no-img-tag app/page.tsx:13",
-    "core/next-no-public-secret app/page.tsx:8",
     "core/no-hardcoded-secret app/page.tsx:3",
     "core/react-no-index-key app/page.tsx:13",
     "core/ts-no-any app/legacy.tsx:5",

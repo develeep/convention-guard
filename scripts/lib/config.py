@@ -101,11 +101,43 @@ def _read(path, label, notes):
     return data
 
 
+# `severity` maps rule ids the team picks, so its keys are not a closed set --
+# checking them against DEFAULTS would drop every override the team wrote.
+OPEN_MAPS = {'severity'}
+# keys whose value may also take a second shape (loader.py accepts both)
+ALSO = {'presets': list, 'exclude': str}
+
+
+def _typed(label, path, value, default, notes, also=None):
+    """False (and an error note) when `value` cannot stand in for `default`.
+
+    A wrong type used to reach the engine and raise there, which check.py
+    swallowed -- the hook then did nothing, every turn, with no way to tell.
+    """
+    if also and isinstance(value, also):
+        return True
+    if isinstance(default, bool):
+        ok, want = isinstance(value, bool), 'true / false'
+    elif isinstance(default, int):
+        ok = isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        want = '0 이상의 정수'
+    elif isinstance(default, list):
+        ok, want = isinstance(value, list), '목록'
+    elif isinstance(default, str):
+        ok, want = isinstance(value, str), '문자열'
+    else:
+        return True
+    if not ok:
+        notes.append(('error', '%s: %s 는 %s 여야 합니다 (지금: %r)'
+                      % (label, path, want, value)))
+    return ok
+
+
 def _validate(data, label, notes):
     """Drop what cannot be used and say why."""
     clean = {}
     for key, value in data.items():
-        if key in LEGACY_KEYS and not (key == 'semantic_review' or isinstance(value, dict)):
+        if key in LEGACY_KEYS:
             notes.append(('error', '%s: %s 는 0.x 설정입니다 → %s (scripts/migrate.py)'
                           % (label, key, LEGACY_KEYS[key])))
             continue
@@ -120,11 +152,16 @@ def _validate(data, label, notes):
             if not isinstance(value, dict):
                 notes.append(('error', '%s: %s 는 매핑이어야 합니다' % (label, key)))
                 continue
-            unknown = sorted(set(value) - set(DEFAULTS[key]))
-            if unknown:
-                notes.append(('warn', '%s: 알 수 없는 설정 %s (무시)'
-                              % (label, ', '.join('%s.%s' % (key, u) for u in unknown))))
-            value = {k: v for k, v in value.items() if k in DEFAULTS[key]}
+            if key not in OPEN_MAPS:
+                unknown = sorted(set(value) - set(DEFAULTS[key]))
+                if unknown:
+                    notes.append(('warn', '%s: 알 수 없는 설정 %s (무시)'
+                                  % (label, ', '.join('%s.%s' % (key, u) for u in unknown))))
+                value = {k: v for k, v in value.items()
+                         if k in DEFAULTS[key]
+                         and _typed(label, '%s.%s' % (key, k), v, DEFAULTS[key][k], notes)}
+        elif not _typed(label, key, value, DEFAULTS[key], notes, ALSO.get(key)):
+            continue
         clean[key] = value
     if 'mode' in clean and clean['mode'] not in MODES:
         notes.append(('error', '%s: mode 는 %s 중 하나입니다 (지금: %s)'

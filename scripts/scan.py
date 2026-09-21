@@ -13,7 +13,8 @@ turning the hook on.
     python3 scan.py --json                 # 기계가 읽을 형태
     python3 scan.py --fail-on warn         # CI 종료 코드 기준
 
-Exit codes: 0 pass, 1 findings at or above --fail-on, 2 unable to inspect.
+Exit codes: 0 pass, 1 findings at or above --fail-on (or, with
+--fail-on-pending, candidates nobody judged), 2 unable to inspect.
 """
 
 import argparse
@@ -73,6 +74,9 @@ def parse_args(argv=None):
     parser.add_argument('--write', action='store_true', help='--fix 의 수정안을 실제로 적용')
     parser.add_argument('--review', action='store_true',
                         help='semantic 규칙 후보를 판정 배치로 만들고, 캐시된 VIOLATION 판정을 결과에 포함')
+    parser.add_argument('--fail-on-pending', action='store_true',
+                        help='--review 에서 판정이 남은 후보가 있으면 종료 코드 1. '
+                             '리뷰어를 돌릴 수 없는 CI 가 "판정 못 함"을 통과로 읽지 않게 합니다')
     parser.add_argument('--cwd', help='레포 경로 (기본: 현재 디렉터리)')
     return parser.parse_args(argv)
 
@@ -177,6 +181,8 @@ def main(argv=None):
 
     if load_errors:
         return EXIT_UNINSPECTABLE
+    if args.fail_on_pending and review and (review['candidates'] or review['deferred']):
+        return EXIT_FINDINGS
     if args.fail_on == 'never':
         return EXIT_PASS
     # the exit code judges every finding, not just the ones --severity displayed

@@ -71,6 +71,14 @@ def run(scope, cfg, plugin_root=None, run_lint=True, cap=None, use_dismiss=True,
                             timeout=int(cfg['linters']['timeout']))
         lint_blocking, lint_notes = lint.split_by_change(lint_raw, scope)
 
+    if (not rule_filter and cfg['semantic_review']['enabled']
+            and not any(r['review'] for r in rules)):
+        # turning the option on and getting nothing back reads as "the feature
+        # is broken"; it usually means no preset in play carries such a rule
+        ruleset.notes.append(('warn', 'semantic_review 가 켜져 있지만 의미 판정 규칙이 하나도 '
+                                      '켜져 있지 않습니다 — presets 에 architecture / '
+                                      'performance 를 추가하세요'))
+
     applicable = rulelib.applicable(rules, stacks, scope.paths(), root,
                                     respect_supersede=cfg.get('respect_supersede', True))
     cap = int(cap if cap is not None else cfg.limit('max_locations_per_rule'))

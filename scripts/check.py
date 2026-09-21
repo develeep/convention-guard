@@ -23,8 +23,11 @@ def main():
         state.gc_old_sessions()
         semantic.gc_batches()
         out = hooks.on_stop(payload)
-    except Exception as exc:  # never break the agent on our own bug
-        print('[convention-guard] 내부 오류: %s' % exc, file=sys.stderr)
+    except Exception as exc:  # never break the agent on our own bug -- but say so:
+        # a silent skip looks exactly like a clean check, so a broken config or
+        # a bug here would switch the plugin off for the whole session unnoticed
+        print(json.dumps({'systemMessage': 'convention-guard: 내부 오류로 이번 검사를 '
+                                           '건너뜁니다 — %s' % exc}, ensure_ascii=False))
         return 0
     if out:
         print(json.dumps(out, ensure_ascii=False))

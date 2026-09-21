@@ -25,7 +25,12 @@ class ScopeError(Exception):
 class ChangeScope:
     def __init__(self, root, changed, new_files, label, base_ref=None):
         self.root = root
-        self.changed = changed              # {relpath: [(lineno, added text)]}
+        # Every constructor funnels through here, so what counts as scannable
+        # cannot differ between them. It used to: --staged and --range built
+        # their file list straight from `git diff`, so a 500KB bundle or a
+        # .svg was checked there and skipped by the hook and --all.
+        self.changed = {rel: lines for rel, lines in changed.items()
+                        if gitdiff.scannable(root, rel)}
         self.new_files = set(new_files)     # judged as "whole file is new"
         self.label = label
         self.base_ref = base_ref
@@ -115,13 +120,18 @@ class ChangeScope:
 
     @classmethod
     def everything(cls, root):
-        """Every tracked text file, each treated as new -- a legacy audit."""
+        """Every text file in the work tree, each treated as new -- a legacy audit.
+
+        Untracked files count: a file the agent just created is the newest code
+        in the repo, and an audit that silently leaves it out reports a
+        compliance rate for a codebase nobody has.
+        """
         _require_repo(root)
         try:
             tracked = gitdiff.tracked(root)
         except gitdiff.GitError as exc:
             raise ScopeError(str(exc))
-        changed = _whole(root, tracked)
+        changed = _whole(root, list(dict.fromkeys(tracked + sorted(gitdiff.untracked(root)))))
         return cls(root, changed, set(changed), '전수조사 (%d개 파일)' % len(changed))
 
 
