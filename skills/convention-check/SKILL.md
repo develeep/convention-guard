@@ -7,8 +7,6 @@ description: 훅을 기다리지 않고 지금 convention-guard 검사를 실행
 
 Stop 훅과 **같은 파이프라인**을 씁니다. 수동 결과와 훅 결과가 다르면 둘 다 믿을 수 없게 되기 때문입니다.
 
-스크립트 위치: `S="${CLAUDE_PLUGIN_ROOT}/scripts"`
-
 ## 체크리스트
 
 ```
@@ -36,7 +34,7 @@ Stop 훅과 **같은 파이프라인**을 씁니다. 수동 결과와 훅 결과
 ### 2. 실행
 
 ```bash
-python3 "$S/scan.py" --no-color
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --no-color
 ```
 
 scan.py는 결정론적인 검사를 수행하고, 컨벤션 위반 가능성이 있는 후보(candidate) 를 출력합니다.
@@ -63,7 +61,7 @@ scan.py는 결정론적인 검사를 수행하고, 컨벤션 위반 가능성이
 오탐을 말로만 넘기면 로그에서 "안 고침"과 구분되지 않아, 나중에 rule-tune 이 건강한 규칙을 오탐으로 읽습니다.
 
 ```bash
-python3 "$S/dismiss.py" --rule <규칙id> --file <파일> --line <줄> --reason "<코드에 근거한 한 줄>" --by agent
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/dismiss.py" --rule <규칙id> --file <파일> --line <줄> --reason "<코드에 근거한 한 줄>" --by agent
 ```
 
 기각 기준과 파일 전체 기각: [references/dismiss.md](references/dismiss.md)
@@ -76,10 +74,10 @@ python3 "$S/dismiss.py" --rule <규칙id> --file <파일> --line <줄> --reason 
 `--fix` 로 자동 수정안이 있는 규칙은 먼저 적용할 수 있습니다:
 
 ```bash
-python3 "$S/scan.py" --fix --no-color            # 수정안 미리보기
-python3 "$S/scan.py" --fix --write --no-color    # 적용 후 남은 것 보고
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --fix --no-color            # 수정안 미리보기
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --fix --write --no-color    # 적용 후 남은 것 보고
 ```
 
 재검사에서 **새로 생긴** 지적이 있으면 방금 수정이 만든 것입니다. 그 수정부터 다시 봅니다.
 
-적용되는 규칙이 0개로 나오면 스택 감지 문제입니다: `python3 "$S/detect_stack.py"`
+적용되는 규칙이 0개로 나오면 스택 감지 문제입니다: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/detect_stack.py"`

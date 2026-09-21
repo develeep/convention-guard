@@ -34,9 +34,14 @@ AGENTS = os.path.join(ROOT, 'agents')
 EVALS = os.path.join(HERE, 'evals')
 NAME_RE = re.compile(r'^[a-z0-9-]{1,64}$')
 LINK_RE = re.compile(r'\]\(([^)#\s]+\.md)\)')
-SCRIPT_RE = re.compile(r'(?:\$\{CLAUDE_PLUGIN_ROOT\}|\$S|<plugin>)/((?:scripts|tests)/[\w/.-]+\.py)'
-                       r'|"\$S/([\w.-]+\.py)"')
+SCRIPT_RE = re.compile(r'(?:\$\{CLAUDE_PLUGIN_ROOT\}|<plugin>)/((?:scripts|tests)/[\w/.-]+\.py)')
 XML_RE = re.compile(r'<[A-Za-z/][^>]*>')
+BASH_RE = re.compile(r'```bash\n(.*?)```', re.S)
+# `$VAR` / `${VAR}`, but not `$(...)` and not `${{ ... }}` (CI templating)
+USE_RE = re.compile(r'\$\{(?!\{)(\w+)\}|\$(\w+)')
+SET_RE = re.compile(r'^\s*(?:export\s+)?(\w+)=', re.M)
+# set by the shell itself, so a block may read them without setting them
+SHELL_VARS = {'HOME', 'PWD', 'PATH', 'USER', 'SHELL'}
 AGENT_TOOLS = {'Bash', 'Read', 'Grep', 'Glob', 'Write', 'Edit', 'NotebookEdit', 'WebFetch',
                'WebSearch'}
 
@@ -63,6 +68,29 @@ def check_scripts(label, text):
         check('%s: %s exists' % (label, rel), os.path.isfile(os.path.join(ROOT, rel)))
 
 
+def check_shell_vars(label, text, substituted=()):
+    """Each bash block is one Bash tool call, and shell state does not survive
+    to the next one. `S="<...>/scripts"` written in prose -- or in an earlier
+    block -- is gone by the time the next block runs, and `python3 "$S/scan.py"`
+    then runs as `python3 "/scan.py"`. It shipped that way in every skill once.
+    """
+    for block in BASH_RE.findall(text):
+        known = set(SET_RE.findall(block)) | SHELL_VARS | set(substituted)
+        for braced, bare in USE_RE.findall(block):
+            name = braced or bare
+            check('%s: bash block does not read undefined $%s' % (label, name),
+                  name in known, block.strip()[:120])
+
+
+def check_no_plugin_root(label, text):
+    """Claude Code substitutes ${CLAUDE_PLUGIN_ROOT} only in content it loads as
+    instructions (SKILL.md, agents/*.md, hooks.json). A reference file is opened
+    later with Read, so it arrives raw and the variable expands to nothing.
+    """
+    check('%s: no ${CLAUDE_PLUGIN_ROOT} (not substituted here -- use <plugin>)' % label,
+          'CLAUDE_PLUGIN_ROOT' not in text)
+
+
 def check_skill(name):
     skill_dir = os.path.join(SKILLS, name)
     path = os.path.join(skill_dir, 'SKILL.md')
@@ -84,6 +112,7 @@ def check_skill(name):
     check('%s body is under 500 lines' % label, lines < 500, lines)
     check('%s uses forward slashes only' % label, '\\scripts' not in body and 'scripts\\' not in body)
     check_scripts(label, body)
+    check_shell_vars(label, body, substituted=('CLAUDE_PLUGIN_ROOT',))
 
     for link in sorted(set(LINK_RE.findall(body))):
         ref = os.path.normpath(os.path.join(skill_dir, link))
@@ -98,6 +127,8 @@ def check_skill(name):
         if ref_text.count('\n') > 100:
             check('%s (>100 lines) has a table of contents' % link, '## 목차' in ref_text)
         check_scripts('%s/%s' % (label, link), ref_text)
+        check_no_plugin_root('%s/%s' % (label, link), ref_text)
+        check_shell_vars('%s/%s' % (label, link), ref_text)
 
     evals_path = os.path.join(EVALS, '%s.json' % name)
     check('%s has an evals file' % label, os.path.isfile(evals_path))
@@ -123,6 +154,7 @@ def check_agent(path):
     tools = [t.strip() for t in str(front.get('tools') or '').split(',') if t.strip()]
     check('%s tools are known' % label, tools and set(tools) <= AGENT_TOOLS, tools)
     check_scripts(label, body)
+    check_shell_vars(label, body, substituted=('CLAUDE_PLUGIN_ROOT',))
 
 
 def check_example_rules():

@@ -25,6 +25,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import time
 
 from .rules import match_any as _match_any
 
@@ -206,11 +207,26 @@ def parse_output(root, entry, text):
 
 # ---------------------------------------------------------------- running
 
-def run(root, entries, files, timeout=90, max_files=40):
-    """Return list of failures: {stack, cmd, output, locations, anchored}."""
+def _unchecked(notes, argv, why):
+    if notes is None:
+        return
+    notes.append(('warn', '린터 %s 를 돌리지 못했습니다 (%s) — 이번 변경은 이 린터로 '
+                          '검사되지 않았습니다' % (argv[0], why)))
+
+
+def run(root, entries, files, timeout=90, max_files=40, budget=None, notes=None):
+    """Return list of failures: {stack, cmd, output, locations, anchored}.
+
+    `timeout` is per linter and `entries` runs sequentially, so N linters can
+    take N * timeout. Under a hook that is fatal: the hook is killed, prints
+    nothing, and a killed hook is indistinguishable from a clean check. Pass
+    `budget` to cap the whole phase, and `notes` to hear about what that cost --
+    a linter that did not run must never pass for one that found nothing.
+    """
     failures = []
     if not files:
         return failures
+    deadline = (time.monotonic() + budget) if budget else None
     all_files = sorted(files)
     for entry in entries or []:
         if not binary_present(root, entry):
@@ -223,10 +239,17 @@ def run(root, entries, files, timeout=90, max_files=40):
         argv = _build(entry, mine)
         if not argv:
             continue
+        left = timeout
+        if deadline is not None:
+            left = min(timeout, deadline - time.monotonic())
+            if left <= 0:
+                _unchecked(notes, argv, '앞선 린터가 시간 예산을 다 씀')
+                continue
         try:
             proc = subprocess.run(argv, cwd=root, capture_output=True, text=True,
-                                  errors='replace', timeout=timeout)
+                                  errors='replace', timeout=left)
         except subprocess.TimeoutExpired:
+            _unchecked(notes, argv, '%d초 안에 끝나지 않음' % round(left))
             continue
         except (OSError, ValueError):
             continue

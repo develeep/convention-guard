@@ -76,6 +76,42 @@ def case_split(tmp):
     check('a linter with nothing it owns is skipped', skipped == [], skipped)
 
 
+def slow_entry(seconds):
+    script = 'import time, sys\ntime.sleep(%s)\nsys.exit(1)\n' % seconds
+    return {'cmd': [sys.executable, '-c', script, '{files}'], 'parse': 'unix',
+            'files': ['**/*.py'], 'stack': 'slow'}
+
+
+def case_lint_budget(tmp):
+    """`linters.timeout` is per linter and they run in sequence, so N linters
+    can outlive the Stop hook's own timeout. A killed hook prints nothing, which
+    reads as a clean check -- so the budget must cut the phase short *and say so*.
+    """
+    write(tmp, 'src/a.py', 'line 1\n')
+
+    notes = []
+    failures = lint.run(tmp, [slow_entry(5)], ['src/a.py'], timeout=30, budget=1, notes=notes)
+    check('a linter that outlives the budget reports nothing', failures == [], failures)
+    check('and it is not silent about it',
+          any(level == 'warn' and '검사되지 않았습니다' in text for level, text in notes), notes)
+
+    notes = []
+    failures = lint.run(tmp, [slow_entry(5), fake_entry(1)], ['src/a.py'],
+                        timeout=30, budget=1, notes=notes)
+    check('the linter behind it is not run either', failures == [], failures)
+    check('both are reported as unchecked', len(notes) == 2, notes)
+
+    notes = []
+    failures = lint.run(tmp, [fake_entry(1)], ['src/a.py'], timeout=30, budget=60, notes=notes)
+    check('a linter that fits the budget still runs normally',
+          len(failures) == 1 and not notes, (failures, notes))
+
+    notes = []
+    lint.run(tmp, [slow_entry(5)], ['src/a.py'], timeout=1, notes=notes)
+    check('a per-linter timeout is reported too, not swallowed',
+          len(notes) == 1 and '1초' in notes[0][1], notes)
+
+
 def case_dirs_placeholder():
     argv = lint._build({'cmd': ['go', 'vet', '{dirs}']},
                        ['pkg/a/x.go', 'pkg/a/y.go', 'pkg/b/z.go', 'main.go'])
@@ -135,7 +171,8 @@ def main():
     case_parsers()
     print('case_dirs_placeholder:')
     case_dirs_placeholder()
-    return run_cases([case_split, case_hook_blocks_only_changed_lines], '린터 앵커링')
+    return run_cases([case_split, case_lint_budget, case_hook_blocks_only_changed_lines],
+                     '린터 앵커링')
 
 
 if __name__ == '__main__':

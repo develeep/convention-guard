@@ -45,7 +45,7 @@ def load_rules(root, cfg, stacks, plugin_root=None):
 
 
 def run(scope, cfg, plugin_root=None, run_lint=True, cap=None, use_dismiss=True,
-        rule_filter=None):
+        rule_filter=None, lint_budget=None):
     root = scope.root
     stacks = detect_stacks(root, cfg, plugin_root)
     ruleset = load_rules(root, cfg, stacks, plugin_root)
@@ -68,7 +68,8 @@ def run(scope, cfg, plugin_root=None, run_lint=True, cap=None, use_dismiss=True,
     lint_blocking, lint_notes, lint_raw = [], [], []
     if run_lint and cfg['linters']['enabled'] and stacks.lint and scope:
         lint_raw = lint.run(root, stacks.lint, scope.paths(),
-                            timeout=int(cfg['linters']['timeout']))
+                            timeout=int(cfg['linters']['timeout']),
+                            budget=lint_budget, notes=ruleset.notes)
         lint_blocking, lint_notes = lint.split_by_change(lint_raw, scope)
 
     if (not rule_filter and cfg['semantic_review']['enabled']

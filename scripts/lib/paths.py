@@ -35,8 +35,12 @@ def git_toplevel(path):
     would make the two disagree.
     """
     try:
+        # 5s, not 15: the PostToolUse hook that calls this gets 10s total from
+        # hooks.json. Waiting longer than the caller is allowed to live means
+        # the hook is killed mid-call, the touched file is never recorded, and
+        # the Stop check silently skips that turn (_scan has no git fallback).
         proc = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=path,
-                              capture_output=True, text=True, timeout=15)
+                              capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
         return path
     top = proc.stdout.strip()

@@ -8,8 +8,6 @@ description: 팀이 이미 가진 컨벤션을 CLAUDE.md·AGENTS.md·.cursor/rul
 컨벤션은 인상이 아니라 숫자입니다. 세어보지 않은 관습을 규칙으로 만들면 남는 것은 오탐뿐입니다.
 이 스킬은 **후보 목록과 근거**를 만들고, 규칙 파일은 rule-add 가 씁니다.
 
-스크립트 위치: `S="${CLAUDE_PLUGIN_ROOT}/scripts"`
-
 ## 체크리스트
 
 ```
@@ -24,7 +22,7 @@ description: 팀이 이미 가진 컨벤션을 CLAUDE.md·AGENTS.md·.cursor/rul
 ### 1. 전제 확인
 
 ```bash
-python3 "$S/detect_stack.py"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/detect_stack.py"
 ```
 
 `.claude/convention-guard/config.yaml` 이 없으면 convention-setup 을 먼저 합니다. 감지된 스택 태그와 **이미 적용 중인 규칙 목록**을 기억해 둡니다 — 중복 발굴을 막습니다.

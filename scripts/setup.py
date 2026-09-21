@@ -6,7 +6,6 @@
     python3 setup.py emit                 # .claude/rules/convention-*.md (경로 스코핑)
     python3 setup.py emit --agents-md     # AGENTS.md 관리 블록 + CLAUDE.md 에 @AGENTS.md
     python3 setup.py emit --claude-md     # CLAUDE.md 관리 블록
-    python3 setup.py emit --hook          # SessionStart 훅 JSON
     python3 setup.py emit --stdout        # 쓰지 않고 미리보기
 
 Instruction vs. verification: the hook catches what can be checked after the
@@ -19,7 +18,6 @@ script. Anything a person writes around it survives regeneration.
 """
 
 import argparse
-import json
 import os
 import sys
 
@@ -135,21 +133,12 @@ def emit(args):
     if errors:
         return 2
     if not rules:
-        print(json.dumps({}) if args.hook else
-              '컨텍스트에 넣을 규칙이 없습니다. 규칙에 prevent 한 줄을 붙이세요.')
+        print('컨텍스트에 넣을 규칙이 없습니다. 규칙에 prevent 한 줄을 붙이세요.')
         return 0
 
     groups = {}
     for rule in rules:
         groups.setdefault(group_of(rule), []).append(rule)
-
-    if args.hook:
-        text = '\n\n'.join(body_for(g, rs, args.budget, with_preface=False)
-                           for g, rs in sorted(groups.items()))
-        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart',
-                                                 'additionalContext': text}},
-                         ensure_ascii=False))
-        return 0
 
     if args.agents_md or args.claude_md:
         # one document has no path scoping: every line loads in every session
@@ -327,7 +316,6 @@ def main():
     target = p_emit.add_mutually_exclusive_group()
     target.add_argument('--agents-md', action='store_true', help='AGENTS.md 관리 블록으로')
     target.add_argument('--claude-md', action='store_true', help='CLAUDE.md 관리 블록으로')
-    target.add_argument('--hook', action='store_true', help='SessionStart 훅 JSON 출력')
     p_emit.add_argument('--stdout', action='store_true', help='쓰지 않고 출력만')
     p_emit.add_argument('--budget', type=int, default=DEFAULT_BUDGET, help='그룹당 규칙 상한')
     p_emit.add_argument('--all-severities', action='store_true',

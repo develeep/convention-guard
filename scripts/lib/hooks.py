@@ -33,6 +33,13 @@ WATCHED_TOOLS = {'Write', 'Edit', 'MultiEdit', 'NotebookEdit'}
 # flagged candidate is not read as fixed merely because others crowd it out.
 VERIFY_CAP = 50
 
+# Seconds the whole lint phase may take inside the Stop hook. hooks.json gives
+# check.py 150s; `linters.timeout` is per linter and they run one after another,
+# so a laravel repo (php-cs-fixer + pint + phpstan) can ask for 270s. Going over
+# gets the hook killed, and a killed hook prints nothing -- which reads exactly
+# like a clean check. Leave room for the re-scan and the semantic batch.
+LINT_BUDGET = 110
+
 
 # ---------------------------------------------------------------- PostToolUse
 
@@ -213,7 +220,7 @@ def _scan(ctx):
         return None
     if not scope:
         return None
-    result = pipeline.run(scope, ctx.cfg, cap=VERIFY_CAP)
+    result = pipeline.run(scope, ctx.cfg, cap=VERIFY_CAP, lint_budget=LINT_BUDGET)
     if ctx.cfg['mode'] == 'auto-fix' and not result.errors and not ctx.autofixed:
         applied = autofix.apply(ctx.root, autofix.plan(ctx.root, result.hits))
         if applied:
@@ -222,7 +229,7 @@ def _scan(ctx):
             ctx.autofixed = applied
             # the scope caches file text and diffs; the files just changed
             scope = ChangeScope.from_touched(scope.root, touched, scope.base_ref)
-            result = pipeline.run(scope, ctx.cfg, cap=VERIFY_CAP)
+            result = pipeline.run(scope, ctx.cfg, cap=VERIFY_CAP, lint_budget=LINT_BUDGET)
     triage = None
     if ctx.semantic_on and not result.errors and result.semantic_hits:
         triage = semantic.triage(result, ctx.cfg)

@@ -1,14 +1,12 @@
 ---
 name: convention-setup
-description: 레포에 convention-guard 를 도입하거나 다시 맞춥니다. 스택·린터·포맷터를 감지하고, 최근 변경분에서 실제로 몇 건이 걸리는지 측정해 .claude/convention-guard/config.yaml 을 조정한 뒤, 예방 규칙을 AGENTS.md 나 .claude/rules 로 내보냅니다. "컨벤션 설정해줘", "convention-guard 세팅", 새 레포에 도입할 때, 지적이 너무 많거나 이상해서 설정을 다시 잡을 때 사용합니다. 0.x 설정(.claude/convention-rules)이 남아 있으면 마이그레이션부터 합니다.
+description: 레포에 convention-guard 를 도입하거나 다시 맞춥니다. 스택·린터·포맷터를 감지하고, 최근 변경분에서 실제로 몇 건이 걸리는지 측정해 .claude/convention-guard/config.yaml 을 조정한 뒤, 예방 규칙을 AGENTS.md 나 .claude/rules 로 내보냅니다. "컨벤션 설정해줘", "convention-guard 세팅", 새 레포에 도입할 때, 아직 발동 로그가 쌓이지 않았는데 지적이 너무 많거나 이상해서 설정을 다시 잡을 때 사용합니다 (로그가 이미 있으면 rule-tune). 0.x 설정(.claude/convention-rules)이 남아 있으면 마이그레이션부터 합니다.
 ---
 
 # convention-guard 도입
 
 도입 첫날의 목표는 규칙을 많이 켜는 것이 아니라 **걸리는 것이 전부 진짜이게** 만드는 것입니다.
 그래야 에이전트가 차단 메시지를 진지하게 읽습니다.
-
-스크립트 위치: `S="${CLAUDE_PLUGIN_ROOT}/scripts"`
 
 ## 체크리스트
 
@@ -26,8 +24,8 @@ description: 레포에 convention-guard 를 도입하거나 다시 맞춥니다.
 `.claude/convention-rules/` 가 있으면 새로 만들지 말고 옮깁니다.
 
 ```bash
-python3 "$S/migrate.py"            # 미리보기 (diff)
-python3 "$S/migrate.py" --write
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/migrate.py"            # 미리보기 (diff)
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/migrate.py" --write
 ```
 
 `✗` 가 붙은 파일은 의미가 바뀔 수 있어 쓰지 않은 것입니다. 메시지대로 원본을 고치고 다시 실행하세요.
@@ -35,7 +33,7 @@ python3 "$S/migrate.py" --write
 ### 2. 감지 결과 확인
 
 ```bash
-python3 "$S/detect_stack.py"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/detect_stack.py"
 ```
 
 - `stacks` 가 비었다: 마커 파일(`composer.json`, `package.json`, `go.mod`)이 루트에 없는 레포입니다. 3단계에서 `stacks:` 로 지정합니다.
@@ -45,8 +43,8 @@ python3 "$S/detect_stack.py"
 ### 3. 설정 초안 쓰기
 
 ```bash
-python3 "$S/setup.py" init --stdout   # 확인
-python3 "$S/setup.py" init
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" init --stdout   # 확인
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" init
 ```
 
 초안은 `mode: report` 입니다. 도입 초기에는 차단 없이 기록만 쌓는 것이 기본값입니다.
@@ -56,8 +54,8 @@ python3 "$S/setup.py" init
 추측으로 설정을 쓰지 말고, 실제로 걸리는 양을 봅니다.
 
 ```bash
-python3 "$S/scan.py" --range HEAD~20..HEAD --no-lint --fail-on never --no-color
-python3 "$S/scan.py" --all --severity error --no-lint --fail-on never --json
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --range HEAD~20..HEAD --no-lint --fail-on never --no-color
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --severity error --no-lint --fail-on never --json
 ```
 
 `--all` 결과는 나열하지 말고 규칙별 건수로 집계해서 봅니다. 찾은 것을 이 표에 대어 `config.yaml` 을 고칩니다.
@@ -79,8 +77,8 @@ python3 "$S/scan.py" --all --severity error --no-lint --fail-on never --json
 훅은 쓰고 난 뒤 잡습니다. 되돌리는 비용이 큰 규칙(`prevent:` 가 있는 것)만 쓰기 전에 컨텍스트에 넣습니다.
 
 ```bash
-python3 "$S/setup.py" emit --agents-md --stdout   # AGENTS.md 를 쓰는 레포
-python3 "$S/setup.py" emit --stdout               # .claude/rules/ 로 경로별 분리
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" emit --agents-md --stdout   # AGENTS.md 를 쓰는 레포
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" emit --stdout               # .claude/rules/ 로 경로별 분리
 ```
 
 미리보기를 사용자에게 보여주고 고른 방식으로 `--stdout` 없이 실행합니다. 관리 블록 밖의 내용은 보존됩니다. 생성물은 커밋 대상입니다.

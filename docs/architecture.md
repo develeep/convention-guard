@@ -113,6 +113,17 @@ still 이나 new 중 error 가 있으면 `limits.max_verify_attempts` 까지 다
 
 사용자가 요청을 중단하고 새 요청을 보내면(`stop_hook_active` 가 아닌 Stop) 열린 사이클은 abandoned 로 닫히고, 결과는 그대로 측정됩니다.
 
+## 검사 범위의 한계
+
+검사 대상은 PostToolUse 가 기록한 터치 파일입니다. `git diff` 를 쓰지 않는 이유는 사람이 직접 고친 것까지 에이전트 책임으로 묶이기 때문입니다. 대가는 분명합니다 — 다음은 **검사되지 않습니다**.
+
+- 에이전트가 Bash 로 바꾼 파일 (`sed -i`, 코드 생성기, `git apply`, `npm run format`)
+- PostToolUse 훅이 10초 예산 안에 끝나지 못한 편집
+
+터치 목록이 비면 `_scan` 은 그대로 `None` 을 돌려주고 그 턴은 조용히 지나갑니다. git 폴백은 없습니다. 파일을 대량으로 생성·변환하는 작업 뒤에는 `convention-check` 스킬로 한 번 훑는 편이 안전합니다.
+
+린터도 같은 성격의 예산이 있습니다. `linters.timeout` 은 린터 **하나당**이고 순차 실행이라, Stop 훅 예산(`hooks/hooks.json` 의 150초)을 넘기면 훅이 죽고 훅이 죽으면 아무것도 출력하지 않아 "통과"와 구분되지 않습니다. `hooks.LINT_BUDGET` 이 린터 단계 전체를 잘라 이를 막고, 돌리지 못한 린터는 경고로 남깁니다.
+
 ## 의미 판정
 
 [semantic-review.md](semantic-review.md)

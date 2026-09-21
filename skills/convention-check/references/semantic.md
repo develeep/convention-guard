@@ -15,8 +15,10 @@ N+1 이나 계층 경계처럼 정규식으로는 판정할 수 없는 규칙(`s
 
 **1. 배치 만들기**
 
+`<plugin>` 은 SKILL.md 에 적힌 플러그인 경로로 바꿔 쓰세요. 이 파일의 경로는 치환되지 않습니다.
+
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --review --no-color
+python3 "<plugin>/scripts/scan.py" --review --no-color
 ```
 
 출력 끝에 `review.py show "<배치 경로>"` 명령이 나옵니다. 이미 판정된 코드는 캐시에서 바로 반영되어 배치에 들어가지 않습니다 (VIOLATION 은 지적 목록에 포함).
@@ -32,5 +34,5 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --review --no-color
 
 ## 참고
 
-- 판정 기록 요약: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/review.py" summary "<배치 경로>"`
+- 판정 기록 요약: `python3 "<plugin>/scripts/review.py" summary "<배치 경로>"`
 - 판정은 이 머신의 캐시(플러그인 데이터 디렉터리)에 남습니다. 팀 결정이 아니므로 레포에 커밋되지 않습니다. 팀이 합의한 예외는 기각 기록으로 남기세요.

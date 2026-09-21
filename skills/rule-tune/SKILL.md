@@ -1,14 +1,12 @@
 ---
 name: rule-tune
-description: convention-guard 발동 로그로 규칙 건강도를 진단하고 오탐 규칙은 좁히거나 지우고, 건강한 규칙은 승격하며, 도입기 report 모드를 fix 로 전환할지 판단합니다. 수정률·기각률·리뷰어 판정 정밀도·수정이 만든 신규 위반을 근거로 삼고, 기각 사유를 픽스처로 옮겨 같은 오탐이 돌아오지 않게 합니다. "규칙 정리해줘", "컨벤션 규칙 손봐줘", "어떤 규칙이 쓸모없는지", "규칙 승격", 지적이 너무 많거나 에이전트가 무시하는 것 같을 때, 도입 2~3주 뒤 정기 점검에 사용합니다.
+description: convention-guard 발동 로그로 규칙 건강도를 진단하고 오탐 규칙은 좁히거나 지우고, 건강한 규칙은 승격하며, 도입기 report 모드를 fix 로 전환할지 판단합니다. 수정률·기각률·리뷰어 판정 정밀도·수정이 만든 신규 위반을 근거로 삼고, 기각 사유를 픽스처로 옮겨 같은 오탐이 돌아오지 않게 합니다. "규칙 정리해줘", "컨벤션 규칙 손봐줘", "어떤 규칙이 쓸모없는지", "규칙 승격", 발동 로그가 쌓인 뒤 지적이 너무 많거나 에이전트가 무시하는 것 같을 때, 도입 2~3주 뒤 정기 점검에 사용합니다 (로그가 아직 없으면 convention-setup).
 ---
 
 # 규칙 개선 사이클
 
 수정률이 낮은 규칙을 방치하면 에이전트가 차단 메시지 전체를 형식적으로 처리하기 시작하고, 그때부터는 건강한 규칙까지 함께 무시됩니다.
 판단은 숫자로 합니다. "좋아 보인다"로 결정하지 않습니다.
-
-스크립트 위치: `S="${CLAUDE_PLUGIN_ROOT}/scripts"`
 
 ## 체크리스트
 
@@ -23,7 +21,7 @@ description: convention-guard 발동 로그로 규칙 건강도를 진단하고 
 ### 1. 건강도 보기
 
 ```bash
-python3 "$S/log_report.py" --repo . --since 21
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/log_report.py" --repo . --since 21
 ```
 
 비어 있으면 훅이 아직 돌지 않았거나 로그 위치가 다릅니다 (`--log <경로>`, userConfig `log_dir`).
@@ -62,8 +60,8 @@ python3 "$S/log_report.py" --repo . --since 21
 5. 전후 건수를 비교합니다.
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/tests/rules/test_rule_fixtures.py" --repo "$CLAUDE_PROJECT_DIR"
-python3 "$S/scan.py" --all --rule <id> --no-lint --fail-on never --no-color
+python3 "${CLAUDE_PLUGIN_ROOT}/tests/rules/test_rule_fixtures.py" --repo .
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --rule <id> --no-lint --fail-on never --no-color
 ```
 
 core 규칙은 레포에서 `override: core/<id>` 파일로 좁힙니다 (형식: rule-add 스킬의 references/schema.md).

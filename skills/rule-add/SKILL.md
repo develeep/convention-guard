@@ -7,8 +7,6 @@ description: 반복되는 리뷰 지적이나 팀 컨벤션 항목을 convention
 
 사람이 정규식부터 쓰는 것보다 **실제 코드를 보고 만든 뒤 픽스처로 검증하는** 편이 오탐이 훨씬 적습니다.
 
-스크립트 위치: `S="${CLAUDE_PLUGIN_ROOT}/scripts"`
-
 ## 체크리스트
 
 ```
@@ -67,8 +65,8 @@ description: 반복되는 리뷰 지적이나 팀 컨벤션 항목을 convention
 ### 6. 검증 루프
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/tests/rules/test_rule_fixtures.py" --repo "$CLAUDE_PROJECT_DIR"
-python3 "$S/scan.py" --all --rule <id> --no-lint --fail-on never --no-color
+python3 "${CLAUDE_PLUGIN_ROOT}/tests/rules/test_rule_fixtures.py" --repo .
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --rule <id> --no-lint --fail-on never --no-color
 ```
 
 1. 픽스처가 실패하면 메시지대로 고치고 다시 실행합니다.
@@ -88,7 +86,7 @@ python3 "$S/scan.py" --all --rule <id> --no-lint --fail-on never --no-color
 | 되돌리기 어려운 것 (마이그레이션) | 포맷터가 고치는 것 |
 
 ```bash
-python3 "$S/setup.py" emit --stdout
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" emit --stdout
 ```
 
 ### 8. 보고

@@ -15,21 +15,21 @@
 
 ## 명령
 
-```bash
-S="${CLAUDE_PLUGIN_ROOT}/scripts"
+`<plugin>` 은 SKILL.md 에 적힌 플러그인 경로로 바꿔 쓰세요. 이 파일의 경로는 치환되지 않습니다.
 
+```bash
 # 한 위치 — 그 코드의 지문이 기록되고, 코드가 바뀌면 다시 지적됨
-python3 "$S/dismiss.py" --rule core/php-line-too-long --file app/X.php --line 84 \
+python3 "<plugin>/scripts/dismiss.py" --rule core/php-line-too-long --file app/X.php --line 84 \
   --reason "체이닝을 끊으면 쿼리 흐름이 안 보임" --by agent
 
 # 훅이 알려준 키 그대로 (다시 검사하지 않음)
-python3 "$S/dismiss.py" --key core/php-line-too-long:app/X.php:6f1c93ab24 --reason "..." --by agent
+python3 "<plugin>/scripts/dismiss.py" --key core/php-line-too-long:app/X.php:6f1c93ab24 --reason "..." --by agent
 
 # 파일 전체에서 규칙 끄기 — 만료되지 않으므로 드물게
-python3 "$S/dismiss.py" --rule core/js-no-console --file scripts/seed.ts --whole-file \
+python3 "<plugin>/scripts/dismiss.py" --rule core/js-no-console --file scripts/seed.ts --whole-file \
   --reason "시드 스크립트는 콘솔 출력이 인터페이스" --by agent
 
-python3 "$S/dismiss.py" --list
+python3 "<plugin>/scripts/dismiss.py" --list
 ```
 
 사람이 판단한 것은 `--by human`(기본값), 에이전트가 판단한 것은 `--by agent` 입니다.
