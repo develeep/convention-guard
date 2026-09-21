@@ -20,8 +20,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from helpers import (LARAVEL_COMPOSER, Session, check, finish, make_repo,  # noqa: E402
-                     run_script, tempdir)
+from helpers import (LARAVEL_COMPOSER, Session, check, commit, finish, make_repo,  # noqa: E402
+                     run_script, tempdir, write)
 
 HDR = '<?php\ndeclare(strict_types=1);\nnamespace App;\n'
 A = 'app/Svc/A.php'
@@ -32,8 +32,8 @@ def repo_files(config=''):
     for name in ('A', 'B'):
         files['app/Svc/%s.php' % name] = \
             HDR + 'class %s { public function f() { return 1; } }\n' % name
-    if config:
-        files['.claude/convention-guard/config.yaml'] = config
+    files['.claude/convention-guard/config.yaml'] = (
+        config if 'mode:' in config else 'mode: fix\n' + config)
     return files
 
 
@@ -205,6 +205,31 @@ def case_question_turn(repo, data):
     check('and no cycle is opened', s.state()['cycle'] is None)
 
 
+def case_commit_before_first_stop(repo, data):
+    write(repo, '.claude/convention-guard/config.yaml',
+          'mode: fix\nscope:\n  base_ref: HEAD\nonce_per_session: false\n')
+    commit(repo, 'configure explicit base')
+    s = Session(repo, data, 'commit-first')
+    # collect the edit, then commit before the Stop hook gets its first chance
+    write(repo, A, body())
+    s.touch(A)
+    commit(repo, 'agent commit')
+    result = s.stop('p1')
+    check('a change committed before Stop is still inspected',
+          result['decision'] == 'block', result)
+
+
+def case_commit_during_open_cycle(repo, data):
+    s = Session(repo, data, 'commit-cycle')
+    first = s.turn(A, body(), 'p1')
+    check('the violation opens a cycle before commit', first['decision'] == 'block', first)
+    commit(repo, 'commit unresolved violation')
+    s.touch(A)
+    verify = s.stop('p1', stop_hook_active=True)
+    check('committing an unresolved violation does not classify it as fixed',
+          verify['decision'] == 'block' and '아직 그대로' in verify['reason'], verify)
+
+
 def case_no_prompt_ids(repo, data):
     """Claude Code does not always send prompt ids; continuation alone must work."""
     s = Session(repo, data, 'noprompt')
@@ -229,8 +254,10 @@ CASES = [
     (case_abandoned_request, 'once_per_session: false\n'),
     (case_new_occurrence_is_not_a_repeat, 'once_per_session: false\n'),
     (case_consecutive_cap, 'once_per_session: false\n'),
-    (case_report_mode, ''),
+    (case_report_mode, 'mode: report\n'),
     (case_question_turn, ''),
+    (case_commit_before_first_stop, 'once_per_session: false\n'),
+    (case_commit_during_open_cycle, 'once_per_session: false\n'),
     (case_no_prompt_ids, ''),
 ]
 

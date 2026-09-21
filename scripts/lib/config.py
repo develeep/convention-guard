@@ -20,7 +20,7 @@ from .yamlio import read as read_yaml
 MODES = ('report', 'fix', 'auto-fix')
 
 DEFAULTS = {
-    'mode': 'fix',
+    'mode': 'report',
     'presets': 'auto',
     'stacks': [],
     'disable': [],
@@ -160,6 +160,10 @@ def _validate(data, label, notes):
                 value = {k: v for k, v in value.items()
                          if k in DEFAULTS[key]
                          and _typed(label, '%s.%s' % (key, k), v, DEFAULTS[key][k], notes)}
+                if key == 'linters' and value.get('timeout') == 0:
+                    notes.append(('error', '%s: linters.timeout 는 1 이상의 정수여야 합니다'
+                                  % label))
+                    del value['timeout']
         elif not _typed(label, key, value, DEFAULTS[key], notes, ALSO.get(key)):
             continue
         clean[key] = value

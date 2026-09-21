@@ -22,7 +22,7 @@ Instruction → Execution → Verification → Feedback → Fix → Verification
 ## 전체 흐름
 
 ```
-PostToolUse(Write|Edit)   collect.py   터치한 파일 경로만 기록 (출력·컨텍스트 0)
+PostToolUse(Write|Edit|MultiEdit|NotebookEdit)   collect.py   터치한 파일 경로와 세션 최초 HEAD 기록 (출력·컨텍스트 0)
                                 │
 Stop                      check.py ─── lib/hooks.py
                                 │
@@ -115,12 +115,15 @@ still 이나 new 중 error 가 있으면 `limits.max_verify_attempts` 까지 다
 
 ## 검사 범위의 한계
 
-검사 대상은 PostToolUse 가 기록한 터치 파일입니다. `git diff` 를 쓰지 않는 이유는 사람이 직접 고친 것까지 에이전트 책임으로 묶이기 때문입니다. 대가는 분명합니다 — 다음은 **검사되지 않습니다**.
+검사 대상은 수집 훅이 기록한 터치 파일입니다. Write/Edit 계열은 도구 입력의 파일 경로를 사용합니다.
+Bash 는 PreToolUse 에서 기존 dirty 파일의 지문을 저장하고 PostToolUse 에서 달라진 경로만 추가하므로,
+사람이 먼저 수정해 둔 파일을 에이전트 책임으로 묶지 않습니다. 다음은 여전히 **검사되지 않습니다**.
 
-- 에이전트가 Bash 로 바꾼 파일 (`sed -i`, 코드 생성기, `git apply`, `npm run format`)
-- PostToolUse 훅이 10초 예산 안에 끝나지 못한 편집
+- 수집 훅이 10초 예산 안에 끝나지 못한 편집
+- PreToolUse 없이 PostToolUse 만 전달된 Bash 호출
 
-터치 목록이 비면 `_scan` 은 그대로 `None` 을 돌려주고 그 턴은 조용히 지나갑니다. git 폴백은 없습니다. 파일을 대량으로 생성·변환하는 작업 뒤에는 `convention-check` 스킬로 한 번 훑는 편이 안전합니다.
+세션의 첫 수집 시점 HEAD도 저장하므로 Stop 전에 커밋한 변경까지 검사합니다. 범위 계산 실패는
+깨끗한 통과로 읽지 않고 검사 불가 메시지를 냅니다.
 
 린터도 같은 성격의 예산이 있습니다. `linters.timeout` 은 린터 **하나당**이고 순차 실행이라, Stop 훅 예산(`hooks/hooks.json` 의 150초)을 넘기면 훅이 죽고 훅이 죽으면 아무것도 출력하지 않아 "통과"와 구분되지 않습니다. `hooks.LINT_BUDGET` 이 린터 단계 전체를 잘라 이를 막고, 돌리지 못한 린터는 경고로 남깁니다.
 
@@ -133,6 +136,8 @@ still 이나 new 중 error 가 있으면 `limits.max_verify_attempts` 까지 다
 | 파일 (플러그인 데이터 디렉터리) | 내용 |
 |---|---|
 | `touched-<session>.txt` | 수집 훅이 한 줄씩 덧붙이는 터치 파일 (병렬 실행 안전) |
+| `base-<session>.json` | 세션 첫 수정 시점의 레포 루트와 HEAD |
+| `bash-<session>-<tool>.json` | Bash 실행 전 dirty 파일 지문 (PostToolUse 후 삭제) |
 | `session-<session>.json` | 연속 차단 수, 열린 사이클, 세션 동안 고쳐진 규칙 |
 | `reviews/*.json` | 판정 배치와 기록된 판정 (7일 후 정리) |
 | `verdicts.json` | 판정 캐시 (레포별, TTL) |

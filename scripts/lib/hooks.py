@@ -23,11 +23,12 @@ import os
 
 from . import (autofix, config as configlib, cycle as cyclelib, dismiss as dismisslib, gitdiff,
                log, pipeline, report, semantic, state as statelib)
-from .candidate import VIOLATION, parse_key
+from .candidate import VIOLATION, fingerprint, parse_key
 from .paths import git_toplevel, hook_project_dir
 from .scope import ChangeScope, ScopeError
 
-WATCHED_TOOLS = {'Write', 'Edit', 'MultiEdit', 'NotebookEdit'}
+EDIT_TOOLS = {'Write', 'Edit', 'MultiEdit', 'NotebookEdit'}
+WATCHED_TOOLS = EDIT_TOOLS | {'Bash'}
 
 # Locations per rule the re-scan collects. Far above what a block shows, so a
 # flagged candidate is not read as fixed merely because others crowd it out.
@@ -42,6 +43,29 @@ LINT_BUDGET = 110
 
 
 # ---------------------------------------------------------------- PostToolUse
+
+def _tool_use_key(payload):
+    ident = payload.get('tool_use_id')
+    if ident:
+        return ident
+    tool_input = payload.get('tool_input')
+    command = tool_input.get('command', '') if isinstance(tool_input, dict) else ''
+    return 'command-%s' % fingerprint(command)
+
+
+def on_pre_tool_use(payload):
+    """Snapshot pre-existing dirty files before Bash so they are not claimed."""
+    if not isinstance(payload, dict) or payload.get('tool_name') != 'Bash':
+        return None
+    root = git_toplevel(hook_project_dir(payload))
+    session = payload.get('session_id')
+    head = gitdiff.current_head(root)
+    statelib.record_base(session, root, head)
+    paths = gitdiff.changed_paths(root, head)
+    fingerprints = {rel: gitdiff.file_fingerprint(root, rel) for rel in paths}
+    statelib.save_bash_snapshot(session, _tool_use_key(payload), root, fingerprints)
+    return None
+
 
 def _candidate_paths(tool_input):
     paths = []
@@ -62,6 +86,23 @@ def on_post_tool_use(payload):
     if not isinstance(payload, dict) or payload.get('tool_name') not in WATCHED_TOOLS:
         return None
     root = git_toplevel(hook_project_dir(payload))
+    session = payload.get('session_id')
+    statelib.record_base(session, root, gitdiff.current_head(root))
+    if payload.get('tool_name') == 'Bash':
+        tool_key = _tool_use_key(payload)
+        before = statelib.read_bash_snapshot(session, tool_key, root)
+        if before is None:
+            return None
+        base_ref = statelib.read_base(session, root)
+        changed = gitdiff.changed_paths(root, base_ref)
+        found = [rel for rel in changed
+                 if before.get(rel) != gitdiff.file_fingerprint(root, rel)]
+        statelib.append_touched(session, found)
+        # A missing tool_use_id cannot distinguish identical parallel Bash
+        # calls. Keep their shared snapshot until GC so every Post can consume it.
+        if payload.get('tool_use_id'):
+            statelib.delete_bash_snapshot(session, tool_key)
+        return None
     found = []
     for raw in _candidate_paths(payload.get('tool_input')):
         absolute = os.path.abspath(raw if os.path.isabs(raw) else os.path.join(root, raw))
@@ -71,7 +112,7 @@ def on_post_tool_use(payload):
             continue
         if not rel.startswith('..'):
             found.append(rel.replace(os.sep, '/'))
-    statelib.append_touched(payload.get('session_id'), found)
+    statelib.append_touched(session, found)
     return None
 
 
@@ -132,6 +173,25 @@ class Scan:
     @property
     def errors(self):
         return self.result.errors
+
+
+class ScanFailure:
+    """A failed inspection is not an empty inspection."""
+
+    def __init__(self, message):
+        self.errors = [message]
+
+
+def _scan_warnings(scan):
+    if scan is None or not hasattr(scan, 'result'):
+        return []
+    warnings = [text for level, text in scan.result.notes if level == 'warn']
+    warnings.sort(key=lambda text: (0 if '검사되지 않았습니다' in text else 1, text))
+    return warnings
+
+
+def _warning_suffix(warnings):
+    return ' / 검사 경고: %s' % warnings[0] if warnings else ''
 
 
 def on_stop(payload):
@@ -213,11 +273,21 @@ def _scan(ctx):
     touched = statelib.read_touched(ctx.session)
     if not touched:
         return None
+    configured = ctx.cfg['scope']['base_ref']
+    configured_ref = gitdiff.resolve_base_ref(ctx.root, configured)
+    if configured and configured != 'auto' and not configured_ref:
+        return ScanFailure('base ref 를 찾을 수 없습니다: %s' % configured)
+    session_ref = statelib.read_base(ctx.session, ctx.root)
+    current_head = gitdiff.current_head(ctx.root)
+    if configured_ref == current_head:
+        configured_ref = None
+    if session_ref == current_head:
+        session_ref = None       # HEAD diff already covers the same commit
+    base_ref = list(dict.fromkeys(ref for ref in (configured_ref, session_ref) if ref))
     try:
-        scope = ChangeScope.from_touched(
-            ctx.root, touched, gitdiff.resolve_base_ref(ctx.root, ctx.cfg['scope']['base_ref']))
-    except ScopeError:
-        return None
+        scope = ChangeScope.from_touched(ctx.root, touched, base_ref or None)
+    except ScopeError as exc:
+        return ScanFailure(str(exc))
     if not scope:
         return None
     result = pipeline.run(scope, ctx.cfg, cap=VERIFY_CAP, lint_budget=LINT_BUDGET)
@@ -363,29 +433,37 @@ def _request_review(ctx, cycle, pending, label):
 def _verify(ctx, cycle, scan):
     outcome = _classify(ctx, cycle, scan)
     skipped, needs = _pending_review(ctx, cycle, scan)
+    warnings = _scan_warnings(scan)
     cfg = ctx.cfg
     streak = int(ctx.state.get('consecutive_blocks', 0))
     wants = bool(outcome.blocking() or skipped or needs)
+    # Pagination of an already-running semantic review is not a failed fix
+    # attempt. Let deferred, previously-unasked candidates consume the loop
+    # guard, not max_verify_attempts.
+    review_page = bool(needs) and not outcome.blocking() and not skipped
+    attempts_left = (cycle['attempt'] < cfg.limit('max_verify_attempts') or review_page)
     again = (wants and not cfg.report_only
-             and cycle['attempt'] < cfg.limit('max_verify_attempts')
+             and attempts_left
              and streak < cfg.limit('max_consecutive_blocks'))
     if not again:
         _close(ctx, cycle, outcome, unreviewed=skipped + needs)
         if not outcome.remaining() and not (skipped or needs):
-            return None
+            return notice('convention-guard: 검사 경고 — %s' % warnings[0]) if warnings else None
         counts = outcome.counts()
         return notice('convention-guard: 재검증 — 고쳐짐 %d / 기각 %d / 남음 %d / 새로 생김 %d%s. '
-                      '더 차단하지 않고 기록만 남깁니다.'
+                      '더 차단하지 않고 기록만 남깁니다.%s'
                       % (counts['fixed'], counts['dismissed'], counts['still'], counts['new'],
                          ' / 판정 못 한 후보 %d' % len(skipped + needs) if skipped or needs
-                         else ''))
+                         else '',
+                         ' / 검사 경고: %s' % warnings[0] if warnings else ''))
 
     _log_outcome(ctx, cycle, outcome)
     for _rule, cand, _pack in skipped:
         ctx.event({'event': 'review_skipped', 'cycle': cycle['id'], 'rule_id': cand.rule_id,
                    'key': cand.key, 'file': cand.file, 'reason': 'not_run'})
     cycle['attempt'] += 1
-    last_chance = cycle['attempt'] >= cfg.limit('max_verify_attempts')
+    last_chance = (not review_page
+                   and cycle['attempt'] >= cfg.limit('max_verify_attempts'))
     cycle['opened'] = outcome.remaining()
     cycle['seen'] = sorted(set(cycle.get('seen') or ()) | set(_current(ctx, scan)))
     cycle['review'] = None
@@ -402,15 +480,18 @@ def _verify(ctx, cycle, scan):
     return block(report.verify_reason(outcome, last_chance, review, skipped=bool(skipped)),
                  'convention-guard: 재검증 — 남음 %d / 새로 생김 %d%s'
                  % (counts['still'], counts['new'],
-                    ' / 심층 판정 %d건 요청' % len(review['items']) if review else ''))
+                    (' / 심층 판정 %d건 요청' % len(review['items']) if review else '')
+                    + (' / 검사 경고: %s' % warnings[0] if warnings else '')))
 
 
 def _open(ctx, scan):
     cfg, state, result = ctx.cfg, ctx.state, scan.result
+    scan_warnings = _scan_warnings(scan)
     shown_cap = cfg.limit('max_locations_per_rule')
     unresolved = set(state.get('unresolved') or [])
 
     lint_cmds = {f['cmd'] for f in result.lint_blocking}
+    lint_count = len({cyclelib.lint_key(f) for f in result.lint_blocking})
     for fail in result.lint_raw:
         ctx.event({'event': 'lint', 'stack': fail.get('stack'), 'cmd': fail['cmd'],
                    'anchored': fail['anchored'], 'findings': len(fail.get('locations') or []),
@@ -462,12 +543,14 @@ def _open(ctx, scan):
         extra = ' / 판정 대기 후보 %d건' % len(pending) if pending else ''
         if capped and has_blocking:
             return notice('convention-guard: error %d건 / 린트 실패 %d건%s 기록 '
-                          '(연속 차단 %d회 상한에 걸려 차단하지 않았습니다)'
-                          % (len(errors), len(result.lint_blocking), extra, streak))
+                          '(연속 차단 %d회 상한에 걸려 차단하지 않았습니다)%s'
+                          % (len(errors), lint_count, extra, streak,
+                             _warning_suffix(scan_warnings)))
         if cfg.report_only and has_blocking:
             return notice('convention-guard: error %d건 / 린트 실패 %d건%s 기록 '
-                          '(mode=report 라 차단하지 않았습니다)'
-                          % (len(errors), len(result.lint_blocking), extra))
+                          '(mode=report 라 차단하지 않았습니다)%s'
+                          % (len(errors), lint_count, extra,
+                             _warning_suffix(scan_warnings)))
         parts = []
         if warns:
             parts.append('warn %d건 (%s)' % (len(warns), ', '.join(r['id'] for r, _ in warns)))
@@ -475,6 +558,8 @@ def _open(ctx, scan):
             parts.append('info %d건' % len(infos))
         if result.lint_notes:
             parts.append('린터가 기존 코드에서 찾은 것 %d건' % len(result.lint_notes))
+        if scan_warnings:
+            parts.append('검사 경고: %s' % scan_warnings[0])
         if parts:
             return notice('convention-guard: %s 기록. 차단하지 않았습니다.' % ', '.join(parts))
         return None
@@ -497,12 +582,13 @@ def _open(ctx, scan):
                'keys': sorted(opened), 'review': bool(review)})
 
     reason = report.hook_reason(result.lint_blocking, result.lint_notes, errors, warns, repeats,
-                                review=review)
+                                review=review, warnings=scan_warnings)
     summary = 'convention-guard: %s%s%s%s' % (
-        '린트 실패 %d건 ' % len(result.lint_blocking) if result.lint_blocking else '',
+        '린트 실패 %d건 ' % lint_count if result.lint_blocking else '',
         'error %d건 / warn %d건' % (len(errors), len(warns)),
         ' / info %d건' % len(infos) if infos else '',
-        ' / 심층 판정 %d건 요청' % len(review['items']) if review else '')
+        (' / 심층 판정 %d건 요청' % len(review['items']) if review else '')
+        + (' / 검사 경고 %d건' % len(scan_warnings) if scan_warnings else ''))
     return block(reason, summary)
 
 

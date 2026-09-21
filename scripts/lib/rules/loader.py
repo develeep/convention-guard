@@ -130,6 +130,7 @@ def load(root, plugin_root, cfg, tags):
     raws, order = {}, []
 
     def ingest(base, source):
+        items = []
         for path in iter_rule_files(base):
             try:
                 raw = read_cached(path)
@@ -139,26 +140,31 @@ def load(root, plugin_root, cfg, tags):
             if not isinstance(raw, dict):
                 result.notes.append(('error', '%s: 최상위가 매핑이 아님' % path))
                 continue
-            target = raw.get('override')
-            if target:
-                target = str(target)
-                if target not in raws:
-                    result.notes.append(('warn', '%s: override 대상 %s 없음 (무시)'
-                                         % (path, target)))
-                    continue
-                entry = raws[target]
-                patch = {k: v for k, v in raw.items() if k not in ('override', 'id')}
-                entry.update(raw=deep_merge(entry['raw'], patch), path=path,
-                             source='%s<-%s' % (entry['source'].split('<-')[0], source),
-                             patched_from=entry.get('patched_from') or entry['path'],
-                             base_severity=entry['raw'].get('severity'))
-                continue
+            items.append((path, raw))
+
+        # Definitions in one layer are collected before that layer's patches.
+        # A local override must not depend on sorting after its local target.
+        for path, raw in [item for item in items if not item[1].get('override')]:
             rid = schema.rule_id(raw, path, source)
             if rid in raws:
                 result.notes.append(('warn', '%s: id 중복 %s (뒤에 온 것이 이김)' % (path, rid)))
             else:
                 order.append(rid)
             raws[rid] = {'raw': raw, 'path': path, 'source': source}
+
+        for path, raw in [item for item in items if item[1].get('override')]:
+            target = raw.get('override')
+            target = str(target)
+            if target not in raws:
+                result.notes.append(('warn', '%s: override 대상 %s 없음 (무시)'
+                                     % (path, target)))
+                continue
+            entry = raws[target]
+            patch = {k: v for k, v in raw.items() if k not in ('override', 'id')}
+            entry.update(raw=deep_merge(entry['raw'], patch), path=path,
+                         source='%s<-%s' % (entry['source'].split('<-')[0], source),
+                         patched_from=entry.get('patched_from') or entry['path'],
+                         base_severity=entry['raw'].get('severity'))
 
     ingest(os.path.join(plugin_root, 'rules'), 'core')
     ingest(user_rules_dir(), 'user')

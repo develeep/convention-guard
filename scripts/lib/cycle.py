@@ -43,7 +43,7 @@ def entry(rule, cand):
 
 
 def lint_key(fail):
-    return 'lint:%s' % fail['cmd']
+    return 'lint:%s' % fail.get('key', fail['cmd'])
 
 
 def lint_entry(fail):

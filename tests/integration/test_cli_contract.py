@@ -23,8 +23,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from helpers import (LARAVEL_COMPOSER, Session, check, commit, isolated_env,  # noqa: E402
+from helpers import (LARAVEL_COMPOSER, Session, check, commit, git, isolated_env,  # noqa: E402
                      make_repo, run_cases, run_script, write)
+from lib import state as statelib  # noqa: E402
 
 HDR = '<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Svc;\n\n'
 
@@ -110,10 +111,43 @@ def case_collect_survives_garbage(tmp):
               'Traceback' not in proc.stderr, proc.stderr)
 
 
+def case_touched_queue_keeps_large_sessions(tmp):
+    old = os.environ.get('CLAUDE_PLUGIN_DATA')
+    os.environ['CLAUDE_PLUGIN_DATA'] = os.path.join(tmp, 'data')
+    try:
+        paths = ['src/f%d.py' % i for i in range(550)]
+        statelib.append_touched('large', paths)
+        check('the touched queue retains every distinct session file',
+              statelib.read_touched('large') == paths,
+              len(statelib.read_touched('large')))
+    finally:
+        if old is None:
+            os.environ.pop('CLAUDE_PLUGIN_DATA', None)
+        else:
+            os.environ['CLAUDE_PLUGIN_DATA'] = old
+
+
+def case_bash_changes_are_collected_precisely(tmp):
+    repo, data = laravel(tmp)
+    write(repo, '.claude/convention-guard/config.yaml', 'mode: fix\n')
+    commit(repo, 'enable blocking')
+    # This is a pre-existing human change. A Bash hook must not claim it.
+    write(repo, 'notes.txt', 'api_key = "human-change-12345"\n')
+    session = Session(repo, data, 'bash')
+    session.bash_hook('PreToolUse')
+    write(repo, 'app/Svc/A.php', HDR + 'class A { public function f() { dd(1); } }\n')
+    session.bash_hook('PostToolUse')
+    out = session.stop('p1')
+    check('a file changed through Bash is inspected',
+          out['decision'] == 'block' and 'app/Svc/A.php' in out['reason'], out)
+    check('an unchanged dirty file from before Bash is not claimed',
+          'notes.txt' not in out['reason'], out['reason'])
+
+
 def case_cap_holds(tmp):
     repo, data = laravel(tmp)
     write(repo, '.claude/convention-guard/config.yaml',
-          'once_per_session: false\nlimits:\n  max_consecutive_blocks: 2\n')
+          'mode: fix\nonce_per_session: false\nlimits:\n  max_consecutive_blocks: 2\n')
     commit(repo, 'config')
     session = Session(repo, data, 'cap')
     rel = 'app/Svc/A.php'
@@ -137,6 +171,33 @@ def case_broken_config_is_not_silence(tmp):
     check('the hook prints no traceback', 'Traceback' not in out['stderr'], out['stderr'])
 
 
+def case_hook_scope_errors_are_visible(tmp):
+    repo, data = laravel(tmp)
+    write(repo, '.claude/convention-guard/config.yaml',
+          'scope:\n  base_ref: refs/heads/does-not-exist\n')
+    commit(repo, 'invalid base')
+    out = Session(repo, data, 'bad-base').turn(
+        'app/Svc/A.php', HDR + 'class A { public function f() { dd(1); } }\n', 'p1')
+    check('an invalid hook base_ref is reported instead of silently falling back',
+          'base ref' in out['summary'], out)
+
+    git(repo, 'branch', '-M', 'trunk')
+    write(repo, '.claude/convention-guard/config.yaml',
+          'mode: fix\nscope:\n  base_ref: auto\n')
+    commit(repo, 'auto base without conventional branch')
+    auto = Session(repo, os.path.join(tmp, 'auto-data'), 'auto-base').turn(
+        'app/Svc/A.php', HDR + 'class A { public function f() { dd(2); } }\n', 'p1')
+    check('an unresolved auto base falls back to the session baseline',
+          auto['decision'] == 'block', auto)
+
+    outside = os.path.join(tmp, 'not-a-repo')
+    os.makedirs(outside)
+    nonrepo = Session(outside, os.path.join(tmp, 'nonrepo-data'), 'nonrepo')
+    out = nonrepo.turn('src/a.py', 'print("changed")\n', 'p1')
+    check('a non-repo Stop reports that inspection was impossible',
+          'git 레포' in out['summary'], out)
+
+
 def case_detect_stack_reports(tmp):
     repo, data = laravel(tmp)
     proc = run_script('detect_stack.py', ['--cwd', repo, '--json'],
@@ -154,6 +215,8 @@ def case_detect_stack_reports(tmp):
 if __name__ == '__main__':
     sys.exit(run_cases([case_scan_exit_codes, case_severity_filter_does_not_hide_exit_code,
                         case_all_includes_rules_without_globs, case_dismiss_is_exact,
-                        case_collect_survives_garbage, case_cap_holds,
-                        case_broken_config_is_not_silence, case_detect_stack_reports],
+                        case_collect_survives_garbage, case_touched_queue_keeps_large_sessions,
+                        case_bash_changes_are_collected_precisely, case_cap_holds,
+                        case_broken_config_is_not_silence, case_hook_scope_errors_are_visible,
+                        case_detect_stack_reports],
                        'CLI 계약'))

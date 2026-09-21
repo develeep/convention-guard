@@ -6,7 +6,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import ROOT, check, finish, tempdir, write  # noqa: E402
-from lib import config, rules as rulelib  # noqa: E402
+from lib import config, rules as rulelib, stack as stacklib  # noqa: E402
 
 
 def rule_yaml(**extra):
@@ -56,13 +56,19 @@ def case_schema():
                                  'local')
     check('semantic rules default to the current function as context',
           semantic['review']['context'] == ['current_function'], semantic['review'])
+    absent = rulelib.normalize(
+        rule_yaml(detect={'when_file_added': True,
+                          'must_contain_in_file': r'^declare\(.*strict_types=1'}),
+        'absent.yaml', 'local')
+    check('new-file requirements support multiline patterns',
+          bool(absent['compiled_must'].search('declare(\n    strict_types=1')))
 
 
 def case_config_layers():
     print('case_config_layers:')
     with tempdir() as repo:
         cfg = config.load(repo, ROOT)
-        check('defaults load with no repo config', cfg['mode'] == 'fix' and not cfg.notes,
+        check('defaults load with no repo config', cfg['mode'] == 'report' and not cfg.notes,
               cfg.notes)
 
         write(repo, '.claude/convention-guard/config.yaml',
@@ -94,6 +100,12 @@ def case_config_layers():
               any(lv == 'error' and 'max_error_rules' in t for lv, t in cfg.notes), cfg.notes)
         check('and the bad value does not reach the engine',
               cfg.limit('max_error_rules') == config.DEFAULTS['limits']['max_error_rules'])
+
+        write(repo, '.claude/convention-guard/config.yaml', 'linters:\n  timeout: 0\n')
+        cfg = config.load(repo, ROOT)
+        check('a zero linter timeout is rejected',
+              any(lv == 'error' and 'linters.timeout' in text for lv, text in cfg.notes),
+              cfg.notes)
 
         write(repo, '.claude/convention-guard/config.yaml', 'max_rules: 3\nblock_level: report\n')
         cfg = config.load(repo, ROOT)
@@ -151,8 +163,20 @@ def case_presets_and_overrides():
         check('an override records where it came from',
               rule['source'] == 'core<-local' and rule.get('base_severity') == 'error', rule['source'])
 
+        write(repo, '.claude/convention-guard/rules/a-patch.yaml',
+              'override: local/custom\nseverity: error\n')
+        write(repo, '.claude/convention-guard/rules/z-custom.yaml',
+              'id: custom\ntitle: custom\nseverity: warn\n'
+              'applies_to:\n  stacks: ["*"]\n'
+              'detect:\n  when_line_added: custom_call\n')
+        local = {r['id']: r for r in
+                 rulelib.load(repo, ROOT, dict(config.DEFAULTS, presets=[]), {'php'}).rules}
+        check('a local override does not depend on filename order',
+              local['local/custom']['severity'] == 'error', local.get('local/custom'))
+
         write(repo, '.claude/convention-rules/config.yaml', 'max_rules: 3\n')
-        os.remove(os.path.join(repo, '.claude', 'convention-guard', 'rules', 'blade.yaml'))
+        for name in ('blade.yaml', 'a-patch.yaml', 'z-custom.yaml'):
+            os.remove(os.path.join(repo, '.claude', 'convention-guard', 'rules', name))
         os.rmdir(os.path.join(repo, '.claude', 'convention-guard', 'rules'))
         os.rmdir(os.path.join(repo, '.claude', 'convention-guard'))
         legacy = rulelib.load(repo, ROOT, config.DEFAULTS, {'php'})
@@ -160,8 +184,20 @@ def case_presets_and_overrides():
               any('migrate.py' in t for lv, t in legacy.notes if lv == 'error'), legacy.notes)
 
 
+def case_stack_parse_errors():
+    print('case_stack_parse_errors:')
+    with tempdir() as plug, tempdir() as repo:
+        write(plug, 'stacks/broken.yaml', 'id: [unterminated\n')
+        detected = stacklib.detect(plug, repo)
+        check('a broken stack definition is reported',
+              any(level == 'error' and 'broken.yaml' in text
+                  for level, text in detected.get('notes', [])),
+              detected)
+
+
 if __name__ == '__main__':
     case_schema()
     case_config_layers()
     case_presets_and_overrides()
+    case_stack_parse_errors()
     sys.exit(finish('설정·프리셋·오버라이드·스키마'))

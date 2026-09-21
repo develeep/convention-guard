@@ -35,7 +35,8 @@ def case_hooks():
     print('hooks/hooks.json:')
     config = load('hooks', 'hooks.json')
     events = config.get('hooks') or {}
-    check('declares PostToolUse and Stop', set(events) == {'PostToolUse', 'Stop'}, sorted(events))
+    check('declares Bash snapshot, PostToolUse and Stop hooks',
+          set(events) == {'PreToolUse', 'PostToolUse', 'Stop'}, sorted(events))
 
     stop_timeout = None
     for event, groups in sorted(events.items()):
@@ -63,6 +64,9 @@ def case_hooks():
     check('PostToolUse matcher equals hooks.WATCHED_TOOLS',
           set(matcher.split('|')) == hooklib.WATCHED_TOOLS,
           (matcher, sorted(hooklib.WATCHED_TOOLS)))
+    pre_matcher = events['PreToolUse'][0].get('matcher') or ''
+    check('PreToolUse snapshots Bash before it can change files',
+          pre_matcher == 'Bash', pre_matcher)
 
     # LINT_BUDGET only protects the turn while it stays under what the hook is
     # given; raising the budget past the timeout brings back the silent kill
@@ -90,6 +94,9 @@ def case_manifests():
         check('plugin.json has %s' % key, plugin.get(key))
 
     options = plugin.get('userConfig') or {}
+    check('new installs start in report-only mode',
+          (options.get('report_only') or {}).get('default') is True,
+          options.get('report_only'))
     for name, spec in sorted(options.items()):
         check('userConfig %s has a type' % name,
               spec.get('type') in ('boolean', 'string', 'number', 'directory', 'file'),

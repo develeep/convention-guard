@@ -19,6 +19,7 @@ context. A command with no parser -- or one whose output does not parse --
 falls back to blocking on the whole output, which is the old behaviour.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -68,6 +69,13 @@ def _build(entry, files):
         else:
             out.append(part)
     return out
+
+
+def entry_key(entry):
+    cmd = entry.get('cmd')
+    template = '\x1f'.join(map(str, cmd)) if isinstance(cmd, list) else str(cmd)
+    digest = hashlib.sha1(template.encode('utf-8')).hexdigest()[:12]
+    return '%s:%s' % (entry.get('stack') or '', digest)
 
 
 def owned_files(entry, files):
@@ -232,42 +240,62 @@ def run(root, entries, files, timeout=90, max_files=40, budget=None, notes=None)
         if not binary_present(root, entry):
             continue
         owned = owned_files(entry, all_files)
-        mine = owned[:max_files]
-        placeholders = '{files}' in str(entry.get('cmd')) or '{dirs}' in str(entry.get('cmd'))
-        if not mine and placeholders:
+        command_text = str(entry.get('cmd'))
+        has_files = '{files}' in command_text
+        has_dirs = '{dirs}' in command_text
+        placeholders = has_files or has_dirs
+        if not owned and placeholders:
             continue        # nothing this linter owns changed
-        argv = _build(entry, mine)
-        if not argv:
-            continue
-        left = timeout
-        if deadline is not None:
-            left = min(timeout, deadline - time.monotonic())
-            if left <= 0:
-                _unchecked(notes, argv, '앞선 린터가 시간 예산을 다 씀')
+        if has_dirs and not has_files:
+            representatives = []
+            seen_dirs = set()
+            for rel in owned:
+                directory = os.path.dirname(rel)
+                if directory not in seen_dirs:
+                    seen_dirs.add(directory)
+                    representatives.append(rel)
+            chunks = [representatives[i:i + max_files]
+                      for i in range(0, len(representatives), max_files)]
+        elif placeholders:
+            chunks = [owned[i:i + max_files] for i in range(0, len(owned), max_files)]
+        else:
+            chunks = [owned[:max_files]]
+        for index, mine in enumerate(chunks):
+            argv = _build(entry, mine)
+            if not argv:
                 continue
-        try:
-            proc = subprocess.run(argv, cwd=root, capture_output=True, text=True,
-                                  errors='replace', timeout=left)
-        except subprocess.TimeoutExpired:
-            _unchecked(notes, argv, '%d초 안에 끝나지 않음' % round(left))
-            continue
-        except (OSError, ValueError):
-            continue
-        if proc.returncode == 0:
-            continue
-        stdout, stderr = proc.stdout or '', proc.stderr or ''
-        locations = parse_output(root, entry, stdout) or parse_output(root, entry, stderr)
-        output = (stdout + stderr).strip()
-        if len(output) > MAX_OUTPUT:
-            output = output[:MAX_OUTPUT] + '\n... (생략)'
-        failures.append({
-            'stack': entry.get('stack'),
-            'cmd': ' '.join(argv[:6]) + (' ...' if len(argv) > 6 else ''),
-            'output': output or '(출력 없음)',
-            'locations': locations,
-            'anchored': bool(locations),
-            'skipped_files': max(0, len(owned) - len(mine)),
-        })
+            left = timeout
+            if deadline is not None:
+                left = min(timeout, deadline - time.monotonic())
+                if left <= 0:
+                    remaining = sum(len(chunk) for chunk in chunks[index:])
+                    _unchecked(notes, argv, '시간 예산 소진으로 %d개 파일 미검사' % remaining)
+                    break
+            try:
+                proc = subprocess.run(argv, cwd=root, capture_output=True, text=True,
+                                      errors='replace', timeout=left)
+            except subprocess.TimeoutExpired:
+                _unchecked(notes, argv, '%d초 안에 끝나지 않음' % round(left))
+                continue
+            except (OSError, ValueError) as exc:
+                _unchecked(notes, argv, str(exc))
+                continue
+            if proc.returncode == 0:
+                continue
+            stdout, stderr = proc.stdout or '', proc.stderr or ''
+            locations = parse_output(root, entry, stdout) or parse_output(root, entry, stderr)
+            output = (stdout + stderr).strip()
+            if len(output) > MAX_OUTPUT:
+                output = output[:MAX_OUTPUT] + '\n... (생략)'
+            failures.append({
+                'stack': entry.get('stack'),
+                'key': entry_key(entry),
+                'cmd': ' '.join(argv[:6]) + (' ...' if len(argv) > 6 else ''),
+                'output': output or '(출력 없음)',
+                'locations': locations,
+                'anchored': bool(locations),
+                'skipped_files': 0,
+            })
     return failures
 
 

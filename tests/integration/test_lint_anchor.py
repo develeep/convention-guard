@@ -112,6 +112,40 @@ def case_lint_budget(tmp):
           len(notes) == 1 and '1초' in notes[0][1], notes)
 
 
+def case_lint_file_chunks(tmp):
+    log = os.path.join(tmp, 'seen.txt')
+    script = ('import sys\n'
+              'with open(sys.argv[1], "a") as fh:\n'
+              '    fh.write("\\n".join(sys.argv[2:]) + "\\n")\n')
+    files = ['src/f%d.py' % i for i in range(5)]
+    for rel in files:
+        write(tmp, rel, 'pass\n')
+    entry = {'cmd': [sys.executable, '-c', script, log, '{files}'],
+             'files': ['**/*.py'], 'stack': 'fake'}
+    notes = []
+    failures = lint.run(tmp, [entry], files, max_files=2, notes=notes)
+    with open(log, encoding='utf-8') as fh:
+        seen = sorted(line.strip() for line in fh if line.strip())
+    check('a linter processes every owned file in bounded chunks',
+          seen == sorted(files), seen)
+    check('successful chunks do not create failures or warnings',
+          failures == [] and notes == [], (failures, notes))
+
+    failing = {'cmd': [sys.executable, '-c',
+                       'import sys; print(sys.argv[-1] + ":1: bad"); sys.exit(1)',
+                       '{files}'],
+               'parse': 'unix', 'files': ['**/*.py'], 'stack': 'fake'}
+    before = lint.run(tmp, [failing], files, max_files=2)
+    extra = 'src/a-first.py'
+    write(tmp, extra, 'pass\n')
+    after = lint.run(tmp, [failing], [extra] + files, max_files=2)
+    before_keys = {failure.get('key') for failure in before}
+    after_keys = {failure.get('key') for failure in after}
+    check('all chunks of one linter use one stable verification key',
+          None not in before_keys and len(before_keys) == 1
+          and before_keys == after_keys, (before_keys, after_keys))
+
+
 def case_dirs_placeholder():
     argv = lint._build({'cmd': ['go', 'vet', '{dirs}']},
                        ['pkg/a/x.go', 'pkg/a/y.go', 'pkg/b/z.go', 'main.go'])
@@ -128,6 +162,7 @@ def fake_plugin(tmp):
     """A plugin root with one stack whose only linter we control."""
     plug = os.path.join(tmp, 'plug')
     os.makedirs(os.path.join(plug, 'rules'), exist_ok=True)
+    write(plug, 'config.yaml', 'mode: fix\n')
     write(plug, 'stacks/fake.yaml',
           'id: fake\n'
           'tags: [fake]\n'
@@ -138,6 +173,45 @@ def fake_plugin(tmp):
           '    files: ["**/*.py"]\n'
           '    parse: unix\n' % (json.dumps(sys.executable), json.dumps(FAKE_LINTER)))
     return plug
+
+
+def slow_plugin(tmp):
+    plug = os.path.join(tmp, 'slow-plug')
+    os.makedirs(os.path.join(plug, 'rules'), exist_ok=True)
+    write(plug, 'config.yaml', 'mode: report\n')
+    write(plug, 'rules/error.yaml',
+          'id: forced-error\n'
+          'title: forced error\n'
+          'severity: error\n'
+          'applies_to:\n  stacks: ["fake"]\n  files: ["**/*.py"]\n'
+          'detect:\n  when_line_added: BAD\n')
+    write(plug, 'presets/common.yaml',
+          'name: common\nstacks: ["*"]\nrules: ["core/forced-error"]\n')
+    script = 'import time\ntime.sleep(2)\n'
+    write(plug, 'stacks/fake.yaml',
+          'id: fake\n'
+          'tags: [fake]\n'
+          'detect:\n'
+          '  file: marker.txt\n'
+          'lint:\n'
+          '  - cmd: [%s, "-c", %s, "{files}"]\n'
+          '    files: ["**/*.py"]\n'
+          '    parse: unix\n' % (json.dumps(sys.executable), json.dumps(script)))
+    return plug
+
+
+def case_hook_reports_unchecked_linter(tmp):
+    repo = os.path.join(tmp, 'repo')
+    make_repo(repo, {'marker.txt': 'fake stack\n', 'src/a.py': 'old\n'})
+    write(repo, '.claude/convention-guard/config.yaml',
+          'mode: report\ndisable: ["core/does-not-exist"]\nlinters:\n  timeout: 1\n')
+    write(repo, 'src/a.py', 'BAD changed\n')
+    session = Session(repo, os.path.join(tmp, 'data'), 'unchecked',
+                      plugin_root=slow_plugin(tmp))
+    session.touch('src/a.py')
+    out = session.stop('p1')
+    check('a skipped linter warning reaches report-mode early output',
+          '검사되지 않았습니다' in out['summary'], out)
 
 
 def case_hook_blocks_only_changed_lines(tmp):
@@ -171,7 +245,9 @@ def main():
     case_parsers()
     print('case_dirs_placeholder:')
     case_dirs_placeholder()
-    return run_cases([case_split, case_lint_budget, case_hook_blocks_only_changed_lines],
+    return run_cases([case_split, case_lint_budget, case_lint_file_chunks,
+                      case_hook_reports_unchecked_linter,
+                      case_hook_blocks_only_changed_lines],
                      '린터 앵커링')
 
 

@@ -20,7 +20,10 @@ def main():
     except Exception:
         return 0            # not a hook payload; nothing to record
     try:
-        hooks.on_post_tool_use(payload)
+        if isinstance(payload, dict) and payload.get('hook_event_name') == 'PreToolUse':
+            hooks.on_pre_tool_use(payload)
+        else:
+            hooks.on_post_tool_use(payload)
     except Exception as exc:  # a recording hook must never interrupt the agent
         print('[convention-guard] %s' % exc, file=sys.stderr)
     return 0

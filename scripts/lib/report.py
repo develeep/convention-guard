@@ -52,7 +52,8 @@ def review_section(review, skipped=False):
     return out
 
 
-def hook_reason(lint_failures, lint_notes, errors, warns, repeats=frozenset(), review=None):
+def hook_reason(lint_failures, lint_notes, errors, warns, repeats=frozenset(), review=None,
+                warnings=()):
     """errors/warns: [(rule, [Candidate])]. repeats: rule ids raised last turn."""
     out = []
     if lint_failures:
@@ -84,6 +85,11 @@ def hook_reason(lint_failures, lint_notes, errors, warns, repeats=frozenset(), r
         out.append('')
     if review:
         out += review_section(review)
+    if warnings:
+        out.append('■ 검사 경고')
+        for warning in warnings[:5]:
+            out.append('  %s' % warning)
+        out.append('')
 
     first = (errors or warns or [None])[0]
     if first:

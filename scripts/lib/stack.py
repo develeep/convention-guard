@@ -12,8 +12,9 @@ from .paths import project_dir
 from .yamlio import read_cached as read_yaml
 
 
-def load_defs(plugin_root):
+def load_defs(plugin_root, notes=None):
     defs = []
+    notes = notes if notes is not None else []
     stack_dir = os.path.join(plugin_root, 'stacks')
     if not os.path.isdir(stack_dir):
         return defs
@@ -22,10 +23,16 @@ def load_defs(plugin_root):
             continue
         try:
             data = read_yaml(os.path.join(stack_dir, name))
-        except Exception:
+        except Exception as exc:
+            notes.append(('error', '%s: 스택 파싱 실패 (%s)'
+                          % (os.path.join(stack_dir, name), exc)))
             continue
-        if isinstance(data, dict) and data.get('id'):
-            defs.append(data)
+        sid = data.get('id') if isinstance(data, dict) else None
+        if not isinstance(sid, str) or not re.match(r'^[A-Za-z0-9_.-]+$', sid):
+            notes.append(('error', '%s: 유효한 stack id 가 없습니다'
+                          % os.path.join(stack_dir, name)))
+            continue
+        defs.append(data)
     return defs
 
 
@@ -64,10 +71,11 @@ def _version(det, content):
 def detect(plugin_root, cwd=None, forced=None):
     """Return {'root', 'tags': set, 'versions': dict, 'stacks': [id], 'lint': [...]}"""
     root = project_dir(cwd)
-    result = {'root': root, 'tags': set(), 'versions': {}, 'stacks': [], 'lint': []}
+    result = {'root': root, 'tags': set(), 'versions': {}, 'stacks': [], 'lint': [],
+              'notes': []}
     forced = set(forced or [])
 
-    for spec in load_defs(plugin_root):
+    for spec in load_defs(plugin_root, result['notes']):
         sid = spec['id']
         det = spec.get('detect') or {}
         markers = det.get('file')

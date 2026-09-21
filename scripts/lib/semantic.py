@@ -147,11 +147,11 @@ def build_batch(root, session, pending, cfg, label=''):
             # same rule, same file, same context hash: two console.logs in one
             # function are one question, and the cached verdict covers both
             continue
+        asked.add(cand.review_key)
         if len(items) >= limit or (items and used + pack.lines > budget):
             deferred.append((rule, cand, pack))
             continue
         used += pack.lines
-        asked.add(cand.review_key)
         rules[rule['id']] = {'title': rule['title'], 'severity': rule['severity'],
                              'instruction': rule['review']['instruction'],
                              'message': rule.get('message') or ''}
@@ -160,7 +160,9 @@ def build_batch(root, session, pending, cfg, label=''):
                       'snippet': cand.snippet, 'context': pack.to_dict()})
     if not items:
         return None, [], deferred
-    stamp = time.strftime('%Y%m%d-%H%M%S')
+    # Multiple review pages can be created within one second. Include process
+    # and nanosecond identity so a later page never overwrites an earlier one.
+    stamp = '%s-%d-%d' % (time.strftime('%Y%m%d-%H%M%S'), os.getpid(), time.time_ns())
     name = '%s-%s%s.json' % (safe_name(session or 'manual'), stamp,
                              ('-' + safe_name(label)) if label else '')
     path = os.path.join(reviews_dir(), name)

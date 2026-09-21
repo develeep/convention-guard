@@ -41,7 +41,9 @@ def detect_stacks(root, cfg, plugin_root=None):
 
 
 def load_rules(root, cfg, stacks, plugin_root=None):
-    return rulelib.load(root, plugin_root or default_plugin_root(), cfg, stacks.tags)
+    ruleset = rulelib.load(root, plugin_root or default_plugin_root(), cfg, stacks.tags)
+    ruleset.notes += stacks.notes
+    return ruleset
 
 
 def run(scope, cfg, plugin_root=None, run_lint=True, cap=None, use_dismiss=True,

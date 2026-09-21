@@ -141,6 +141,12 @@ class Session:
                                         'tool_name': tool,
                                         'tool_input': {'file_path': rel}})
 
+    def bash_hook(self, event, tool_use_id='bash-1'):
+        return self._run('collect.py', {'session_id': self.name, 'cwd': self.repo,
+                                        'hook_event_name': event, 'tool_use_id': tool_use_id,
+                                        'tool_name': 'Bash',
+                                        'tool_input': {'command': 'test command'}})
+
     def stop(self, prompt_id, message='done.', stop_hook_active=False):
         proc = self._run('check.py', {
             'session_id': self.name, 'cwd': self.repo, 'prompt_id': prompt_id,

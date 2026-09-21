@@ -29,7 +29,7 @@
       "type": "boolean",
       "title": "기록만 하고 차단 안 함",
       "description": "켜면 위반을 기록만 하고 작업을 막지 않습니다 (mode: report). 레포 config 에 mode 가 있으면 그쪽이 우선합니다. 도입 초기 2~3주는 켜두는 걸 권장합니다. (토글 대신 빈 입력창이 뜨면 true 또는 false 를 입력하세요)",
-      "default": false
+      "default": true
     },
     "semantic_review": {
       "type": "boolean",

@@ -25,7 +25,7 @@
 
 | 키 | 기본값 | 설명 |
 |---|---|---|
-| `mode` | `fix` | `report` 기록만 / `fix` 차단 / `auto-fix` 안전한 규칙은 자동 수정 후 차단 |
+| `mode` | `report` | `report` 기록만 / `fix` 차단 / `auto-fix` 안전한 규칙은 자동 수정 후 차단 |
 | `presets` | `auto` | `auto` 또는 목록. `[auto, architecture]` 처럼 섞을 수 있음 |
 | `stacks` | `[]` | 감지가 빗나갈 때만 강제 지정 |
 | `disable` | `[]` | 끌 규칙 id |

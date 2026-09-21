@@ -11,6 +11,7 @@ Every call runs with core.quotePath=false. The default C-quotes non-ASCII
 paths ("\\355\\225\\234.php"), and a quoted path matches no glob and no file.
 """
 
+import hashlib
 import os
 import re
 import subprocess
@@ -22,8 +23,8 @@ SKIP_EXT = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.pdf', '.zip',
 # Files past this size are generated or vendored far more often than written
 # by hand, and reading them whole on every Stop costs more than it finds.
 MAX_BYTES = 400_000
-# argv ceiling is generous everywhere we run, but a 500-file touch list with
-# long paths can still approach it, so the diff is chunked.
+# argv ceilings vary by platform, and long session path lists can approach
+# them, so the diff is chunked.
 CHUNK = 200
 DIFF_FLAGS = ['diff', '-U0', '--no-color', '--no-renames', '--no-ext-diff',
               '--src-prefix=a/', '--dst-prefix=b/']
@@ -61,6 +62,35 @@ def is_repo(root):
 def ref_exists(root, ref):
     code, _, _ = git(root, ['rev-parse', '--verify', '--quiet', ref + '^{commit}'])
     return code == 0
+
+
+def current_head(root):
+    code, out, _ = git(root, ['rev-parse', '--verify', 'HEAD^{commit}'])
+    return out.strip() if code == 0 and out.strip() else None
+
+
+def changed_paths(root, base_ref=None):
+    """Tracked and untracked paths changed from a known baseline."""
+    paths = set(untracked(root))
+    ref = base_ref or ('HEAD' if ref_exists(root, 'HEAD') else None)
+    if ref:
+        paths.update(git_lines(root, ['diff', ref, '--name-only']))
+    return sorted(path for path in paths if path)
+
+
+def file_fingerprint(root, relpath):
+    path = os.path.join(root, relpath)
+    try:
+        digest = hashlib.sha1()
+        with open(path, 'rb') as fh:
+            while True:
+                chunk = fh.read(65536)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return None
 
 
 def untracked(root):
@@ -224,7 +254,9 @@ def added_lines(root, relpaths, base_ref=None):
             diffable.append(rel)
 
     has_head = ref_exists(root, 'HEAD')
-    refs = (['HEAD'] if has_head else []) + ([base_ref] if base_ref else [])
+    extras = (list(base_ref) if isinstance(base_ref, (list, tuple, set))
+              else ([base_ref] if base_ref else []))
+    refs = list(dict.fromkeys((['HEAD'] if has_head else []) + extras))
     for ref in refs:
         for rel, lines in diff_lines(root, diffable, [ref]).items():
             result[rel] = merge(result.get(rel), lines)

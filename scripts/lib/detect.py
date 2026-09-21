@@ -25,16 +25,17 @@ from .candidate import Candidate, clip
 class Stacks:
     """What stack detection concluded, in the shape the gates need."""
 
-    def __init__(self, tags=(), versions=None, ids=(), lint=()):
+    def __init__(self, tags=(), versions=None, ids=(), lint=(), notes=()):
         self.tags = set(tags)
         self.versions = dict(versions or {})
         self.ids = list(ids)
         self.lint = list(lint)
+        self.notes = list(notes)
 
     @classmethod
     def from_detected(cls, detected):
         return cls(detected['tags'], detected['versions'], detected['stacks'],
-                   detected['lint'])
+                   detected['lint'], detected.get('notes') or ())
 
 
 def _never_dismissed(_rule_id, _relpath, _digest):

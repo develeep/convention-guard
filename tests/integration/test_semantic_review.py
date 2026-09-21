@@ -40,7 +40,22 @@ def controller(query="Order::query()->get()", loop=True):
     return HEAD + body + '}\n'
 
 
-def repo_files(config='semantic_review:\n  enabled: true\n'):
+def controller_many(count):
+    methods = []
+    for index in range(count):
+        methods.append(
+            '    public function index%d()\n'
+            '    {\n'
+            '        $orders = Order::query()->with("items")->get();\n'
+            '        foreach ($orders as $order) {\n'
+            '            $order->items->count();\n'
+            '        }\n'
+            '        return $orders;\n'
+            '    }\n' % index)
+    return HEAD + ''.join(methods) + '}\n'
+
+
+def repo_files(config='mode: fix\nsemantic_review:\n  enabled: true\n'):
     return {'composer.json': LARAVEL_COMPOSER, 'app/Models/Order.php': MODEL,
             CTRL: controller(loop=False),
             '.claude/convention-guard/config.yaml': config}
@@ -156,12 +171,38 @@ def case_record_validation(repo, data):
 
 
 def case_report_mode(repo, data):
+    with open(os.path.join(repo, '.claude/convention-guard/config.yaml'),
+              'w', encoding='utf-8') as fh:
+        fh.write('mode: report\nsemantic_review:\n  enabled: true\n')
     s = Session(repo, data, 'report', CLAUDE_PLUGIN_OPTION_REPORT_ONLY='true')
     result = s.turn(CTRL, controller(), 'p1')
     check('report mode does not request a review', result['decision'] is None
           and reviews(s) == [], result)
     check('the skipped review is logged',
           any(e['reason'] == 'mode=report' for e in s.events('review_skipped')), s.events())
+
+
+def case_deferred_batches_continue(repo, data):
+    config = ('mode: fix\nsemantic_review:\n  enabled: true\n  max_candidates: 1\n'
+              'limits:\n  max_verify_attempts: 1\n  max_consecutive_blocks: 4\n')
+    with open(os.path.join(repo, '.claude/convention-guard/config.yaml'),
+              'w', encoding='utf-8') as fh:
+        fh.write(config)
+    s = Session(repo, data, 'deferred')
+    result = s.turn(CTRL, controller_many(3), 'p1')
+    batches = []
+    for index in range(3):
+        batch = batch_of(result)
+        check('deferred batch %d is requested' % (index + 1),
+              batch and batch not in batches, result)
+        if not batch:
+            return
+        batches.append(batch)
+        record(s, batch, 'VALID', 'with(items) 로 로드됨')
+        s.touch(CTRL)
+        result = s.stop('p1', stop_hook_active=True)
+    check('all deferred candidates are judged before the cycle closes',
+          result['decision'] is None and len(batches) == 3, (result, batches))
 
 
 def case_scan_review(repo, data):
@@ -186,7 +227,8 @@ def case_scan_review(repo, data):
 
 
 CASES = [case_no_candidate_no_ai, case_violation_fix_rejudge, case_valid_is_cached,
-         case_reviewer_skipped, case_record_validation, case_report_mode, case_scan_review]
+         case_reviewer_skipped, case_record_validation, case_report_mode,
+         case_deferred_batches_continue, case_scan_review]
 
 
 def main():

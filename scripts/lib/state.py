@@ -16,7 +16,6 @@ import time
 
 from .paths import atomic_write, data_dir, safe_name
 
-TOUCHED_CAP = 500
 VERSION = 2
 
 DEFAULT_STATE = {
@@ -65,6 +64,69 @@ def touched_path(session_id):
     return os.path.join(data_dir(), 'touched-%s.txt' % safe_name(session_id or 'unknown'))
 
 
+def base_path(session_id):
+    return os.path.join(data_dir(), 'base-%s.json' % safe_name(session_id or 'unknown'))
+
+
+def record_base(session_id, root, ref):
+    """Persist the first HEAD seen for a session without a racy read-modify-write."""
+    if not ref:
+        return
+    path = base_path(session_id)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+            json.dump({'root': os.path.abspath(root), 'ref': str(ref)}, fh)
+    except FileExistsError:
+        pass
+    except OSError:
+        pass
+
+
+def read_base(session_id, root):
+    try:
+        with open(base_path(session_id), 'r', encoding='utf-8') as fh:
+            value = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(value, dict) or value.get('root') != os.path.abspath(root):
+        return None
+    ref = value.get('ref')
+    return str(ref) if ref else None
+
+
+def bash_snapshot_path(session_id, tool_use_id):
+    return os.path.join(data_dir(), 'bash-%s-%s.json'
+                        % (safe_name(session_id or 'unknown'),
+                           safe_name(tool_use_id or 'unknown')))
+
+
+def save_bash_snapshot(session_id, tool_use_id, root, fingerprints):
+    payload = {'root': os.path.abspath(root), 'fingerprints': fingerprints}
+    atomic_write(bash_snapshot_path(session_id, tool_use_id),
+                 json.dumps(payload, ensure_ascii=False))
+
+
+def read_bash_snapshot(session_id, tool_use_id, root):
+    path = bash_snapshot_path(session_id, tool_use_id)
+    try:
+        with open(path, 'r', encoding='utf-8') as fh:
+            payload = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict) or payload.get('root') != os.path.abspath(root):
+        return None
+    values = payload.get('fingerprints')
+    return values if isinstance(values, dict) else None
+
+
+def delete_bash_snapshot(session_id, tool_use_id):
+    try:
+        os.remove(bash_snapshot_path(session_id, tool_use_id))
+    except OSError:
+        pass
+
+
 def append_touched(session_id, relpaths):
     if not relpaths:
         return
@@ -76,7 +138,7 @@ def append_touched(session_id, relpaths):
 
 
 def read_touched(session_id):
-    """Distinct paths in first-touched order, capped to the most recent ones."""
+    """Distinct paths in most-recent-touch order without dropping session files."""
     try:
         with open(touched_path(session_id), 'r', encoding='utf-8') as fh:
             lines = [line.rstrip('\n') for line in fh]
@@ -87,7 +149,7 @@ def read_touched(session_id):
         if rel:
             seen.pop(rel, None)
             seen[rel] = True
-    return list(seen)[-TOUCHED_CAP:]
+    return list(seen)
 
 
 # ---------------------------------------------------------------- housekeeping
@@ -97,7 +159,7 @@ def gc_old_sessions(max_age_days=7):
     try:
         base = data_dir()
         for name in os.listdir(base):
-            if not name.startswith(('session-', 'touched-')):
+            if not name.startswith(('session-', 'touched-', 'base-', 'bash-')):
                 continue
             full = os.path.join(base, name)
             if os.path.getmtime(full) < cutoff:

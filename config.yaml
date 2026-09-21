@@ -2,7 +2,7 @@
 # 레포에서는 <repo>/.claude/convention-guard/config.yaml 에 바꿀 키만 적으세요.
 # 우선순위: 이 파일 < 설치 시 userConfig < 레포 config (팀 설정이 최종)
 
-mode: fix                    # report = 기록만 / fix = 차단하고 에이전트가 고침 / auto-fix = 안전한 규칙은 자동 수정
+mode: report                 # report = 기록만 / fix = 차단하고 에이전트가 고침 / auto-fix = 안전한 규칙은 자동 수정
 presets: auto                # auto = common + security + 감지된 스택 프리셋. 목록으로 고를 수도 있음: [auto, architecture]
 
 stacks: []                   # 감지가 빗나갈 때만 강제 지정

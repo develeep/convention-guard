@@ -162,7 +162,7 @@ def _detect(rule, spec):
         if not must or required:
             raise RuleError('when_file_added 에는 must_contain_in_file 이 필요합니다')
         rule['kind'] = 'absent'
-        rule['compiled_must'] = _compile(must, flags, 'detect.must_contain_in_file')
+        rule['compiled_must'] = _compile(must, flags | re.S, 'detect.must_contain_in_file')
     elif anchor == 'when_changed':
         if not required or must:
             raise RuleError('when_changed 에는 require_changed 가 필요합니다')
