@@ -81,6 +81,36 @@ def case_integrity():
         check('a malformed key is refused', bad_key.returncode == 2, bad_key.stderr)
 
 
+def case_audit_finding_can_be_dismissed():
+    """`scan.py --all` reports findings in code this change never touched, and
+    those used to be impossible to dismiss: the change scope cannot see them,
+    and the `--key` form the docs point at is only ever printed by the hook.
+    """
+    print('case_audit_finding_can_be_dismissed:')
+    with tempdir() as tmp:
+        repo = os.path.join(tmp, 'repo')
+        make_repo(repo, {'composer.json': LARAVEL_COMPOSER,
+                         A: HDR + 'class A {\n    public function f() { dd(1); }\n}\n'})
+        data = os.path.join(tmp, 'data')
+
+        clean = run_script('scan.py', ['--cwd', repo, '--no-lint', '--fail-on', 'never',
+                                       '--no-color'], env=isolated_env(data), cwd=repo)
+        check('the change scope sees nothing -- it is committed, untouched code',
+              '지적 사항 없음' in clean.stdout, clean.stdout)
+
+        out = dismiss(repo, data, '--rule', 'core/php-no-debug-output', '--file', A,
+                      '--line', '8', '--reason', '레거시 디버그 유틸', '--by', 'agent')
+        check('the audit finding can still be dismissed', out.returncode == 0,
+              out.stdout + out.stderr)
+        check('and it is pinned to the code, not the whole file',
+              'hash:' in read(repo, DISMISSED), read(repo, DISMISSED))
+
+        wrong = dismiss(repo, data, '--rule', 'core/php-no-debug-output', '--file', A,
+                        '--line', '3', '--reason', 'x', '--by', 'agent')
+        check('a line that holds no candidate is still refused', wrong.returncode == 1,
+              wrong.stderr)
+
+
 def case_broken_file_is_loud():
     print('case_broken_file_is_loud:')
     with tempdir() as tmp:
@@ -161,6 +191,7 @@ def case_report():
 
 if __name__ == '__main__':
     case_integrity()
+    case_audit_finding_can_be_dismissed()
     case_broken_file_is_loud()
     case_report()
     sys.exit(finish('기각 무결성 / 건강도 리포트'))

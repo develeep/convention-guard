@@ -4,7 +4,15 @@ severity: error
 prevent: App Router 에서 훅을 쓰는 파일은 첫 줄에 'use client' 를 선언하세요.
 applies_to:
   stacks: [next-app]
-  files: ["app/**/*.{tsx,jsx}", "src/app/**/*.{tsx,jsx}", "components/**/*.{tsx,jsx}"]
+  # Only App Router special files. 'use client' opens a boundary: everything
+  # imported below it is already a client component and needs no directive of
+  # its own, so a leaf component under _components/ cannot be judged from one
+  # file -- it takes the import graph, which a file regex does not have. These
+  # entry points are server components by default, so a hook here is always a
+  # real violation. The leaf case is left to `next build`, which fails loudly.
+  files:
+    - "app/**/{page,layout,template,default,error,global-error,loading,not-found}.{tsx,jsx}"
+    - "src/app/**/{page,layout,template,default,error,global-error,loading,not-found}.{tsx,jsx}"
 detect:
   when_line_added: '\buse(State|Effect|LayoutEffect|Reducer|Ref|Callback|Memo|Context)\s*\('
   must_contain_in_file: '^\s*[''"]use client[''"]'

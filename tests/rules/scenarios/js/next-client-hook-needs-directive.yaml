@@ -1,45 +1,67 @@
 rule: core/next-client-hook-needs-directive
 stacks: [js, react, next, next-app]
 cases:
-  - name: use client 없이 훅을 추가하면 걸림
+  - name: 진입점에 use client 없이 훅을 추가하면 걸림
     after:
-      app/counter.tsx: |
+      app/counter/page.tsx: |
         import { useState } from 'react';
 
-        export function Counter() {
+        export default function Counter() {
           const [n, setN] = useState(0);
           return n;
         }
-    expect: ["app/counter.tsx:4"]
+    expect: ["app/counter/page.tsx:4"]
 
   - name: use client 가 있으면 조용함
     after:
-      app/counter.tsx: |
+      app/counter/page.tsx: |
         'use client';
 
         import { useState } from 'react';
 
-        export function Counter() {
+        export default function Counter() {
           const [n, setN] = useState(0);
           return n;
         }
     expect: []
 
-  - name: 이미 훅을 쓰던 파일에서 훅이 아닌 줄만 고치면 조용함
+  - name: layout 도 진입점이라 걸림
+    after:
+      app/shop/layout.tsx: |
+        import { useEffect } from 'react';
+
+        export default function Layout({ children }) {
+          useEffect(() => {}, []);
+          return children;
+        }
+    expect: ["app/shop/layout.tsx:4"]
+
+  - name: 이미 훅을 쓰던 진입점에서 훅이 아닌 줄만 고치면 조용함
     before:
-      components/legacy.tsx: |
+      app/legacy/page.tsx: |
         import { useState } from 'react';
 
-        export function Legacy() {
+        export default function Legacy() {
           const [n] = useState(0);
           return n;
         }
     after:
-      components/legacy.tsx: |
+      app/legacy/page.tsx: |
         import { useState } from 'react';
 
-        export function Legacy() {
+        export default function Legacy() {
           const [n] = useState(0);
           return n + 1;
+        }
+    expect: []
+
+  - name: 진입점이 아닌 리프 컴포넌트는 걸리지 않음 (부모가 경계일 수 있음)
+    after:
+      app/_components/Counter.tsx: |
+        import { useState } from 'react';
+
+        export default function Counter() {
+          const [n, setN] = useState(0);
+          return n;
         }
     expect: []

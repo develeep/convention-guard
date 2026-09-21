@@ -37,14 +37,34 @@ from lib.scope import ChangeScope, ScopeError  # noqa: E402
 SEARCH_CAP = 200
 
 
-def current_candidates(root, cfg, rule_id):
-    """(rule or None, [Candidate]) from the same pipeline the hook runs."""
-    scope = ChangeScope.working_tree(root, gitdiff.resolve_base_ref(root, cfg['scope']['base_ref']))
+def _candidates(scope, cfg, rule_id):
     result = pipeline.run(scope, cfg, run_lint=False, cap=SEARCH_CAP, use_dismiss=False,
                           rule_filter=lambda r: r['id'] == rule_id)
     if not result.rules:
         return None, []
     return result.rules[0], [c for _, found in result.hits + result.semantic_hits for c in found]
+
+
+def current_candidates(root, cfg, rule_id, relpath=None):
+    """(rule or None, [Candidate]) from the same pipeline the hook runs.
+
+    The change scope first, because that is what the hook flagged. Falling back
+    to the whole file matters for the audit path: `scan.py --all` reports
+    findings in code this change never touched, and those were impossible to
+    dismiss -- the change scope cannot see them, and the `--key` form the docs
+    point at is only ever printed by the hook, never by scan.py.
+    """
+    base = gitdiff.resolve_base_ref(root, cfg['scope']['base_ref'])
+    rule, found = _candidates(ChangeScope.working_tree(root, base), cfg, rule_id)
+    if found or not relpath:
+        return rule, found
+    try:
+        whole = ChangeScope.files(root, [relpath])
+    except ScopeError:
+        return rule, found
+    if not whole:                   # binary, too large, or an ignored extension
+        return rule, found
+    return _candidates(whole, cfg, rule_id)
 
 
 def rule_exists(root, cfg, rule_id):
@@ -140,7 +160,7 @@ def main():
                       digest=None if args.whole_file else digest)
 
     try:
-        rule, cands = current_candidates(root, cfg, args.rule)
+        rule, cands = current_candidates(root, cfg, args.rule, relpath)
     except ScopeError as exc:
         print('검사 불가: %s' % exc, file=sys.stderr)
         return 2
