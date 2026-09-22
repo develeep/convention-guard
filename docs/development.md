@@ -18,23 +18,39 @@
 
 ## 테스트
 
+테스트 전용 의존성(`hypothesis`, `coverage`)이 있어 가상환경을 씁니다. 최근 배포판은 시스템 파이썬에 바로 설치하는 것을 막습니다 (PEP 668).
+
 ```bash
-python3 -m pip install -r requirements-dev.txt   # 최초 1회 (속성 테스트·커버리지)
+python3 -m venv .venv                            # 최초 1회
+source .venv/bin/activate
+python3 -m pip install -r requirements-dev.txt
+```
+
+활성화한 뒤에는 평소대로 돌립니다.
+
+```bash
 python3 tests/run_all.py                         # 전체 (tests/**/test_*.py 자동 탐색)
 CONVENTION_GUARD_NO_PYYAML=1 python3 tests/run_all.py   # 내장 파서로 한 번 더
 python3 tests/run_all.py --repo /path/to/repo   # 그 레포의 로컬 규칙 픽스처까지
 ```
 
-`requirements-dev.txt` 는 **테스트 전용**입니다. 설치하지 않으면 속성 기반 테스트 스위트가 실패합니다 -- 건너뛰지 않습니다. 배포되는 실행 경로(`scripts/**`, 훅, 스킬)는 이 패키지들을 임포트하지 않으므로 사용자는 아무것도 설치하지 않습니다.
+활성화 없이 경로로 불러도 됩니다. 스크립트나 CI 에서는 이쪽이 안전합니다.
+
+```bash
+.venv/bin/python tests/run_all.py
+```
+
+`requirements-dev.txt` 는 **테스트 전용**입니다. 설치하지 않으면 속성 기반 테스트 스위트가 실패합니다 -- 건너뛰지 않습니다. 돌지 않은 속성이 통과한 속성처럼 보이면 안 되기 때문입니다. 배포되는 실행 경로(`scripts/**`, 훅, 스킬)는 이 패키지들을 임포트하지 않으므로 **사용자는 아무것도 설치하지 않습니다**.
 
 커버리지는 `tests/run_all.py` 가 스위트를 서브프로세스로 띄우므로 병렬 모드가 필요합니다.
 
 ```bash
-coverage run --parallel-mode tests/run_all.py
-coverage combine && coverage report --include='scripts/lib/structure/*'
+.venv/bin/python -m coverage run --parallel-mode tests/run_all.py
+.venv/bin/python -m coverage combine
+.venv/bin/python -m coverage report --include='*/lib/structure/*'
 ```
 
-성능 하네스는 매 실행에 끼지 않습니다 (`tests/run_all.py` 는 `test_*.py` 만 모읍니다).
+성능 하네스는 매 실행에 끼지 않습니다 (`tests/run_all.py` 는 `test_*.py` 만 모읍니다). 개발 의존성도 필요 없습니다.
 
 ```bash
 python3 tests/perf/run.py --corpus both
