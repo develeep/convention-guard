@@ -21,13 +21,14 @@ class YamlError(Exception):
 
 
 _BLOCK_RE = re.compile(r'^([|>])([-+]?)(\d*)$')
+_TAB_INDENT_RE = re.compile(r'^\t+')
 
 
 def load(text):
     lines = text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
-    # expand leading tabs only -- tabs inside scalars (Go fixtures) must survive
-    lines = [ln[:len(ln) - len(ln.lstrip('\t '))].expandtabs(2)
-             + ln[len(ln) - len(ln.lstrip('\t ')):] for ln in lines]
+    # Only a tab run at column 0 is indentation; a tab that follows a space is
+    # already inside a block scalar's body, where Go fixtures rely on it.
+    lines = [_TAB_INDENT_RE.sub(lambda m: ' ' * (2 * len(m.group())), ln) for ln in lines]
     value, _ = _parse_block(lines, 0, -1)
     return value if value is not None else {}
 
@@ -242,6 +243,13 @@ def _parse_seq(lines, i, cur):
         rest = content[1:].strip()
         if rest == '':
             value, i = _parse_block(lines, i + 1, cur)
+            items.append(value)
+            continue
+        m = _BLOCK_RE.match(rest)
+        if m:
+            # `- |` : the item is a block scalar, and its body is indented past
+            # the dash, not past a key. Rules use this for multi-line fixtures.
+            value, i = _read_block_scalar(lines, i + 1, cur, m.group(1), m.group(2))
             items.append(value)
             continue
         key, _ = _split_key(rest)

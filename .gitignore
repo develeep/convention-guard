@@ -12,3 +12,7 @@ venv/
 .ruff_cache/
 # 속성 기반 테스트의 반례 데이터베이스
 .hypothesis/
+# 커버리지 측정 산출물 (.coveragerc 는 설정이므로 추적합니다)
+.coverage
+.coverage.*
+coverage.json

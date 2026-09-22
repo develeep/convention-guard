@@ -45,9 +45,21 @@ python3 tests/run_all.py --repo /path/to/repo   # 그 레포의 로컬 규칙 �
 커버리지는 `tests/run_all.py` 가 스위트를 서브프로세스로 띄우므로 병렬 모드가 필요합니다.
 
 ```bash
+export COVERAGE_PROCESS_START=$PWD/.coveragerc COVERAGE_FILE=$PWD/.coverage
 .venv/bin/python -m coverage run --parallel-mode tests/run_all.py
 .venv/bin/python -m coverage combine
 .venv/bin/python -m coverage report --include='*/lib/structure/*'
+```
+
+두 변수가 다 필요합니다. `COVERAGE_PROCESS_START` 가 없으면 자식이 측정을 시작하지
+않고, `COVERAGE_FILE` 이 없으면 통합 테스트의 자식이 **임시 디렉터리**에 측정치를
+남기고 사라집니다. 어느 쪽이든 숫자가 **조용히** 낮게 나옵니다 — U4 에서 63% 로
+보이던 것이 실제로는 92% 였습니다.
+브랜치가 바꾼 줄만 보려면:
+
+```bash
+.venv/bin/python -m coverage json -o coverage.json
+.venv/bin/python tests/helpers/diff_coverage.py coverage.json --base <유닛 시작 커밋>
 ```
 
 성능 하네스는 매 실행에 끼지 않습니다 (`tests/run_all.py` 는 `test_*.py` 만 모읍니다). 개발 의존성도 필요 없습니다.

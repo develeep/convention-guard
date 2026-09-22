@@ -5,3 +5,7 @@
 #
 hypothesis>=6.0
 coverage>=7.0
+
+# tests/unit/test_yaml_parity.py 는 PyYAML 이 없으면 조용히 건너뜁니다. 개발
+# 환경에 없으면 miniyaml 이 갈라진 것을 아무도 못 봅니다 (실제로 U3 에서 그랬음).
+PyYAML>=6.0

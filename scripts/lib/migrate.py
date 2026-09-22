@@ -11,7 +11,9 @@ import difflib
 import os
 import re
 
-from . import rules as rulelib
+from . import rules as rulelib, structure
+from .rules import fixtures
+from .structure import conditions as conditionlib
 from .yamlio import load as yaml_load
 
 KEY_RE = re.compile(r'^(?P<indent> *)(?P<key>[A-Za-z_][\w-]*)\s*:(?P<rest>.*)$')
@@ -396,7 +398,204 @@ def convert_config_text(text):
     return body + (newline if trailing_newline else ''), notes
 
 
+# ------------------------------------------------- 1.x -> 3.0 structure conditions
+
+# Tokens that mean "this rule is hunting for the very thing the condition
+# would hide". The regex is never interpreted, only read: interpreting it
+# needs a regex parser, and a parser that is wrong breaks someone's rule.
+# Being wrong in the other direction only costs a rule that stays as it was.
+COMMENT_TOKENS = ('//', '/\\*', '/*', '#', '--')
+QUOTE_TOKENS = ('"', "'", '`')
+
+BLOCKED_HELP = {
+    'would_break': '이 규칙은 주석/문자열 자체를 찾습니다. 조건을 넣으면 탐지가 사라집니다',
+    'no_fixture': '`tests.match` 를 하나 추가하면 변환이 안전한지 확인할 수 있습니다',
+    'anchor_rejects': '이 앵커는 판정할 위치가 없어 구조 조건을 쓸 수 없습니다',
+    'no_structure': '이 규칙이 겨냥하는 파일은 구조 분석이 없는 언어입니다. 조건을 넣어도 '
+                    '걸러지는 것이 없습니다 — 지원 언어는 docs/rules.md 를 보세요',
+}
+
+
+class Verdict:
+    """What to do with one rule, and why."""
+
+    def __init__(self, rule_id, conditions=None, reasons=None, blocked=None, fixture=None):
+        self.rule_id = rule_id
+        self.conditions = conditions or {}
+        self.reasons = reasons or []
+        self.blocked = blocked
+        self.fixture = fixture
+
+    def help(self):
+        return BLOCKED_HELP.get(self.blocked, self.blocked or '')
+
+
+def _patterns(rule):
+    """Every regex the rule carries, as the source text the author wrote."""
+    detect = rule.get('detect') or {}
+    return [v for k, v in detect.items()
+            if isinstance(v, str) and k not in conditionlib.CONDITION_KEYS]
+
+
+def judge(rule):
+    """Which structure conditions this rule can safely carry (MR-01..MR-07)."""
+    rid = rule.get('id')
+    if rule['kind'] in ('absent', 'paired'):
+        return Verdict(rid, blocked='anchor_rejects')
+    if conditionlib.has_conditions(rule):
+        # the author already decided; two runs must agree (MR-02)
+        return Verdict(rid, reasons=['이미 구조 조건이 있어 건드리지 않습니다'])
+    samples = (rule.get('tests') or {}).get('match') or []
+    if not samples:
+        return Verdict(rid, blocked='no_fixture')
+    text, language = fixtures.synthesise(rule, samples[0])
+    if not structure.analyze(text, language).ok:
+        # `passes_conditions` keeps a match when the file did not parse (D5),
+        # so validation would pass a condition that filters nothing (MR-05b)
+        return Verdict(rid, blocked='no_structure')
+
+    sources = _patterns(rule)
+    targets, reasons = [], []
+    if any(token in src for src in sources for token in COMMENT_TOKENS):
+        reasons.append('정규식이 주석 토큰을 포함합니다 — 주석을 보는 규칙일 수 있어 '
+                       '`comment` 는 넣지 않습니다')
+    else:
+        targets.append('comment')
+        reasons.append('정규식에 주석 토큰이 없어 주석 안의 매치를 걸러도 안전합니다')
+    if any(token in src for src in sources for token in QUOTE_TOKENS):
+        reasons.append('정규식이 따옴표를 포함합니다 — 문자열 안을 보는 규칙일 수 있어 '
+                       '`string` 은 넣지 않습니다')
+    else:
+        targets.append('string')
+        reasons.append('정규식에 따옴표가 없어 문자열 안의 매치를 걸러도 안전합니다')
+
+    if not targets:
+        return Verdict(rid, blocked='would_break')
+    return Verdict(rid, conditions={'not_in': targets}, reasons=reasons)
+
+
+def build_text(text, verdict):
+    """The rule file with the condition line inserted under `detect`.
+
+    Line based on purpose, like every other conversion here: a parse and dump
+    round trip would take the author's comments with it (MR-22).
+    """
+    if not verdict.conditions:
+        return text
+    lines = text.split('\n')
+    preamble, blocks, trailer = split_blocks(lines)
+    for block in blocks:
+        if block.key != 'detect':
+            continue
+        indent = _child_indent(block)
+        head, children, tail = _child_lines(block)
+        for key, value in verdict.conditions.items():
+            rendered = '[%s]' % ', '.join(value) if isinstance(value, list) else str(value)
+            added = _synthetic(key, rendered, indent)
+            added.lead = ['%s# 3.0: 주석·문자열 안의 매치는 위반이 아닙니다 (migrate.py 가 추가)'
+                          % (' ' * indent)]
+            children.append(added)
+        block.body = _join(head, children, tail)
+        break
+    return '\n'.join(_join(preamble, blocks, trailer))
+
+
+def _reparse(old_rule, new_text):
+    return rulelib.normalize(yaml_load(new_text), old_rule['path'], old_rule['source'])
+
+
+def validate(old_rule, new_text):
+    """Does the rewritten rule still judge the rule's OWN fixtures the same way?
+
+    Only the fixtures the author already wrote count here. Checking a
+    condition against a fixture the tool generated to suit it proves nothing,
+    so generation waits until this has passed (MR-10).
+    """
+    try:
+        new_rule = _reparse(old_rule, new_text)
+    except Exception as exc:                            # noqa: BLE001
+        return ['변환된 규칙을 읽을 수 없습니다: %s' % exc]
+    hit = fixtures.matcher(new_rule)                    # the suite's matcher (MR-09)
+    tests = old_rule.get('tests') or {}
+    problems = []
+    for sample in tests.get('match') or []:
+        if not hit(sample):
+            problems.append('match 픽스처 %r 가 조건 적용 후 걸리지 않습니다' % sample)
+    for sample in tests.get('no_match') or []:
+        if hit(sample):
+            problems.append('no_match 픽스처 %r 가 걸립니다' % sample)
+    return problems
+
+
+# The comment token a generated fixture is wrapped in. `blade` shares PHP's.
+FIXTURE_COMMENT = {'php': '//', 'blade': '//', 'js': '//', 'go': '//', 'java': '//',
+                   'rust': '//', 'c': '//', 'py': '#'}
+
+
+def _fixture_lines(indent, sample):
+    """A block scalar item, indented the way the bundled rules write theirs."""
+    return (['%s  - |' % (' ' * indent)]
+            + ['%s    %s' % (' ' * indent, line) for line in sample.split('\n')])
+
+
+def grow_fixture(new_text, old_rule, verdict):
+    """(text with a false-positive fixture added, problems) -- or (None, []).
+
+    The rule said comments are not violations; this writes down a comment that
+    used to be one. If the new fixture still fires the condition does not work
+    and the whole conversion comes off (MR-11).
+    """
+    if 'comment' not in (verdict.conditions.get('not_in') or ()):
+        return None, []
+    samples = (old_rule.get('tests') or {}).get('match') or []
+    token = FIXTURE_COMMENT.get(fixtures.fixture_language(old_rule))
+    if not samples or not token:
+        return None, []
+    sample = '\n'.join('%s %s' % (token, line.strip())
+                        for line in str(samples[0]).split('\n') if line.strip())
+
+    lines = new_text.split('\n')
+    preamble, blocks, trailer = split_blocks(lines)
+    for block in blocks:
+        if block.key != 'tests':
+            continue
+        head, children, tail = _child_lines(block)
+        indent = _child_indent(block)
+        for child in children:
+            if child.key != 'no_match':
+                continue
+            child.body = child.body + _fixture_lines(indent, sample)
+            break
+        else:
+            added = _synthetic('no_match', '', indent)
+            added.rest, added.head = '', '%sno_match:' % (' ' * indent)
+            added.body = _fixture_lines(indent, sample)
+            children.append(added)
+        block.body = _join(head, children, tail)
+        break
+    grown = '\n'.join(_join(preamble, blocks, trailer))
+
+    # re-run the whole check with the new fixture in place (FD 7, step 4)
+    try:
+        new_rule = _reparse(old_rule, grown)
+    except Exception as exc:                            # noqa: BLE001
+        return None, ['픽스처를 추가한 규칙을 읽을 수 없습니다: %s' % exc]
+    problems = validate(old_rule, grown)
+    if fixtures.matcher(new_rule)(sample):
+        problems.append('생성한 오탐 픽스처가 여전히 걸립니다 — 조건이 동작하지 않습니다')
+    return grown, problems
+
+
 # ---------------------------------------------------------------- plan
+
+# One vocabulary of actions, read from three places: `apply()` here, and
+# `actionable` / `show()` in scripts/migrate.py. They used to each spell the
+# list out, so adding `enhance` meant three edits and forgetting one of them
+# failed quietly -- an unwritten file, a wrong exit code, a KeyError.
+WRITABLE = ('convert', 'move', 'enhance')
+LABELS = {'convert': '변환', 'move': '이동', 'leave': '남김', 'error': '실패',
+          'enhance': '조건 추가'}
+
 
 class Change:
     def __init__(self, action, src, dst, old_text=None, new_text=None, problems=None,
@@ -440,6 +639,44 @@ def plan_rules_dir(src_dir, dst_dir, source='local'):
         new_text = convert_rule_text(text)
         changes.append(Change('convert', path, dst, text, new_text,
                               verify_rule(text, new_text, dst, source)))
+    return changes
+
+
+def plan_conditions(rules_dir, source='local'):
+    """1.x -> 3.0: give each rule the structure conditions it can safely hold.
+
+    Only rules the user owns. The bundled ones were gone through by hand,
+    rule by rule, because the tool cannot see what a rule is *for* -- and for
+    the same reason it only ever adds `not_in` (MR-03).
+    """
+    changes = []
+    if not os.path.isdir(rules_dir):
+        return changes
+    for path in rulelib.iter_rule_files(rules_dir):
+        name = os.path.basename(path)
+        if name in ('config.yaml', 'config.yml', 'dismissed.yaml', 'dismissed.yml'):
+            continue
+        text = _read(path)
+        try:
+            rule = rulelib.normalize(yaml_load(text), path, source)
+        except Exception as exc:                        # noqa: BLE001
+            changes.append(Change('error', path, path, problems=['규칙을 읽을 수 없습니다: %s' % exc]))
+            continue
+        verdict = judge(rule)
+        if verdict.blocked:
+            changes.append(Change('leave', path, path,
+                                  problems=['%s — %s' % (verdict.blocked, verdict.help())]))
+            continue
+        if not verdict.conditions:
+            continue                                    # already decided; stay quiet (MR-02)
+        new_text = build_text(text, verdict)
+        problems = validate(rule, new_text)
+        if not problems:
+            grown, problems = grow_fixture(new_text, rule, verdict)
+            if grown is not None and not problems:
+                new_text = grown
+        changes.append(Change('enhance', path, path, text, new_text,
+                              problems, list(verdict.reasons)))
     return changes
 
 
@@ -495,7 +732,7 @@ def plan_repo(root):
 def apply(changes, remove_sources=True):
     written = []
     for change in changes:
-        if change.action not in ('convert', 'move') or change.problems:
+        if change.action not in WRITABLE or change.problems:
             continue
         os.makedirs(os.path.dirname(change.dst), exist_ok=True)
         with open(change.dst, 'w', encoding='utf-8', newline='') as fh:
