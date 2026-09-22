@@ -6,6 +6,7 @@
 - 디렉터리 책임
 - 파이프라인
 - 검증 사이클
+- 구조 인식 계층
 - 의미 판정
 - 상태와 로그
 - 설계 원칙
@@ -70,7 +71,8 @@ Stop                      check.py ─── lib/hooks.py
 | `gitdiff.py` | 추가된 줄만 뽑는 배치 git diff |
 | `stack.py` | 마커 파일로 스택·버전 감지 |
 | `rules/` | `schema.py` 파싱·검증, `loader.py` 레이어·오버라이드·프리셋·설정, `select.py` 적용 필터 |
-| `detect.py` | 앵커별 결정론 탐지 → Candidate |
+| `detect.py` | 앵커별 결정론 탐지 → Candidate. 규칙에 구조 조건이 있으면 `structure/` 에 물어 후보를 거름 |
+| `structure/` | **구조 인식 계층 (3.0)** — 주석·문자열 마스킹과 블록 트리 |
 | `candidate.py` | Candidate, 지문(키), 판정 상수 |
 | `lint.py` | 린터 실행과 출력 파싱, 변경 줄 앵커링 |
 | `pipeline.py` | 위 모두를 한 번에 |
@@ -82,6 +84,36 @@ Stop                      check.py ─── lib/hooks.py
 | `hooks.py` | Stop·PostToolUse 정책 |
 | `report.py` | 차단 메시지·CLI 출력 |
 | `state.py`, `log.py`, `cache.py` | 세션 상태, 발동 로그, 파싱 캐시 |
+
+## 구조 인식 계층 (3.0)
+
+정규식은 `dd(` 를 찾을 뿐, 그것이 주석 안인지 문자열 안인지 모릅니다. 3.0 은 그 질문에 답하는 계층을 탐지 **뒤**에 둡니다.
+
+```
+정규식 매치 (Span)  →  structure.analyze(text, language)  →  conditions.evaluate
+                              │                                    │
+                     FileStructure(ok, 주석·문자열 구간,      ACCEPT  후보로 남김
+                                   블록 트리)                 REJECT  후보에서 뺌
+                              │                              UNKNOWN 후보로 남기고
+                     읽지 못하면 ok=False + 사유                     "구조 미확인" 고지
+```
+
+| 항목 | 내용 |
+|---|---|
+| **필터일 뿐** | 후보를 만들지 않고, 스니펫·줄 번호·지문을 바꾸지 않습니다. 그래서 기각 기록이 살아남습니다 |
+| **모르면 지킵니다** | 파일을 읽지 못하면 후보를 남기고 **"구조 미확인"으로 보고**합니다. 읽지 못한 것이 깨끗한 통과처럼 보이면 안 됩니다 |
+| **값으로 답하고 예외를 던지지 않습니다** | 훅이 우리 버그로 죽지 않아야 합니다 |
+| **프로세스 안에서만 기억합니다** | 같은 파일을 서른 개 규칙이 읽어도 한 번만 분석합니다. 훅은 매 턴 새 프로세스라 디스크에 쓰지 않습니다 |
+
+| 모듈 | 역할 |
+|---|---|
+| `structure/model.py` | `FileStructure`, `ScopeNode`, `Span`, ACCEPT/REJECT/UNKNOWN |
+| `structure/backend.py` | 백엔드 인터페이스와 등록 |
+| `structure/native/` | 표준 라이브러리만 쓰는 기본 백엔드 — 언어 정의(`langs.py`)와 어휘 스캔 |
+| `structure/conditions.py` | `not_in`·`in_scope`·`block_empty` 평가 |
+| `rules/fixtures.py` | 픽스처 조각을 파일로 합성해 매칭 — 픽스처 실행기와 `migrate.py` 가 **같은 것**을 씁니다 |
+
+**이것은 AST 파서가 아닙니다.** 어휘 마스킹 + 블록 트리이며, 타입이나 심볼 해석은 하지 않습니다. `backend.py` 의 인터페이스는 tree-sitter 백엔드(3.1)를 갈아 끼울 자리로 둔 것이고, 규칙 스키마와 탐지 로직은 그때도 바뀌지 않습니다.
 
 ## 파이프라인
 

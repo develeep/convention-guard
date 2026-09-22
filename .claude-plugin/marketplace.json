@@ -9,7 +9,7 @@
     {
       "name": "convention-guard",
       "source": "./",
-      "version": "1.2.0",
+      "version": "3.0.0",
       "description": "작업이 끝날 때마다 이번 변경분을 팀 컨벤션으로 검사하고, 고친 뒤 다시 검증합니다. 후보가 있을 때만 서브에이전트가 의미 판정. Laravel·Next·Nest·Go.",
       "author": {
         "name": "shlee"
