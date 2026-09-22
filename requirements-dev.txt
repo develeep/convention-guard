@@ -1,0 +1,7 @@
+# 개발·테스트 전용 의존성. 플러그인 실행 경로(scripts/**, 훅, 스킬)는
+# 표준 라이브러리만 쓰므로 사용자는 아무것도 설치하지 않는다 (CON-01).
+#
+#     python3 -m pip install -r requirements-dev.txt
+#
+hypothesis>=6.0
+coverage>=7.0

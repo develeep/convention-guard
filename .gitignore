@@ -10,3 +10,5 @@ venv/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+# 속성 기반 테스트의 반례 데이터베이스
+.hypothesis/

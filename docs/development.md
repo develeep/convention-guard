@@ -11,17 +11,33 @@
 
 ## 원칙
 
-- 외부 의존성 0. PyYAML 이 있으면 쓰고, 없으면 `scripts/lib/miniyaml.py`
-- Python 3.8 호환 (구문·표준 라이브러리)
+- 배포되는 실행 경로는 외부 의존성 0. PyYAML 이 있으면 쓰고, 없으면 `scripts/lib/miniyaml.py`
+- Python 3.9 호환 (구문·표준 라이브러리)
 - 훅은 절대 에이전트를 깨뜨리지 않습니다. 훅 스크립트는 자기 버그에도 종료 코드 0
 - 결정은 `scripts/lib` 에, 진입점(`scripts/*.py`)은 인자·입출력만
 
 ## 테스트
 
 ```bash
+python3 -m pip install -r requirements-dev.txt   # 최초 1회 (속성 테스트·커버리지)
 python3 tests/run_all.py                         # 전체 (tests/**/test_*.py 자동 탐색)
 CONVENTION_GUARD_NO_PYYAML=1 python3 tests/run_all.py   # 내장 파서로 한 번 더
 python3 tests/run_all.py --repo /path/to/repo   # 그 레포의 로컬 규칙 픽스처까지
+```
+
+`requirements-dev.txt` 는 **테스트 전용**입니다. 설치하지 않으면 속성 기반 테스트 스위트가 실패합니다 -- 건너뛰지 않습니다. 배포되는 실행 경로(`scripts/**`, 훅, 스킬)는 이 패키지들을 임포트하지 않으므로 사용자는 아무것도 설치하지 않습니다.
+
+커버리지는 `tests/run_all.py` 가 스위트를 서브프로세스로 띄우므로 병렬 모드가 필요합니다.
+
+```bash
+coverage run --parallel-mode tests/run_all.py
+coverage combine && coverage report --include='scripts/lib/structure/*'
+```
+
+성능 하네스는 매 실행에 끼지 않습니다 (`tests/run_all.py` 는 `test_*.py` 만 모읍니다).
+
+```bash
+python3 tests/perf/run.py --corpus both
 ```
 
 | 디렉터리 | 내용 |
@@ -30,6 +46,8 @@ python3 tests/run_all.py --repo /path/to/repo   # 그 레포의 로컬 규칙 �
 | `tests/integration/` | 실제 훅 스크립트를 턴 단위로 구동 (검증 사이클, 의미 판정, 자동 수정, 기각, 마이그레이션, CLI 계약, 린터 앵커링, 패리티) |
 | `tests/rules/` | 규칙 픽스처, 규칙 시나리오(`scenarios/`) |
 | `tests/semantic/` | 컨텍스트 팩 |
+| `tests/structure/` | 구조 인식 계층 -- 마스킹·스코프·조건 평가·속성·결정성·이관 패리티 |
+| `tests/perf/` | 성능 하네스 (자동 실행 대상 아님) |
 | `tests/skills/` | 스킬·에이전트 구조와 예시 검증, 스킬 평가 시나리오(`evals/`) |
 | `tests/helpers/` | 임시 git 레포, 격리된 환경의 훅 세션 실행기, 픽스처 레포 |
 

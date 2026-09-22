@@ -23,9 +23,9 @@ and the candidate is judged again.
 """
 
 import hashlib
-import os
 import re
 
+from . import structure
 from .rules.select import match_any
 
 SNIPPET_RADIUS = 5
@@ -40,110 +40,16 @@ HUNKS_MAX_LINES = 20
 RELATED_MAX_FILES = 2
 RELATED_MAX_LINES = 60
 FALLBACK_RADIUS = 30
-# one parameter per line is common in Go and TypeScript; a dozen covers it
-SIGNATURE_MAX_LINES = 12
 
-BRACE_LANGS = {'.php': 'php', '.js': 'js', '.jsx': 'js', '.mjs': 'js', '.cjs': 'js',
-               '.ts': 'js', '.tsx': 'js', '.go': 'go', '.java': 'java', '.kt': 'java',
-               '.cs': 'java', '.rs': 'rust', '.c': 'c', '.cc': 'c', '.cpp': 'c', '.h': 'c',
-               '.swift': 'java', '.scala': 'java', '.dart': 'java'}
-
-# `for (...) {` and `} else if (...) {` look exactly like a method header to a
-# regex; these words are never a function name
-NOT_A_NAME = r'(?!(?:if|for|foreach|while|switch|catch|with|return|else|do|try|synchronized)\b)'
-
-NAMED_FUNCTION = {
-    'php': re.compile(r'\bfunction\s+&?\s*\w+\s*\('),
-    'js': re.compile(r'\bfunction\s*\*?\s*\w*\s*\(|^\s*(?:export\s+)?(?:default\s+)?'
-                     r'(?:(?:public|private|protected|static|async|get|set|readonly)\s+)*'
-                     + NOT_A_NAME +
-                     r'[\w$]+\s*(?:<[^>]*>)?\s*\([^;]*\)\s*(?::\s*[^={;]+)?\s*\{\s*$'
-                     r'|^\s*(?:export\s+)?(?:const|let|var)\s+[\w$]+\s*=\s*(?:async\s*)?'
-                     r'(?:\([^)]*\)|[\w$]+)\s*(?::\s*[^=]+)?=>'),
-    'go': re.compile(r'^\s*func\b'),
-    'java': re.compile(r'^\s*(?:@\w+\s+)*(?:(?:public|private|protected|static|final|'
-                       r'override|suspend|fun|async|internal)\s+)*' + NOT_A_NAME +
-                       r'[\w<>\[\],.?]+(?:\s+[\w<>\[\],.?]+)*\s+' + NOT_A_NAME + r'\w+\s*'
-                       r'\([^;]*\)\s*(?:throws [\w., ]+)?\s*\{?\s*$|\bfun\s+\w+\s*\('),
-    'rust': re.compile(r'\bfn\s+\w+'),
-    'c': re.compile(r'^[\w\*\s&:<>,]+\s+\**\w+\s*\([^;]*\)\s*(?:const\s*)?\{?\s*$'),
-}
-PY_DEF = re.compile(r'^(\s*)(?:async\s+)?def\s+\w+|^(\s*)class\s+\w+')
 IMPORT_RE = re.compile(r'^\s*(?:use\s+[\w\\]|import\b|from\s+\S+\s+import\b|package\b|'
                        r'#include\b|require(?:_once)?\s*[\s(]|'
                        r'(?:const|let|var)\s+.*=\s*require\()')
-
-
-def language(relpath):
-    ext = os.path.splitext(relpath)[1].lower()
-    if ext == '.py':
-        return 'py'
-    return BRACE_LANGS.get(ext)
 
 
 def number(lines, start):
     """'  42| code' lines, start is 1-based."""
     width = len(str(start + len(lines)))
     return '\n'.join('%*d| %s' % (width, start + i, line) for i, line in enumerate(lines))
-
-
-# ---------------------------------------------------------------- functions
-
-def _strip_strings(line):
-    """Braces inside strings and line comments must not count."""
-    line = re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`', '""', line)
-    return re.split(r'//|(?<![\w$])#(?!\[)', line)[0]
-
-
-def _brace_block(lines, header_idx, limit=2000):
-    """(start, end) 0-based inclusive of the block opened at or after header_idx."""
-    depth, opened = 0, False
-    for i in range(header_idx, min(len(lines), header_idx + limit)):
-        code = _strip_strings(lines[i])
-        for ch in code:
-            if ch == '{':
-                depth += 1
-                opened = True
-            elif ch == '}':
-                depth -= 1
-                if opened and depth == 0:
-                    return header_idx, i
-        if not opened and i > header_idx + SIGNATURE_MAX_LINES:
-            return None     # a declaration without a body, e.g. an interface method
-    return None
-
-
-def enclosing_function(lines, idx, lang):
-    """(start, end) 0-based of the innermost named function containing line idx."""
-    if lang == 'py':
-        return _python_block(lines, idx)
-    pattern = NAMED_FUNCTION.get(lang)
-    if not pattern:
-        return None
-    for header in range(idx, -1, -1):
-        if not pattern.search(lines[header]):
-            continue
-        block = _brace_block(lines, header)
-        if block and block[0] <= idx <= block[1]:
-            return block
-    return None
-
-
-def _python_block(lines, idx):
-    for header in range(idx, -1, -1):
-        match = PY_DEF.match(lines[header])
-        if not match:
-            continue
-        indent = len(match.group(1) or match.group(2) or '')
-        end = header
-        for j in range(header + 1, len(lines)):
-            text = lines[j]
-            if text.strip() and len(text) - len(text.lstrip()) <= indent:
-                break
-            end = j
-        if header <= idx <= end:
-            return header, end
-    return None
 
 
 def _clip_region(lines, start, end, focus, max_lines):
@@ -214,11 +120,33 @@ class Pack:
                 'sections': self.sections}
 
 
+# In Python the unit of judgment has always been the enclosing `def` *or*
+# `class` -- `context.py:PY_DEF` matched both -- so a line sitting directly in
+# a class body still shows the class. Brace languages never did that.
+PACK_SCOPES = {'py': ('function', 'class')}
+
+
+def _function_region(text, lang, lineno):
+    """(start, end) 0-based of the block around `lineno`, or None.
+
+    The scope layer owns the heuristics now; a file it could not parse simply
+    has no function here and the pack falls back to the window around the
+    candidate, which is what a file without a named function always did.
+    """
+    if not lang:
+        return None
+    analysed = structure.analyze(text, lang)
+    if not analysed.ok:
+        return None
+    node = analysed.innermost(lineno, PACK_SCOPES.get(lang, ('function',)))
+    return (node.start_line - 1, node.end_line - 1) if node else None
+
+
 def build(scope, cand, review, list_files=None):
     """Context pack for one candidate under the rule's `semantic_review` spec."""
     text = scope.text(cand.file)
     lines = text.split('\n') if text else []
-    lang = language(cand.file)
+    lang = structure.language_of(cand.file)
     pack = Pack(cand.file, cand.line, lang)
     budget = int(review.get('max_context_lines') or 150)
     idx = max(0, min(cand.line - 1, len(lines) - 1)) if lines else 0
@@ -226,8 +154,8 @@ def build(scope, cand, review, list_files=None):
     specs = {next(iter(item)): item[next(iter(item))]
              for item in review['context'] if isinstance(item, dict)}
 
-    region = enclosing_function(lines, idx, lang) if lines and 'current_function' in wanted \
-        else None
+    region = _function_region(text, lang, cand.line) \
+        if lines and 'current_function' in wanted else None
     if region:
         body, shown, cut = _clip_region(lines, region[0], region[1], idx,
                                         min(FUNCTION_MAX_LINES, budget))
