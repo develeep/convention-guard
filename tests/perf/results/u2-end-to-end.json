@@ -1,0 +1,83 @@
+{
+  "env": {
+    "baseline_commit": "668edb1767a7f1af10fb5b682db5149ff2bf91d3",
+    "cpu": "x86_64",
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.12.3"
+  },
+  "gate_b": {
+    "T0_ms": 71.34,
+    "allowed_rules": null,
+    "baseline_ms": 87.43,
+    "below_noise": true,
+    "budget_ms": 131.15,
+    "gate_open": true,
+    "headroom_ms": 59.81,
+    "margin": 0.7,
+    "marginal_ms_per_rule": 0.4082,
+    "measured": {
+      "0": 71.34,
+      "10": 80.57,
+      "20": 79.5,
+      "5": 71.19,
+      "baseline": 87.43
+    },
+    "monotonic": false,
+    "noise_ms": 15.73,
+    "within_noise_band": true
+  },
+  "repeats": 15,
+  "rows": [
+    {
+      "M-1": 71.33583699942392,
+      "conditioned_rules": 0,
+      "corpus": "hook",
+      "density": "real",
+      "language": "mixed",
+      "max_ms": 79.01406800010591,
+      "min_ms": 69.78403399989475,
+      "size": 60
+    },
+    {
+      "M-1": 71.19271699957608,
+      "conditioned_rules": 5,
+      "corpus": "hook",
+      "density": "real",
+      "language": "mixed",
+      "max_ms": 76.69657999940682,
+      "min_ms": 68.92987500032177,
+      "size": 60
+    },
+    {
+      "M-1": 80.56628000122146,
+      "conditioned_rules": 10,
+      "corpus": "hook",
+      "density": "real",
+      "language": "mixed",
+      "max_ms": 92.4783260015829,
+      "min_ms": 76.75227199979417,
+      "size": 60
+    },
+    {
+      "M-1": 79.49894100056554,
+      "conditioned_rules": 20,
+      "corpus": "hook",
+      "density": "real",
+      "language": "mixed",
+      "max_ms": 82.89608899940504,
+      "min_ms": 77.73374200041872,
+      "size": 60
+    },
+    {
+      "M-1": 87.43091199903574,
+      "conditioned_rules": "baseline",
+      "corpus": "hook",
+      "density": "real",
+      "language": "mixed",
+      "max_ms": 94.30972799964366,
+      "min_ms": 84.07703000011679,
+      "size": 60
+    }
+  ],
+  "stage": "end_to_end"
+}

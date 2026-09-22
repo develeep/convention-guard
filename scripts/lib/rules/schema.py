@@ -33,6 +33,7 @@ Anchors decide what makes a finding *this change's* responsibility:
     file_regex          -                         file      a multi-line match overlapping changed lines
 """
 
+import difflib
 import hashlib
 import json
 import os
@@ -42,6 +43,15 @@ from .select import SEVERITIES
 
 ANCHORS = ('when_line_added', 'when_file_added', 'when_changed', 'file_regex')
 CONDITIONS = ('must_contain_in_file', 'require_changed')
+# Structure conditions (3.0): filters that ask what the match sits inside.
+# `CONDITIONS` above was already taken by the anchor modifiers, hence the name.
+STRUCTURE = ('not_in', 'in_scope', 'block_empty')
+NOT_IN_VALUES = ('comment', 'string')
+IN_SCOPE_VALUES = ('loop', 'function', 'class', 'catch')
+# `absent` and `paired` describe what a file lacks -- there is no match to ask
+# about -- and a `block_empty` on a line anchor would be ambiguous once blocks
+# nest, so it rides on `file_regex` only (components.md §2, SR-21).
+STRUCTURE_KINDS = ('line', 'requires', 'file')
 CONTEXT_PROVIDERS = ('snippet', 'current_function', 'imports', 'changed_hunks',
                      'related_files')
 
@@ -76,6 +86,43 @@ def _as_list(value, field):
     if isinstance(value, list) and all(isinstance(v, str) for v in value):
         return list(value)
     raise RuleError('%s 는 문자열 또는 문자열 목록이어야 합니다' % field)
+
+
+def _structure(rule, spec, anchor):
+    """Validate the structure conditions on `detect` (DR-01~DR-08).
+
+    Everything here fails at load time rather than at detection time: a rule
+    author who writes `not_in: [comments]` should hear about it while editing
+    the rule, not by wondering why it never fires (US-09).
+    """
+    present = [key for key in STRUCTURE if spec.get(key) not in (None, False, '', [], ())]
+    if not present:
+        return                                  # DR-05 -- empty is simply none
+    if rule['kind'] not in STRUCTURE_KINDS:
+        raise RuleError('%s 에는 구조 조건을 붙일 수 없습니다 (%s)'
+                        % (anchor, ', '.join(STRUCTURE)))
+    for key, allowed in (('not_in', NOT_IN_VALUES), ('in_scope', IN_SCOPE_VALUES)):
+        value = spec.get(key)
+        if value in (None, [], ()):
+            continue
+        values = [value] if isinstance(value, str) else value
+        if not isinstance(values, (list, tuple)) or \
+                not all(isinstance(item, str) for item in values):
+            raise RuleError('%s 는 문자열이거나 문자열 목록이어야 합니다' % key)
+        for item in values:
+            if item not in allowed:
+                raise RuleError('%s 의 알 수 없는 값: %s%s (%s)'
+                                % (key, item, _did_you_mean(item, allowed),
+                                   ', '.join(allowed)))
+    if 'block_empty' in spec and not isinstance(spec['block_empty'], bool):
+        raise RuleError('block_empty 는 true 또는 false 여야 합니다')
+    if spec.get('block_empty') and rule['kind'] != 'file':
+        raise RuleError('block_empty 는 file_regex 와만 씁니다')
+
+
+def _did_you_mean(value, allowed):
+    close = difflib.get_close_matches(value, allowed, n=1, cutoff=0.6)
+    return " — '%s' 를 쓰셨나요?" % close[0] if close else ''
 
 
 def _compile(pattern, flags, field):
@@ -137,15 +184,18 @@ def normalize(raw, path, source):
     rule['definition_hash'] = definition_hash(rule) if rule['review'] else None
     rule['fix'] = _fix(raw.get('fix'), rule)
     tests = rule['tests']
-    if not isinstance(tests, dict) or set(tests) - {'match', 'no_match'}:
-        raise RuleError('tests 에는 match / no_match 만 둘 수 있습니다')
+    if not isinstance(tests, dict) or set(tests) - {'match', 'no_match', 'lang_prefix'}:
+        raise RuleError('tests 에는 match / no_match / lang_prefix 만 둘 수 있습니다')
+    if 'lang_prefix' in tests and not isinstance(tests['lang_prefix'], bool):
+        raise RuleError('tests.lang_prefix 는 true 또는 false 여야 합니다')
     return rule
 
 
 def _detect(rule, spec):
     if not isinstance(spec, dict) or not spec:
         raise RuleError('detect 가 필요합니다')
-    unknown = sorted(set(spec) - set(ANCHORS) - set(CONDITIONS) - {'flags'})
+    unknown = sorted(set(spec) - set(ANCHORS) - set(CONDITIONS) - set(STRUCTURE)
+                     - {'flags'})
     if unknown:
         raise RuleError('detect 의 알 수 없는 키: %s' % ', '.join(unknown))
     anchors = [a for a in ANCHORS if spec.get(a) not in (None, False, '', [])]
@@ -185,6 +235,7 @@ def _detect(rule, spec):
             raise RuleError('file_regex 에는 조건을 붙일 수 없습니다')
         rule['kind'] = 'file'
         rule['compiled_file'] = _compile(spec[anchor], flags | re.S, 'detect.file_regex')
+    _structure(rule, spec, anchor)
     rule['detect'] = dict(spec)
 
 

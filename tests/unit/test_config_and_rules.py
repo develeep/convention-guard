@@ -64,6 +64,77 @@ def case_schema():
           bool(absent['compiled_must'].search('declare(\n    strict_types=1')))
 
 
+def case_structure_conditions():
+    """not_in / in_scope / block_empty -- the U2 schema (DR-01~DR-08)."""
+    print('case_structure_conditions:')
+    rule = rulelib.normalize(rule_yaml(detect={'when_line_added': 'dd\\(',
+                                               'not_in': ['comment', 'string']}),
+                             'x.yaml', 'local')
+    check('a condition survives normalisation',
+          rule['detect']['not_in'] == ['comment', 'string'], rule['detect'])
+    check('the anchor is unaffected', rule['kind'] == 'line')
+
+    single = rulelib.normalize(rule_yaml(detect={'when_line_added': 'a', 'not_in': 'comment'}),
+                               'x.yaml', 'local')
+    check('a bare string is accepted', single['detect']['not_in'] == 'comment')
+
+    scoped = rulelib.normalize(
+        rule_yaml(detect={'when_line_added': 'a', 'in_scope': ['loop', 'catch']}),
+        'x.yaml', 'local')
+    check('in_scope takes a list', scoped['detect']['in_scope'] == ['loop', 'catch'])
+
+    empty = rulelib.normalize(
+        rule_yaml(detect={'file_regex': 'a', 'block_empty': True}), 'x.yaml', 'local')
+    check('block_empty rides on file_regex', empty['kind'] == 'file')
+
+    expect_error('an unknown not_in value is rejected with a hint',
+                 rule_yaml(detect={'when_line_added': 'a', 'not_in': ['comments']}),
+                 "'comment'")
+    expect_error('an unknown in_scope value is rejected',
+                 rule_yaml(detect={'when_line_added': 'a', 'in_scope': 'method'}),
+                 'in_scope')
+    expect_error('a wrong type is rejected',
+                 rule_yaml(detect={'when_line_added': 'a', 'not_in': 7}), 'not_in')
+    expect_error('block_empty must be a boolean',
+                 rule_yaml(detect={'file_regex': 'a', 'block_empty': 'yes'}), 'block_empty')
+    expect_error('block_empty is file_regex only',
+                 rule_yaml(detect={'when_line_added': 'a', 'block_empty': True}),
+                 'file_regex')
+    expect_error('when_file_added takes no structure condition',
+                 rule_yaml(detect={'when_file_added': True, 'must_contain_in_file': 'x',
+                                   'not_in': ['comment']}), '구조 조건')
+    expect_error('when_changed takes no structure condition',
+                 rule_yaml(detect={'when_changed': ['a'], 'require_changed': ['b'],
+                                   'in_scope': 'loop'}), '구조 조건')
+
+    off = rulelib.normalize(
+        rule_yaml(detect={'when_line_added': 'a', 'not_in': [], 'block_empty': False}),
+        'x.yaml', 'local')
+    check('empty conditions are simply no conditions', off['kind'] == 'line')
+
+    from lib.structure import conditions as condlib
+    check('has_conditions agrees with the schema',
+          condlib.has_conditions(rule) and not condlib.has_conditions(off))
+
+
+def case_definition_hash():
+    """A structure condition is part of the rule's identity (DR-08)."""
+    print('case_definition_hash:')
+    review = {'instruction': 'judge', 'context': ['snippet']}
+    plain = rulelib.normalize(rule_yaml(semantic_review=review), 'x.yaml', 'local')
+    with_condition = rulelib.normalize(
+        rule_yaml(detect={'when_line_added': 'foo', 'not_in': ['comment']},
+                  semantic_review=review), 'x.yaml', 'local')
+    check('adding a condition changes the definition hash',
+          plain['definition_hash'] != with_condition['definition_hash'],
+          '%s vs %s' % (plain['definition_hash'], with_condition['definition_hash']))
+    same = rulelib.normalize(
+        rule_yaml(detect={'when_line_added': 'foo', 'not_in': ['comment']},
+                  semantic_review=review), 'y.yaml', 'local')
+    check('the same condition keeps it',
+          with_condition['definition_hash'] == same['definition_hash'])
+
+
 def case_config_layers():
     print('case_config_layers:')
     with tempdir() as repo:
@@ -197,6 +268,8 @@ def case_stack_parse_errors():
 
 if __name__ == '__main__':
     case_schema()
+    case_structure_conditions()
+    case_definition_hash()
     case_config_layers()
     case_presets_and_overrides()
     case_stack_parse_errors()

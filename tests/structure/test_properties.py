@@ -149,6 +149,91 @@ def prop_evaluate_is_pure(language, text, offset):
     assert fs.text == text
 
 
+@given(languages, sources)
+def prop_conditionless_rules_are_untouched(language, text):
+    """P-U2-1 -- a rule with no structure conditions detects exactly as 1.x."""
+    from lib import detect
+    from lib.rules import schema
+
+    raw = {'id': 'p', 'title': 't', 'severity': 'warn',
+           'applies_to': {'stacks': ['*']}, 'detect': {'when_line_added': r'\w+'},
+           'message': 'm'}
+    rule = schema.normalize(raw, 'p.yaml', 'local')
+    relpath = 'a.%s' % ('php' if language == 'php' else 'txt')
+    scope = _Scope({relpath: text})
+    found = detect.scan(rule, scope, detect.Stacks(tags=['*']), 50)
+    assert scope.reads == 0, 'a conditionless rule read the file'
+    assert all(candidate.file == relpath for candidate in found)
+
+
+@given(languages, sources, st.integers(min_value=1, max_value=200))
+def prop_line_spans_match_the_source(language, text, lineno):
+    """P-U2-2 -- an offset either points at the matched text or is refused."""
+    import re
+
+    from lib.detect import _span_of
+
+    fs = structure.analyze(text, language)
+    lines = text.split('\n')
+    lineno = min(lineno, len(lines))
+    match = re.search(r'\S+', lines[lineno - 1] or '')
+    if match is None:
+        return
+    span, reason = _span_of(fs, lineno, match)
+    if span is None:
+        assert reason.startswith('stale_line:')
+    else:
+        assert fs.text[span.start:span.end] == match.group(0)
+
+
+@given(languages, sources)
+def prop_rejected_candidates_leave_cap_room(language, text):
+    """P-U2-3 -- filtered matches do not fill the cap (DR-14)."""
+    from lib import detect
+    from lib.rules import schema
+
+    if language != 'php':
+        return
+    raw = {'id': 'p', 'title': 't', 'severity': 'warn',
+           'applies_to': {'stacks': ['*']},
+           'detect': {'when_line_added': r'\w+', 'not_in': ['comment', 'string']},
+           'message': 'm'}
+    rule = schema.normalize(raw, 'p.yaml', 'local')
+    scope = _Scope({'a.php': text})
+    cap = 5
+    found = detect.scan(rule, scope, detect.Stacks(tags=['*']), cap)
+    assert len(found) <= cap
+    for candidate in found:
+        assert candidate.line >= 1
+
+
+class _Scope:
+    """The slice of Scope the detector uses."""
+
+    def __init__(self, files):
+        self.files = files
+        self.reads = 0
+
+    def paths(self):
+        return sorted(self.files)
+
+    def text(self, relpath):
+        self.reads += 1
+        return self.files.get(relpath, '')
+
+    def lines(self, relpath):
+        return tuple(enumerate(self.files.get(relpath, '').split('\n'), start=1))
+
+    def changed_linenos(self, relpath):
+        return {n for n, _ in self.lines(relpath)}
+
+    def added_body(self, relpath):
+        return self.files.get(relpath, '')
+
+    def is_new(self, relpath):
+        return False
+
+
 def _shape(node):
     return (node.kind, node.start_line, node.end_line,
             tuple(_shape(child) for child in node.children))
@@ -165,7 +250,10 @@ def main():
          prop_analysis_is_deterministic,
          prop_cache_returns_the_same_object,
          prop_masking_is_idempotent,
-         prop_evaluate_is_pure], check)
+         prop_evaluate_is_pure,
+         prop_conditionless_rules_are_untouched,
+         prop_line_spans_match_the_source,
+         prop_rejected_candidates_leave_cap_room], check)
     return finish('structure properties')
 
 

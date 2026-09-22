@@ -18,8 +18,92 @@ therefore file-level and does not expire when the file changes -- which is
 the right granularity for "this file needs no pair", not an oversight.
 """
 
-from . import rules as rulelib
+from . import rules as rulelib, structure
 from .candidate import Candidate, clip
+from .structure import conditions as structure_conditions
+from .structure.model import REJECT, UNKNOWN, Span
+
+
+class Unchecked:
+    """Files whose structure could not be read, and why.
+
+    A structure condition that cannot be evaluated does not quietly pass: the
+    candidate is kept and the file is named, so "no findings" never means "we
+    could not look" (FR-01.5, US-06). The first reason for a file wins -- rule
+    order is deterministic, so the report is too.
+    """
+
+    __slots__ = ('_reasons',)
+
+    def __init__(self):
+        self._reasons = {}
+
+    def record(self, relpath, reason):
+        self._reasons.setdefault(relpath, reason)
+
+    def reason(self, relpath):
+        return self._reasons.get(relpath)
+
+    def files(self):
+        return tuple(sorted(self._reasons))
+
+    def summary(self, limit=None):
+        """(paths to show, how many were folded away)."""
+        paths = self.files()
+        if limit is None or len(paths) <= limit:
+            return paths, 0
+        return paths[:limit], len(paths) - limit
+
+    def __bool__(self):
+        return bool(self._reasons)
+
+    def __len__(self):
+        return len(self._reasons)
+
+
+def _span_of(analysed, lineno, match):
+    """Match position -> file offset, or a reason why it cannot be trusted.
+
+    The match was found in the line the diff reported; the analysis read the
+    file on disk. They are normally the same text, but an edit between the two
+    would put the offset somewhere else entirely -- so the slice is compared
+    against what matched, and a mismatch keeps the candidate instead of
+    judging it on the wrong position (SR-31).
+    """
+    offset = analysed.offset_of(lineno, match.start())
+    matched = match.group(0)
+    if analysed.text[offset:offset + len(matched)] != matched:
+        return None, 'stale_line:%d' % lineno
+    return Span(offset, offset + len(matched)), None
+
+
+def _verdict(rule, relpath, lineno, span, source, unchecked):
+    """ACCEPT / REJECT / UNKNOWN for one match, recording what it could not read."""
+    language = structure.language_of(relpath)
+    analysed = structure.analyze(source() if source else '', language)
+    if not analysed.ok:
+        _note(unchecked, relpath, analysed.reason)
+        return UNKNOWN
+    if callable(span):
+        span, reason = span(analysed)
+        if span is None:
+            _note(unchecked, relpath, reason)
+            return UNKNOWN
+    verdict = structure_conditions.evaluate(rule, analysed, span)
+    if verdict == UNKNOWN:
+        _note(unchecked, relpath, _why_unknown(rule, analysed))
+    return verdict
+
+
+def _why_unknown(rule, analysed):
+    if not analysed.scope_supported:
+        return 'no_scope:%s' % (analysed.language or 'unknown')
+    return analysed.reason or 'internal_error:Unknown'
+
+
+def _note(unchecked, relpath, reason):
+    if unchecked is not None:
+        unchecked.record(relpath, reason or 'internal_error:Unknown')
 
 
 class Stacks:
@@ -42,16 +126,27 @@ def _never_dismissed(_rule_id, _relpath, _digest):
     return False
 
 
-def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed):
+def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None):
     """Candidates this rule reports for this change, at most `cap`."""
     kind = rule.get('kind', 'line')
     found = []
+    # asked once per rule: a rule without structure conditions must run the
+    # 1.x path exactly, reading nothing (FR-02.3, NR-U2-13)
+    wants = structure_conditions.has_conditions(rule)
 
-    def add(relpath, lineno, snippet):
+    def add(relpath, lineno, snippet, span=None, source=None):
         """Returns True once the cap is reached."""
         cand = Candidate(rule['id'], relpath, lineno, snippet)
         if is_dismissed(rule['id'], relpath, cand.code_hash):
             return False
+        if wants and span is not None and source is not None:
+            try:
+                verdict = _verdict(rule, relpath, lineno, span, source, unchecked)
+            except Exception:       # noqa: BLE001 -- the layer promises not to
+                verdict = UNKNOWN   # raise; if that promise breaks the hook lives
+                _note(unchecked, relpath, 'internal_error:Detect')
+            if verdict == REJECT:
+                return False        # filtered, so it does not fill the cap either
         found.append(cand)
         return len(found) >= cap
 
@@ -79,8 +174,13 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed):
             continue
 
         if kind == 'line':
+            source = (lambda path=relpath: scope.text(path)) if wants else None
             for lineno, text in scope.lines(relpath):
-                if rule['compiled_when'].search(text) and add(relpath, lineno, clip(text)):
+                match = rule['compiled_when'].search(text)
+                if not match:
+                    continue
+                span = (lambda fs, n=lineno, m=match: _span_of(fs, n, m)) if wants else None
+                if add(relpath, lineno, clip(text), span, source):
                     return found
 
         elif kind == 'absent':
@@ -102,12 +202,16 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed):
                 continue
             touched_lines = scope.changed_linenos(relpath)
             is_new = scope.is_new(relpath)
+            source = (lambda text=body: text) if wants else None
             for match in rule['compiled_file'].finditer(body):
                 start = body.count('\n', 0, match.start()) + 1
                 end = body.count('\n', 0, match.end()) + 1
                 if not is_new and not any(start <= n <= end for n in touched_lines):
                     continue
-                if add(relpath, start, clip(match.group(0).replace('\n', ' ⏎ '))):
+                # a file match is already in file coordinates -- nothing to convert
+                span = Span(match.start(), match.end()) if wants else None
+                if add(relpath, start, clip(match.group(0).replace('\n', ' ⏎ ')),
+                       span, source):
                     return found
 
         elif kind == 'requires':
@@ -119,9 +223,15 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed):
             if not body or rule['compiled_must'].search(body):
                 continue
             before = len(found)
+            source = (lambda text=body: text) if wants else None
             for lineno, text in scope.lines(relpath):
-                if rule['compiled_when'].search(text):
-                    if add(relpath, lineno, clip(text)):
+                match = rule['compiled_when'].search(text)
+                if match:
+                    # only the trigger is judged; the requirement search stays
+                    # plain regex over the whole file (Q10=A, DR-18)
+                    span = (lambda fs, n=lineno, m=match: _span_of(fs, n, m)) \
+                        if wants else None
+                    if add(relpath, lineno, clip(text), span, source):
                         return found
                     if len(found) > before:
                         break   # one candidate per file -- but a dismissed line
@@ -130,12 +240,12 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed):
     return found
 
 
-def run(rules, scope, stacks, cap, is_dismissed=_never_dismissed):
+def run(rules, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None):
     """[(rule, [Candidate])] for every rule with at least one candidate,
     most severe first, then most candidates first."""
     hits = []
     for rule in rules:
-        found = scan(rule, scope, stacks, cap, is_dismissed)
+        found = scan(rule, scope, stacks, cap, is_dismissed, unchecked)
         if found:
             hits.append((rule, found))
     hits.sort(key=lambda h: (rulelib.severity_rank(h[0]), -len(h[1])))

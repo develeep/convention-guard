@@ -15,7 +15,7 @@ from .paths import plugin_root as default_plugin_root
 
 class Result:
     def __init__(self, scope, stacks, ruleset, applicable, lint_blocking, lint_notes,
-                 lint_raw, hits, semantic_hits, dismissals):
+                 lint_raw, hits, semantic_hits, dismissals, unchecked=None):
         self.scope = scope
         self.stacks = stacks
         self.ruleset = ruleset              # RuleSet: rules in play, inactive, notes, presets
@@ -28,6 +28,9 @@ class Result:
         self.hits = hits                    # [(rule, [Candidate])] judged by the agent
         self.semantic_hits = semantic_hits  # [(rule, [Candidate])] judged by a reviewer
         self.dismissals = dismissals        # recorded dismissals that were applied
+        # files whose structure could not be read, so their conditions were not
+        # applied: the candidates are still here, and the caller says so
+        self.unchecked = unchecked if unchecked is not None else detect.Unchecked()
 
     @property
     def errors(self):
@@ -85,10 +88,11 @@ def run(scope, cfg, plugin_root=None, run_lint=True, cap=None, use_dismiss=True,
     applicable = rulelib.applicable(rules, stacks, scope.paths(), root,
                                     respect_supersede=cfg.get('respect_supersede', True))
     cap = int(cap if cap is not None else cfg.limit('max_locations_per_rule'))
+    unchecked = detect.Unchecked()
     hits = detect.run([r for r in applicable if not r['review']], scope, stacks, cap,
-                      is_dismissed)
+                      is_dismissed, unchecked)
     semantic_hits = detect.run([r for r in applicable if r['review']], scope, stacks, cap,
-                               is_dismissed)
+                               is_dismissed, unchecked)
 
     return Result(scope, stacks, ruleset, applicable, lint_blocking, lint_notes, lint_raw,
-                  hits, semantic_hits, dismissals)
+                  hits, semantic_hits, dismissals, unchecked)

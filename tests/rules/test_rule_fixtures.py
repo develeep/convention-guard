@@ -29,11 +29,63 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
 from helpers import ROOT  # noqa: E402
-from lib import rules as rulelib  # noqa: E402
+from lib import rules as rulelib, structure
+from lib.structure import conditions
+from lib.structure.model import REJECT, Span  # noqa: E402
 from lib.yamlio import read as read_yaml  # noqa: E402
 
 
+# A fixture is a fragment, not a file: a PHP snippet has no `<?php`, so the
+# structure layer would read all of it as template text and find neither
+# comments nor strings. The prologue makes the fragment a file. It is part of
+# the synthesised text, so detection and analysis share one coordinate system
+# (DR-25, DR-26). `tests.lang_prefix: false` opts out.
+PROLOGUE = {'php': '<?php\n'}
+
+
+def fixture_language(rule):
+    """The language a fixture fragment should be read as."""
+    for pattern in rule.get('files') or ():
+        language = structure.language_of(str(pattern).replace('*', 'x'))
+        if language:
+            return language
+    return None
+
+
+def synthesise(rule, sample):
+    """(text, language) -- the fragment as a file."""
+    language = fixture_language(rule)
+    if not language or rule['tests'].get('lang_prefix', True) is False:
+        return str(sample), language
+    return PROLOGUE.get(language, '') + str(sample), language
+
+
+def passes_conditions(rule, text, language, match):
+    """Would the detector keep this match? UNKNOWN keeps it (D5)."""
+    analysed = structure.analyze(text, language)
+    if not analysed.ok:
+        return True
+    span = Span(match.start(), match.end())
+    return conditions.evaluate(rule, analysed, span) != REJECT
+
+
 def matcher(rule):
+    kind = rule['kind']
+    if conditions.has_conditions(rule) and kind in ('line', 'requires', 'file'):
+        plain = _plain_matcher(rule)
+
+        def check(sample):
+            text, language = synthesise(rule, sample)
+            pattern = rule['compiled_file'] if kind == 'file' else rule['compiled_when']
+            match = pattern.search(text)
+            if match is None or not plain(sample):
+                return False
+            return passes_conditions(rule, text, language, match)
+        return check
+    return _plain_matcher(rule)
+
+
+def _plain_matcher(rule):
     kind = rule['kind']
     if kind == 'paired':
         def check(sample):

@@ -37,8 +37,24 @@ def case_harness_runs():
                   {'python', 'platform', 'baseline_commit'} <= set(payload['env']))
 
 
+def case_end_to_end_stage_exists():
+    """The gate B path imports and parses; it is not run here (minutes long)."""
+    print('case_end_to_end_stage_exists:')
+    proc = subprocess.run(
+        [sys.executable, '-c',
+         'import sys; sys.path.insert(0, %r); import rig, run; '
+         'print(hasattr(run, "end_to_end_rows"), hasattr(rig, "rules_with_conditions"))'
+         % os.path.join(ROOT, 'tests', 'perf')],
+        capture_output=True, text=True, cwd=ROOT,
+        env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
+    check('the end_to_end stage and its rig import cleanly',
+          proc.returncode == 0 and 'True True' in proc.stdout,
+          (proc.stdout + proc.stderr).strip()[-300:])
+
+
 def main():
     case_harness_runs()
+    case_end_to_end_stage_exists()
     return finish('perf harness smoke')
 
 

@@ -67,6 +67,43 @@ tests:
 
 `fix.auto` 가 있는 규칙은 `mode: auto-fix` 와 `scan.py --fix` 에서 후보 줄만 자동 수정됩니다. 탐지 이후 줄이 바뀌었거나 수정해도 규칙에 걸리면 적용하지 않습니다.
 
+## 구조 조건: 매치가 무엇 안에 있는가 (3.0)
+
+앵커가 "이번 변경의 책임"을 정하고, 구조 조건은 그 매치를 **거릅니다**. 정규식만으로는 주석 안의 `dd(` 와 진짜 `dd(` 를 구분할 수 없습니다.
+
+```yaml
+detect:
+  when_line_added: '\bdd\('
+  not_in: [comment, string]     # 주석·문자열 리터럴 안의 매치를 제외
+```
+
+| 조건 | 값 | 의미 | 쓸 수 있는 앵커 |
+|---|---|---|---|
+| `not_in` | `comment`, `string` | 그 구간 안의 매치를 제외 | line / requires / file |
+| `in_scope` | `loop`, `function`, `class`, `catch` | 나열한 스코프에 **모두** 속한 매치만 인정 | line / requires / file |
+| `block_empty` | `true` | 매치를 감싸는 블록 본문이 공백뿐일 때만 인정 | **file 만** |
+
+- 값 하나는 목록 없이 써도 됩니다: `not_in: comment`
+- `block_empty` 가 `file_regex` 전용인 이유는 블록이 중첩되면 "어느 블록"인지 모호해지기 때문입니다
+- `block_empty` 에서 **주석은 내용입니다** — 이유를 주석으로 남긴 `catch` 블록은 비어 있지 않습니다
+- `when_file_added`(absent)·`when_changed`(paired) 에는 붙일 수 없습니다. 판정할 위치가 없기 때문입니다
+
+지원 언어는 PHP, JavaScript/TypeScript, Go(정밀), Java 계열·Rust·C 계열·Python(이관 수준), Blade(마스킹만)입니다. Blade 는 스코프 트리가 없어 `in_scope`·`block_empty` 를 쓰면 "구조 미확인"이 됩니다.
+
+**파일을 읽지 못하면 후보를 그대로 올립니다.** 문법이 깨졌거나 지원하지 않는 언어여서 구조를 확인할 수 없으면 조건을 적용하지 않고 후보를 남긴 뒤, `systemMessage` 로 어느 파일이었는지 알립니다. 검사하지 못한 것이 "깨끗함"으로 보이지 않게 하기 위해서입니다.
+
+조건을 **추가하거나 바꾸면** 그 규칙의 의미 판정 캐시가 만료됩니다. 후보를 고르는 기준이 달라졌으므로 저장된 판정은 다른 질문에 대한 답입니다.
+
+### 픽스처와 구조 조건
+
+`tests.match`/`no_match` 는 파일이 아니라 조각이라, PHP 조각에는 `<?php` 가 없습니다. 픽스처 실행기가 언어별 접두를 자동으로 붙입니다. 태그 밖 동작 자체를 검증하려면 끕니다.
+
+```yaml
+tests:
+  lang_prefix: false
+  match: ["<p>It's</p>"]
+```
+
 ## 픽스처와 시나리오 테스트
 
 | 테스트 | 검증하는 것 |

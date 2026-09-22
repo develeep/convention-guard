@@ -151,6 +151,7 @@ class StopContext:
         self.cfg = configlib.load(self.root)
         self.state = statelib.load(self.session)
         self.autofixed = []
+        self.last_scan = None
 
     @property
     def semantic_on(self):
@@ -194,11 +195,26 @@ def _warning_suffix(warnings):
     return ' / 검사 경고: %s' % warnings[0] if warnings else ''
 
 
+def unchecked_note(unchecked, limit=None):
+    """'구조 미확인 2개 파일 — a.php, b.php (...)', or None when there is none.
+
+    A file whose structure could not be read had its conditions skipped, so
+    its candidates came through unfiltered. Saying nothing would let that read
+    as a clean pass (NFR-02.2, US-06).
+    """
+    if not unchecked:
+        return None
+    shown, folded = unchecked.summary(limit)
+    listed = ', '.join(shown) + (' 외 %d개' % folded if folded else '')
+    return ('convention-guard: 구조 미확인 %d개 파일 — %s '
+            '(구조 조건을 적용하지 못해 후보를 그대로 올렸습니다)' % (len(unchecked), listed))
+
+
 def on_stop(payload):
     if not isinstance(payload, dict):
         return None
     ctx = StopContext(payload)
-    return _with_autofix_note(ctx, _stop(ctx))
+    return _with_unchecked_note(ctx, _with_autofix_note(ctx, _stop(ctx)))
 
 
 def _with_autofix_note(ctx, out):
@@ -213,6 +229,22 @@ def _with_autofix_note(ctx, out):
         out['systemMessage'] = note
         return out
     return notice(note if not out else '%s / %s' % (out.get('systemMessage', ''), note))
+
+
+def _with_unchecked_note(ctx, out):
+    """Structure conditions that could not be evaluated get said out loud."""
+    scan = getattr(ctx, 'last_scan', None)
+    note = unchecked_note(scan.result.unchecked) if scan is not None else None
+    if not note:
+        return out
+    if out and out.get('decision') == 'block':
+        out['systemMessage'] = _join_messages(out.get('systemMessage'), note)
+        return out
+    return notice(_join_messages(out.get('systemMessage') if out else None, note))
+
+
+def _join_messages(existing, note):
+    return '%s / %s' % (existing, note) if existing else note
 
 
 def _stop(ctx):
@@ -268,6 +300,14 @@ def _belongs_to_new_request(ctx, cycle):
 
 
 def _scan(ctx):
+    """Scan, remembering the outcome so the notices can look at it."""
+    outcome = _run_scan(ctx)
+    if outcome is not None and hasattr(outcome, 'result'):
+        ctx.last_scan = outcome
+    return outcome
+
+
+def _run_scan(ctx):
     """Everything touched this session, or None when there is nothing to
     inspect (no edits, not a repo, all reverted)."""
     touched = statelib.read_touched(ctx.session)

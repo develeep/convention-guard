@@ -133,9 +133,62 @@ def _first_difference(left, right):
     return 'length %d vs %d' % (len(left), len(right))
 
 
+def case_detection_is_deterministic():
+    """Same change, same rule -> same candidates and the same notice (DR-30)."""
+    print('case_detection_is_deterministic:')
+    from lib import detect, hooks
+    from lib.rules import schema
+
+    class Scope:
+        def __init__(self, files):
+            self.files = files
+
+        def paths(self):
+            return sorted(self.files)
+
+        def text(self, relpath):
+            return self.files.get(relpath, '')
+
+        def lines(self, relpath):
+            return tuple(enumerate(self.files.get(relpath, '').split('\n'), start=1))
+
+        def changed_linenos(self, relpath):
+            return {n for n, _ in self.lines(relpath)}
+
+        def added_body(self, relpath):
+            return self.files.get(relpath, '')
+
+        def is_new(self, relpath):
+            return False
+
+    raw = {'id': 'd', 'title': 't', 'severity': 'warn',
+           'applies_to': {'stacks': ['*']},
+           'detect': {'when_line_added': r'dd\(', 'not_in': ['comment']},
+           'message': 'm'}
+    rule = schema.normalize(raw, 'd.yaml', 'local')
+    files = {'a.php': '<?php\n// dd(1)\ndd(2);\n',
+             'b.php': '<?php\n$x = "oops;\ndd(3);\n',
+             'c.txt': 'dd(4)\n'}
+
+    runs = []
+    for _ in range(3):
+        unchecked = detect.Unchecked()
+        found = detect.scan(rule, Scope(files), detect.Stacks(tags=['*']), 20,
+                            unchecked=unchecked)
+        runs.append(([(c.file, c.line, c.code_hash) for c in found],
+                     hooks.unchecked_note(unchecked)))
+    check('candidates repeat exactly', runs[0][0] == runs[1][0] == runs[2][0],
+          str(runs[0][0]))
+    check('the notice repeats exactly', runs[0][1] == runs[1][1] == runs[2][1],
+          str(runs[0][1]))
+    check('the notice names both unreadable files in order',
+          'b.php, c.txt' in (runs[0][1] or ''), runs[0][1])
+
+
 def main():
     for case in (case_no_unstable_apis, case_languages_live_in_one_file,
-                 case_hash_seed_does_not_change_the_answer):
+                 case_hash_seed_does_not_change_the_answer,
+                 case_detection_is_deterministic):
         case()
     return finish('structure determinism')
 

@@ -24,7 +24,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import autofix, config as configlib, gitdiff, pipeline, report, semantic  # noqa: E402
+from lib import (autofix, config as configlib, gitdiff, hooks, pipeline, report,  # noqa: E402
+                 semantic)
 from lib.paths import git_toplevel, project_dir  # noqa: E402
 from lib.scope import ChangeScope, ScopeError  # noqa: E402
 
@@ -93,6 +94,10 @@ def review_semantic(result, cfg):
     info = {'batch': path, 'candidates': len(items), 'deferred': len(deferred),
             'cached_violations': len(triage.violations), 'cleared': len(triage.cleared)}
     return list(grouped.values()), info
+
+
+# a full-repo audit can name hundreds of files; the hook path lists them all
+UNCHECKED_LIMIT = 20
 
 
 def main(argv=None):
@@ -166,6 +171,10 @@ def main(argv=None):
     else:
         color = not (args.no_color or not sys.stdout.isatty())
         print(report.render_text(payload, report.Palette(color)))
+        # an audit can touch the whole repository, so the list folds here
+        unchecked = hooks.unchecked_note(result.unchecked, limit=UNCHECKED_LIMIT)
+        if unchecked:
+            print('\n%s' % unchecked)
         if args.fix:
             if args.write:
                 print('\n자동 수정 %d건을 적용했습니다 (위 결과는 적용 후 남은 것)' % len(fixed))
