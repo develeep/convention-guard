@@ -111,10 +111,12 @@ def _line_bounds(text, starts, lineno):
 # ---------------------------------------------------------------- brace languages
 
 class _Open:
-    __slots__ = ('kind', 'start_line', 'brace', 'children')
+    __slots__ = ('kinds', 'start_line', 'brace', 'children')
 
-    def __init__(self, kind, start_line, brace):
-        self.kind = kind
+    def __init__(self, kinds, start_line, brace):
+        # usually one kind; a callback iteration is both a loop and the
+        # function that walks it, outermost first
+        self.kinds = kinds
         self.start_line = start_line
         self.brace = brace
         self.children = []
@@ -128,8 +130,8 @@ def _brace_blocks(text, langdef, starts, skip):
         if not cursor.is_code(offset):
             continue
         if text[offset] == '{':
-            kind, header_line = _header_at(text, langdef, starts, skip, offset)
-            stack.append(_Open(kind, header_line, offset))
+            kinds, header_line = _header_at(text, langdef, starts, skip, offset)
+            stack.append(_Open(kinds, header_line, offset))
         elif len(stack) > 1:
             _close(stack, text, starts, offset)
     while len(stack) > 1:                      # blocks left open by the file (D-2)
@@ -140,21 +142,26 @@ def _brace_blocks(text, langdef, starts, skip):
 def _close(stack, text, starts, offset):
     block = stack.pop()
     parent = stack[-1]
-    if block.kind is None:
+    if not block.kinds:
         parent.children.extend(block.children)  # unclassified blocks stay invisible
         return
     end_line = _line_of(starts, min(offset, max(len(text) - 1, 0))) if text else 1
-    parent.children.append(ScopeNode(
-        block.kind, block.start_line, end_line,
-        Span(block.brace + 1, offset), tuple(block.children)))
+    body = Span(block.brace + 1, offset)
+    node = None
+    # innermost first, so `xs.map(x => {` ends up loop > function: `in_scope:
+    # loop` sees the iteration and the context pack still finds the callback
+    for kind in reversed(block.kinds):
+        children = tuple(block.children) if node is None else (node,)
+        node = ScopeNode(kind, block.start_line, end_line, body, children)
+    parent.children.append(node)
 
 
 def _header_at(text, langdef, starts, skip, brace):
-    """(kind, header start line) for the block opened at `brace`."""
+    """(kinds, header start line) for the block opened at `brace`."""
     lineno = _line_of(starts, brace)
     line_start, line_end = _line_bounds(text, starts, lineno)
     if line_end - line_start > MAX_LINE_FOR_SCOPE:
-        return None, lineno
+        return (), lineno
     floor_line = max(1, lineno - SIGNATURE_MAX_LINES)
     floor = starts[floor_line - 1]
     tags = _tag_opens(langdef)
@@ -169,7 +176,7 @@ def _header_at(text, langdef, starts, skip, brace):
     header = _code_only(text, skip, begin, brace)
     stripped = header.lstrip()
     if not stripped:
-        return None, lineno
+        return (), lineno
     header_line = _line_of(starts, begin + (len(header) - len(stripped)))
     if len(stripped) > MAX_HEADER_CHARS:
         stripped = stripped[-MAX_HEADER_CHARS:]
@@ -236,22 +243,33 @@ def _keywords(langdef, kind, words):
 
 
 def _classify(header, langdef):
-    """Which of the six kinds this header opens, or None (SR-13~SR-19)."""
+    """The kinds this header opens, outermost first (SR-13~SR-19, SR-20a).
+
+    Usually one. `xs.map(x => {` is two: the block iterates *and* is a
+    function body, and both readings are used -- a rule asks `in_scope: loop`
+    while the context pack asks for the enclosing function.
+    """
     for kind, words in (('catch', langdef.catch_keywords),
                         ('class', langdef.class_keywords)):
         pattern = _keywords(langdef, kind, words)
         if pattern is not None and pattern.search(header):
-            return kind
+            return (kind,)
+    iterating = (langdef.iteration_call is not None
+                 and langdef.iteration_call.search(header) is not None)
     pattern = langdef.function_pattern
     # one line at a time: the inherited patterns are anchored per line
-    if pattern is not None and any(pattern.search(line) for line in header.split('\n')):
-        return 'function'
+    is_function = pattern is not None and any(
+        pattern.search(line) for line in header.split('\n'))
+    if iterating:
+        return ('loop', 'function') if is_function else ('loop',)
+    if is_function:
+        return ('function',)
     for kind, words in (('loop', langdef.loop_keywords),
                         ('branch', langdef.branch_keywords)):
         keyword = _keywords(langdef, kind, words)
         if keyword is not None and keyword.search(header):
-            return kind
-    return None
+            return (kind,)
+    return ()
 
 
 # ---------------------------------------------------------------- indent languages

@@ -18,6 +18,16 @@ from typing import NamedTuple, Optional, Tuple
 # regex; these words are never a function name. (context.py:53, verbatim)
 NOT_A_NAME = r'(?!(?:if|for|foreach|while|switch|catch|with|return|else|do|try|synchronized)\b)'
 
+# Only the precise three get this: the ported languages keep 1.x behaviour
+# (unit-of-work.md §3.1), and Go has no callback-iteration idiom.
+ITERATION_CALLS = {
+    'php': re.compile(r'->\s*(?:each|map|filter|reject|transform|flatMap|every|'
+                      r'partition|groupBy|sortBy)\s*\(|'
+                      r'\b(?:array_map|array_filter|array_walk|array_reduce)\s*\('),
+    'js': re.compile(r'(?:\.|\b)(?:map|forEach|each|flatMap|filter|reduce|'
+                     r'reduceRight|some|every|find|findIndex|sort)\s*\('),
+}
+
 FUNCTION_PATTERNS = {
     'php': re.compile(r'\bfunction\s+&?\s*\w+\s*\('),
     'js': re.compile(r'\bfunction\s*\*?\s*\w*\s*\(|^\s*(?:export\s+)?(?:default\s+)?'
@@ -81,6 +91,10 @@ class LangDef(NamedTuple):
     text_comment: Tuple[Tuple[str, str, bool], ...] = ()       # comments outside tags
     starts_in_code: bool = True
     function_pattern: Optional[re.Pattern] = None
+    # Iteration that is written as a call taking a callback -- `xs.map(x => {`,
+    # `$users->each(function ($u) {`. FR-01.2 counts `each` and `map` as loops,
+    # and a keyword list cannot see them because they are method names.
+    iteration_call: Optional[re.Pattern] = None
     class_keywords: Tuple[str, ...] = ()
     loop_keywords: Tuple[str, ...] = ()
     branch_keywords: Tuple[str, ...] = ()
@@ -110,6 +124,7 @@ LANGUAGES = {
         tag_boundaries=(('<?php', '?>'), ('<?=', '?>')),
         starts_in_code=False,
         function_pattern=FUNCTION_PATTERNS['php'],
+        iteration_call=ITERATION_CALLS['php'],
         class_keywords=('class', 'interface', 'trait', 'enum'),
         loop_keywords=('for', 'foreach', 'while', 'do'),
         branch_keywords=('if', 'elseif', 'else', 'switch', 'match'),
@@ -124,6 +139,7 @@ LANGUAGES = {
         string_delims=QUOTES,
         multiline_strings=(Multiline('`', '`', escape='\\', interpolation=('${', '}')),),
         function_pattern=FUNCTION_PATTERNS['js'],
+        iteration_call=ITERATION_CALLS['js'],
         class_keywords=('class', 'interface', 'enum'),
         loop_keywords=('for', 'while', 'do'),
         branch_keywords=('if', 'else', 'switch'),

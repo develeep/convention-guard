@@ -111,6 +111,44 @@ def case_masking_is_respected():
           names == [('function', 3)], str(names))
 
 
+def case_callback_iteration():
+    """`map`/`each` are loops too -- FR-01.2 lists them next to `for`."""
+    print('case_callback_iteration:')
+    text = 'const out = xs.map(x => {\n    return x.load();\n});\n'
+    root = tree(text, 'js')
+    check('an arrow callback iteration is a loop',
+          kinds(root) == ['loop'], str(kinds(root)))
+
+    text = 'xs.forEach(function (x) {\n    x.load();\n});\n'
+    root = tree(text, 'js')
+    check('a function callback is a loop wrapping a function',
+          kinds(root) == ['loop', 'function'], str(kinds(root)))
+    fs_like = flatten(root)[1]
+    check('the inner function covers the same block',
+          fs_like.start_line == flatten(root)[0].start_line
+          and fs_like.end_line == flatten(root)[0].end_line)
+
+    text = PHP + '$users->each(function ($u) {\n    $u->posts;\n});\n'
+    check('a laravel collection callback is a loop',
+          kinds(tree(text)) == ['loop'], str(kinds(tree(text))))
+
+    text = PHP + '$rows = array_map(function ($r) {\n    return $r->id;\n}, $rows);\n'
+    check('array_map counts too', kinds(tree(text)) == ['loop'], str(kinds(tree(text))))
+
+    text = 'function handle() {\n    return 1;\n}\n'
+    check('a plain function is still only a function',
+          kinds(tree(text, 'js')) == ['function'], str(kinds(tree(text, 'js'))))
+
+    text = 'const m = new Map();\nfunction mapper() {\n    return 1;\n}\n'
+    check('a function whose name contains map is not a loop',
+          kinds(tree(text, 'js')) == ['function'], str(kinds(tree(text, 'js'))))
+
+    # the ported languages keep 1.x behaviour (SR-41): no callback iteration
+    text = 'class A {\n    void f() {\n        xs.forEach(x -> {\n            g(x);\n        });\n    }\n}\n'
+    got = kinds(tree(text, 'java'))
+    check('java keeps its 1.x classification', 'loop' not in got, str(got))
+
+
 def case_python():
     print('case_python:')
     text = '''class A:
@@ -171,7 +209,8 @@ def case_blade():
 
 
 def main():
-    for case in (case_kinds, case_bounds, case_masking_is_respected, case_python,
+    for case in (case_kinds, case_bounds, case_masking_is_respected,
+                 case_callback_iteration, case_python,
                  case_guards, case_blade):
         case()
     return finish('structure.native.scopes')
