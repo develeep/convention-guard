@@ -17,6 +17,8 @@ detect:
   # 게이트: 인프라·영속 계층을 가리키는 import 가 추가된 줄만 리뷰어에게 넘깁니다.
   when_line_added: '^\s*(?:import|use|from|require)\b.*\b(?:infra|infrastructure|repositor(?:y|ies)|persistence|database|db|orm|prisma|typeorm|eloquent|models?)\b'
   flags: i
+  # 주석·문자열 안의 매치는 위반이 아닙니다 (3.0 구조 조건)
+  not_in: [comment, string]
 semantic_review:
   context: [imports, snippet, changed_hunks]
   max_context_lines: 80
@@ -31,6 +33,8 @@ semantic_review:
 message: |
   계층 경계를 거스르는 import 입니다. 바깥 계층(인프라·영속성)은 서비스나 포트를 통해 쓰세요.
 tests:
+  # 이 규칙은 파일 글롭이 없어 픽스처 언어를 추론할 수 없습니다
+  lang: js
   match:
     - 'use App\Infrastructure\Redis\Client;'
     - "import { db } from '@/infra/database';"
@@ -39,3 +43,9 @@ tests:
     - '$x = 1;'
     - "import { useState } from 'react';"
     - 'use Illuminate\Http\Request;'
+    # 3.0 구조 조건: 주석·문자열 안의 매치는 위반이 아닙니다
+    - |
+      /*
+      import { OrderRepository } from '../infra/OrderRepository';
+      */
+      export const x = 1;

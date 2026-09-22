@@ -7,6 +7,8 @@ applies_to:
   exclude: ["**/*.test.*", "**/*.spec.*", "**/scripts/**", "**/node_modules/**", "**/*.config.*"]
 detect:
   when_line_added: '(?<![\w.])console\.(log|debug|dir)\s*\('
+  # 주석·문자열 안의 매치는 위반이 아닙니다 (3.0 구조 조건)
+  not_in: [comment, string]
 message: |
   디버그 로그가 남아 있습니다. 제거하거나 팀 로거로 교체하세요.
 tests:
@@ -15,3 +17,10 @@ tests:
   no_match:
     - '  logger.debug(user);'
     - '  console.error(err);'
+    # 3.0 구조 조건: 주석·문자열 안의 매치는 위반이 아닙니다
+    - |
+      export function report(value) {
+          // console.log(value);
+          const help = "console.log(value) prints";
+          return help;
+      }

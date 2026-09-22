@@ -7,6 +7,8 @@ applies_to:
   exclude: ["**/*_test.go", "**/vendor/**"]
 detect:
   when_line_added: '(^|[\s;])_\s*(,\s*_\s*)*=\s*[\w.]+\('
+  # 주석·문자열 안의 매치는 위반이 아닙니다 (3.0 구조 조건)
+  not_in: [comment, string]
 message: |
   에러를 버리고 있습니다. 처리하거나, 의도적으로 무시한다면 왜 안전한지 주석을 남기세요.
 tests:
@@ -15,3 +17,10 @@ tests:
   no_match:
     - '	v, err := json.Marshal(x)'
     - '	_ = 3'
+    # 3.0 구조 조건: 주석·문자열 안의 매치는 위반이 아닙니다
+    - |
+      func save() {
+      	// _ = doThing()
+      	note := "retry: _ = doThing() was here"
+      	_ = note
+      }

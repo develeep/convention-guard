@@ -112,6 +112,16 @@ def case_structure_conditions():
         'x.yaml', 'local')
     check('empty conditions are simply no conditions', off['kind'] == 'line')
 
+    expect_error('tests takes only the keys it knows',
+                 rule_yaml(tests={'match': ['a'], 'nope': 1}), 'tests')
+    expect_error('tests.lang_prefix must be a boolean',
+                 rule_yaml(tests={'match': ['a'], 'lang_prefix': 'yes'}), 'lang_prefix')
+    expect_error('tests.lang must be a string',
+                 rule_yaml(tests={'match': ['a'], 'lang': 7}), 'lang')
+    declared = rulelib.normalize(rule_yaml(tests={'match': ['a'], 'lang': 'js'}),
+                                 'x.yaml', 'local')
+    check('a declared fixture language survives', declared['tests']['lang'] == 'js')
+
     from lib.structure import conditions as condlib
     check('has_conditions agrees with the schema',
           condlib.has_conditions(rule) and not condlib.has_conditions(off))

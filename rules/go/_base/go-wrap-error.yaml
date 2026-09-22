@@ -7,6 +7,8 @@ applies_to:
   exclude: ["**/vendor/**"]
 detect:
   when_line_added: 'fmt\.Errorf\([^)]*%[vs][^)]*\berr\b'
+  # 주석·문자열 안의 매치는 위반이 아닙니다 (3.0 구조 조건)
+  not_in: [comment, string]
 message: |
   fmt.Errorf 로 에러를 감쌀 때는 %v 가 아니라 %w 를 쓰세요.
   그래야 errors.Is / errors.As 로 원인을 판별할 수 있습니다.
@@ -15,3 +17,9 @@ tests:
     - '	return fmt.Errorf("load config: %v", err)'
   no_match:
     - '	return fmt.Errorf("load config: %w", err)'
+    # 3.0 구조 조건: 주석·문자열 안의 매치는 위반이 아닙니다
+    - |
+      func wrap(err error) error {
+      	// return fmt.Errorf("save failed: %v", err)
+      	return nil
+      }

@@ -20,7 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 HUNK = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@')
 
 
-def added_lines(base_ref, root=ROOT, include=('scripts/',)):
+def added_lines(base_ref, root=ROOT, include=('scripts/', 'tests/perf/')):
     """{path: {line numbers this branch added}}"""
     # against the working tree, not just HEAD: the unit is measured before it
     # is committed, and after the commit the two are the same thing

@@ -7,6 +7,8 @@ applies_to:
   exclude: ["**/*_test.go", "main.go", "cmd/**", "**/vendor/**"]
 detect:
   when_line_added: '(?<![\w.])panic\s*\('
+  # 주석·문자열 안의 매치는 위반이 아닙니다 (3.0 구조 조건)
+  not_in: [comment, string]
 message: |
   panic 대신 error 를 반환해 호출자가 결정하게 하세요.
   프로세스를 멈춰야 하는 초기화 실패라면 main 이나 cmd/ 에서 처리합니다.
@@ -16,3 +18,10 @@ tests:
   no_match:
     - '		return fmt.Errorf("unreachable")'
     - '	defer recoverPanic()'
+    # 3.0 구조 조건: 주석·문자열 안의 매치는 위반이 아닙니다
+    - |
+      func run(ok bool) {
+      	// panic("legacy guard")
+      	msg := "panic(here) is only text"
+      	_ = msg
+      }

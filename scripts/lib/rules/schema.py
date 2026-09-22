@@ -184,10 +184,15 @@ def normalize(raw, path, source):
     rule['definition_hash'] = definition_hash(rule) if rule['review'] else None
     rule['fix'] = _fix(raw.get('fix'), rule)
     tests = rule['tests']
-    if not isinstance(tests, dict) or set(tests) - {'match', 'no_match', 'lang_prefix'}:
-        raise RuleError('tests 에는 match / no_match / lang_prefix 만 둘 수 있습니다')
+    allowed = {'match', 'no_match', 'lang_prefix', 'lang'}
+    if not isinstance(tests, dict) or set(tests) - allowed:
+        raise RuleError('tests 에는 %s 만 둘 수 있습니다' % ' / '.join(sorted(allowed)))
     if 'lang_prefix' in tests and not isinstance(tests['lang_prefix'], bool):
         raise RuleError('tests.lang_prefix 는 true 또는 false 여야 합니다')
+    if 'lang' in tests and not isinstance(tests['lang'], str):
+        # a rule whose applies_to has no file glob cannot have its fixture
+        # language inferred; it says so here instead
+        raise RuleError('tests.lang 은 언어 식별자 문자열이어야 합니다')
     return rule
 
 

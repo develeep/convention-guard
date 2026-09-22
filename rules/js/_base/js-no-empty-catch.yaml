@@ -6,7 +6,9 @@ applies_to:
   files: ["**/*.{ts,tsx,js,jsx,mjs}"]
   exclude: ["**/node_modules/**", "**/*.test.*", "**/*.spec.*"]
 detect:
-  file_regex: 'catch\s*(\([^)]*\))?\s*\{\s*\}'
+  # 빈 여부는 정규식이 아니라 구조가 판정합니다 — 주석은 내용으로 봅니다.
+  file_regex: 'catch\s*(\([^)]*\))?\s*\{'
+  block_empty: true
 message: |
   에러를 삼키지 마세요. 로거로 남기거나, 의도적으로 무시한다면 이유를 주석으로 남기세요.
 tests:

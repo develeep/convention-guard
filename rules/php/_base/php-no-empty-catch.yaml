@@ -6,7 +6,9 @@ applies_to:
   files: ["**/*.php"]
   exclude: ["**/vendor/**"]
 detect:
-  file_regex: 'catch\s*\([^)]*\)\s*\{\s*\}'
+  # 빈 여부는 정규식이 아니라 구조가 판정합니다 — 주석은 내용으로 봅니다.
+  file_regex: 'catch\s*\([^)]*\)\s*\{'
+  block_empty: true
 message: |
   예외를 삼키지 마세요. 최소한 로그를 남기거나, 의도적으로 무시한다면
   이유를 주석으로 남기세요 (주석이 있으면 이 규칙은 걸리지 않습니다).

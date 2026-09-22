@@ -9,6 +9,9 @@ applies_to:
 detect:
   # 게이트일 뿐 판정이 아닙니다. 반복이 추가된 줄만 리뷰어에게 넘어갑니다.
   when_line_added: '\bforeach\s*\(|->each\s*\(|->map\s*\('
+  # 반복 안의 매치만 리뷰어에게 넘깁니다 (게이트 축소, US-03)
+  in_scope: loop
+  not_in: [comment, string]
 semantic_review:
   context:
     - current_function
@@ -35,3 +38,12 @@ tests:
     - '        $orders->each(function ($order) {'
   no_match:
     - '        $total = array_sum($amounts);'
+    # 3.0 구조 조건: 주석·문자열 안의 매치는 위반이 아닙니다
+    - |
+      public function index($orders)
+      {
+          // foreach ($archived as $order) { echo $order->user->name; }
+          $doc = "foreach (\$rows as \$row) is the N+1 shape";
+      
+          return $doc;
+      }

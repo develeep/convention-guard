@@ -1,0 +1,136 @@
+{
+  "missing": [],
+  "rows": [
+    {
+      "after": 1,
+      "before": 3,
+      "conditions": [
+        "not_in"
+      ],
+      "file": "go-context-first-param.go",
+      "removed": 2,
+      "rule": "go-context-first-param"
+    },
+    {
+      "after": 1,
+      "before": 3,
+      "conditions": [
+        "not_in"
+      ],
+      "file": "go-no-ignored-error.go",
+      "removed": 2,
+      "rule": "go-no-ignored-error"
+    },
+    {
+      "after": 1,
+      "before": 3,
+      "conditions": [
+        "not_in"
+      ],
+      "file": "go-no-panic.go",
+      "removed": 2,
+      "rule": "go-no-panic"
+    },
+    {
+      "after": 1,
+      "before": 3,
+      "conditions": [
+        "not_in"
+      ],
+      "file": "go-wrap-error.go",
+      "removed": 2,
+      "rule": "go-wrap-error"
+    },
+    {
+      "after": 1,
+      "before": 3,
+      "conditions": [
+        "not_in"
+      ],
+      "file": "js-no-console.js",
+      "removed": 2,
+      "rule": "js-no-console"
+    },
+    {
+      "after": 1,
+      "before": 2,
+      "conditions": [
+        "block_empty"
+      ],
+      "file": "js-no-empty-catch.js",
+      "removed": 1,
+      "rule": "js-no-empty-catch"
+    },
+    {
+      "after": 1,
+      "before": 3,
+      "conditions": [
+        "in_scope",
+        "not_in"
+      ],
+      "file": "laravel-n-plus-one.php",
+      "removed": 2,
+      "rule": "laravel-n-plus-one"
+    },
+    {
+      "after": 1,
+      "before": 3,
+      "conditions": [
+        "not_in"
+      ],
+      "file": "layer-boundary.ts",
+      "removed": 2,
+      "rule": "layer-boundary"
+    },
+    {
+      "after": 1,
+      "before": 2,
+      "conditions": [
+        "not_in"
+      ],
+      "file": "no-hardcoded-secret.js",
+      "removed": 1,
+      "rule": "no-hardcoded-secret"
+    },
+    {
+      "after": 1,
+      "before": 1,
+      "conditions": [],
+      "file": "no-orphan-todo.js",
+      "removed": 0,
+      "rule": "no-orphan-todo"
+    },
+    {
+      "after": 1,
+      "before": 3,
+      "conditions": [
+        "not_in"
+      ],
+      "file": "php-no-debug-output.php",
+      "removed": 2,
+      "rule": "php-no-debug-output"
+    },
+    {
+      "after": 1,
+      "before": 2,
+      "conditions": [
+        "block_empty"
+      ],
+      "file": "php-no-empty-catch.php",
+      "removed": 1,
+      "rule": "php-no-empty-catch"
+    },
+    {
+      "after": 1,
+      "before": 3,
+      "conditions": [
+        "not_in"
+      ],
+      "file": "ts-no-any.ts",
+      "removed": 2,
+      "rule": "ts-no-any"
+    }
+  ],
+  "silent": [],
+  "untouched_drift": []
+}

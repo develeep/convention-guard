@@ -1,0 +1,18 @@
+# convention-guard: 오탐으로 판단해 넘긴 지적들. 커밋해서 팀과 공유하세요.
+# hash 는 넘긴 코드의 지문입니다. 그 코드가 바뀌면 다시 지적됩니다.
+# hash 가 없는 항목은 그 파일 전체에서 규칙을 끕니다.
+dismissed:
+  - rule: "core/no-hardcoded-secret"
+    file: "rules/_common/no-hardcoded-secret.yaml"
+    hash: "5a00721d76"
+    reason: "규칙 자신의 오탐 픽스처입니다 — 주석 안의 가짜 키로, 조건이 작동하는지 고정하는 테스트 데이터"
+    by: "agent"
+    at: "2026-09-22"
+    # rules/_common/no-hardcoded-secret.yaml:26  // const api_key = "sk-live-0000111122223333";
+  - rule: "core/no-orphan-todo"
+    file: "tests/perf/corpus/fp/no-orphan-todo.js"
+    hash: "d2e961afc0"
+    reason: "오탐 측정용 고정 코퍼스입니다 — 이 TODO 가 규칙의 측정 대상 그 자체입니다"
+    by: "agent"
+    at: "2026-09-22"
+    # tests/perf/corpus/fp/no-orphan-todo.js:1  // TODO 이 함수는 캐시를 타지 않습니다

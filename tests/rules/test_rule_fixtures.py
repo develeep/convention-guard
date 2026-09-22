@@ -23,6 +23,7 @@ belongs to the reviewer.
 
 import argparse
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -43,12 +44,25 @@ from lib.yamlio import read as read_yaml  # noqa: E402
 PROLOGUE = {'php': '<?php\n'}
 
 
+EXTENSIONS = re.compile(r'\.(\w+)|\{([\w,]+)\}')
+
+
 def fixture_language(rule):
-    """The language a fixture fragment should be read as."""
+    """The language a fixture fragment should be read as.
+
+    `applies_to.files` holds globs, and a glob is not a filename: brace lists
+    like `**/*.{ts,tsx,js}` have to be opened up before an extension is
+    visible at all.
+    """
+    declared = (rule.get('tests') or {}).get('lang')
+    if declared:
+        return declared
     for pattern in rule.get('files') or ():
-        language = structure.language_of(str(pattern).replace('*', 'x'))
-        if language:
-            return language
+        for dotted, braced in EXTENSIONS.findall(str(pattern)):
+            for extension in (braced.split(',') if braced else [dotted]):
+                language = structure.language_of('x.%s' % extension.strip())
+                if language:
+                    return language
     return None
 
 
