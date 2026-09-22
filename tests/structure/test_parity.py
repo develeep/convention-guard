@@ -30,7 +30,8 @@ from helpers import ROOT, check, finish, legacy_scope  # noqa: E402
 from lib import structure  # noqa: E402
 from lib.context import PACK_SCOPES  # noqa: E402
 
-SKIP_DIRS = {'.git', '__pycache__', 'node_modules', '.venv', 'aidlc-docs', '.hypothesis'}
+SKIP_DIRS = {'.git', '__pycache__', 'node_modules', 'aidlc-docs', '.hypothesis',
+             '.venv', 'venv', 'env', 'site-packages'}
 
 
 def walk():
