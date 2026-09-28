@@ -8,13 +8,12 @@ and which rules are in play and why the others are not.
 """
 
 import argparse
-import json
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import (config as configlib, dismiss as dismisslib, lint, pipeline,  # noqa: E402
+from lib import (config as configlib, dismiss as dismisslib, fmt, lint, pipeline,  # noqa: E402
                  rules as rulelib)
 from lib.paths import git_toplevel, project_dir  # noqa: E402
 
@@ -55,7 +54,7 @@ def collect(root):
                    'status': status, 'reason': reason,
                    'semantic': bool(rule.get('review')),
                    'override': bool(rule.get('patched_from')),
-                   'severity_changed': ('%s→%s' % (rule['base_severity'], rule['severity'])
+                   'severity_changed': ('%s->%s' % (rule['base_severity'], rule['severity'])
                                         if rule.get('base_severity') else '')}
                   for rule, status, reason in sorted(
                       rows, key=lambda r: (r[1] != 'active', rulelib.severity_rank(r[0]),
@@ -67,42 +66,49 @@ def collect(root):
     }
 
 
-def render(info):
-    out = ['repo        : %s' % info['root'],
-           'mode        : %s' % info['mode'],
-           'config      : %s' % (info['config'] or '(없음 — 기본값)'),
-           'stacks      : %s' % (', '.join(info['stacks']) or '(감지 실패)'),
-           'tags        : %s' % (', '.join(info['tags']) or '-'),
-           'versions    : %s' % (info['versions'] or '-'),
-           'dismissed   : %d건 (%s)' % (info['dismissals']['count'], info['dismissals']['path'])]
+def render(info, style=fmt.PLAIN):
+    head = fmt.header('detect_stack', [info['root'], 'mode %s' % info['mode'],
+                                       ('스택 %s' % ', '.join(info['stacks'])) if info['stacks']
+                                       else '스택 감지 실패'], style=style)
+    on = ', '.join(p['name'] for p in info['presets'] if p['active'])
+    off = ', '.join(p['name'] for p in info['presets'] if not p['active'])
+
+    def rel(path):
+        return os.path.relpath(path, info['root']).replace(os.sep, '/')
+
+    settings = [('config', rel(info['config']) if info['config'] else '(없음 — 기본값)'),
+                ('태그', ', '.join(info['tags']) or '-'),
+                ('버전', ', '.join('%s %s' % kv for kv in sorted(info['versions'].items())) or '-'),
+                ('기각', '%d건 (%s)' % (info['dismissals']['count'], rel(info['dismissals']['path']))),
+                ('프리셋', fmt.attrs([on and '%s %s' % (fmt.GLYPH['on'], on),
+                                      off and '%s %s' % (fmt.GLYPH['off'], off)]) or '-')]
+    size = max(fmt.width(k) for k, _ in settings)
+    config = [fmt.section('설정', style=style)]
+    config += ['  %s  %s' % (fmt.pad(k, size + 2), v) for k, v in settings]
+
+    linters = [fmt.section('린터', style=style)] if info['linters'] else []
     for linter in info['linters']:
         if not linter['installed']:
-            status = '[설치 안 됨 — 건너뜀]'
+            kind, note = 'off', '설치 안 됨 — 건너뜀'
         elif linter['parse']:
-            status = '[parse: %s → 변경 줄만 차단]' % linter['parse']
+            kind, note = 'on', 'parse %s — 변경 줄만 차단' % linter['parse']
         else:
-            status = '[출력 파싱 불가 → 전체 출력으로 차단]'
-        out.append('linter      : %-56s %s' % (linter['cmd'], status))
-    if not info['linters']:
-        out.append('linter      : -')
-    out.append('presets     : %s' % '  '.join(
-        ('●' if p['active'] else '○') + p['name'] for p in info['presets']))
-    out.append('')
+            kind, note = 'on', '출력 파싱 불가 — 전체 출력으로 차단'
+        linters.append(fmt.item_head(kind, linter['cmd'], style=style))
+        linters += fmt.aux('참고', note, style=style)
+
     active = [r for r in info['rules'] if r['status'] == 'active']
-    out.append('규칙 %d개 중 적용 %d개  (● 적용 / ○ 비적용, 사유 표시)'
-               % (len(info['rules']), len(active)))
+    rows = []
     for rule in info['rules']:
+        kind = 'on' if rule['status'] == 'active' else 'off'
         extra = [x for x in (rule['reason'], 'semantic' if rule['semantic'] else '',
                              'override' if rule['override'] else '',
                              rule['severity_changed']) if x]
-        out.append('  %s %-5s %-44s %-12s %s' % (
-            '●' if rule['status'] == 'active' else '○', rule['severity'], rule['id'],
-            rule['source'], ('[' + ', '.join(extra) + ']') if extra else ''))
-    if info['notes']:
-        out.append('')
-        for note in info['notes']:
-            out.append('  %-5s %s' % (note['level'], note['text']))
-    return '\n'.join(out)
+        rows.append(('%s %s' % (fmt.GLYPH[kind], kind), rule['severity'], rule['id'],
+                     rule['source'], ', '.join(extra)))
+    rules = [fmt.section('규칙', '%d개 중 %d개 적용' % (len(info['rules']), len(active)), style=style)]
+    rules += fmt.table(['상태', '강도', '규칙', '출처', '사유'], rows, style=style)
+    return style.finish(fmt.blocks([head], config, linters, rules))
 
 
 def main():
@@ -111,9 +117,17 @@ def main():
     parser.add_argument('--json', action='store_true')
     args = parser.parse_args()
     info = collect(git_toplevel(project_dir(args.cwd)))
-    print(json.dumps(info, ensure_ascii=False, indent=2) if args.json else render(info))
-    return 2 if any(n['level'] == 'error' for n in info['notes']) else 0
-
+    notes = [(n['level'], n['text']) for n in info['notes']]
+    if args.json:
+        body = {k: v for k, v in info.items() if k != 'notes'}
+        summary = {'stacks': info['stacks'], 'rules_total': len(info['rules']),
+                   'rules_applicable': sum(r['status'] == 'active' for r in info['rules'])}
+        print(fmt.dumps(fmt.envelope('detect-stack', summary, body, notes)))
+    else:
+        for level, text in notes:
+            fmt.eprint(level, text)
+        print(render(info, fmt.Style.for_stream()))
+    return 2 if any(level == 'error' for level, _ in notes) else 0
 
 if __name__ == '__main__':
     sys.exit(main())

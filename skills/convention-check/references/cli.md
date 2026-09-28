@@ -21,7 +21,7 @@
 | `--no-lint` | 린터 위임 생략 (빠름) |
 | `--no-dismiss` | 기각 기록을 무시하고 전부 — 무엇이 억제돼 있는지 볼 때 |
 | `--max-hits N` | 규칙당 위치 수 (기본 10) |
-| `--json` | 기계가 읽을 형태. `head.review`, `head.fixes` 포함 |
+| `--json` | 기계가 읽을 형태 (`docs/output-format.md` F15 봉투). `summary`(개수·`exit_code`), `scope`, `findings`, `review`, `fixes`, `unchecked`, `next` |
 | `--fix` / `--fix --write` | 자동 수정안 보기 / 적용 |
 | `--review` | 의미 판정 배치 생성 + 캐시된 VIOLATION 판정을 결과에 포함 |
 

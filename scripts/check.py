@@ -26,8 +26,9 @@ def main():
     except Exception as exc:  # never break the agent on our own bug -- but say so:
         # a silent skip looks exactly like a clean check, so a broken config or
         # a bug here would switch the plugin off for the whole session unnoticed
-        print(json.dumps({'systemMessage': 'convention-guard: 내부 오류로 이번 검사를 '
-                                           '건너뜁니다 — %s' % exc}, ensure_ascii=False))
+        first = str(exc).strip().split('\n')[0] or type(exc).__name__
+        print(json.dumps({'systemMessage': 'convention-guard ✖ 건너뜀 — 내부 오류: %s' % first},
+                         ensure_ascii=False))
         return 0
     if out:
         print(json.dumps(out, ensure_ascii=False))

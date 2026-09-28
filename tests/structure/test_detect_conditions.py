@@ -300,12 +300,12 @@ def case_notice_is_attached():
     check('a blocking turn keeps its decision and reason',
           out['decision'] == 'block' and out['reason'] == 'r')
     check('and its existing message is kept alongside',
-          out['systemMessage'].startswith('기존 / '), out['systemMessage'])
+          out['systemMessage'].startswith('기존 · '), out['systemMessage'])
 
     passing = {'systemMessage': '요약'}
     out = hooks._with_unchecked_note(ctx, dict(passing))
     check('a passing turn joins the two messages',
-          '요약 / ' in out['systemMessage'], out['systemMessage'])
+          '요약 · ' in out['systemMessage'], out['systemMessage'])
 
     check('nothing is added when everything parsed',
           hooks._with_unchecked_note(_FakeCtx(detect.Unchecked()), None) is None)

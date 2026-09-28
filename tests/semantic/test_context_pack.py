@@ -142,7 +142,7 @@ def case_long_function_is_elided():
     check('the pack stays within budget', pack.lines <= 150, pack.lines)
     check('the candidate line is kept', 'foreach ($rows as $row)' in body)
     check('the signature is kept', 'public function big()' in body)
-    check('the cut is marked', '줄 생략' in body, body[:400])
+    check('the cut is marked', '줄 더 — 필요하면 Read' in body, body[:400])
     check('the pack says it was truncated', pack.truncated)
 
 

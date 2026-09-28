@@ -88,7 +88,7 @@ def apply(root, fixes):
 def diff(fixes):
     out = []
     for fix in fixes:
-        out.append('%s:%d  [%s]' % (fix.file, fix.line, fix.rule_id))
-        out.append('  - %s' % fix.before.strip())
-        out.append('  + %s' % fix.after.strip())
+        out.append('  %s:%d  %s' % (fix.file, fix.line, fix.rule_id))
+        out.append('    - %s' % fix.before.strip())
+        out.append('    + %s' % fix.after.strip())
     return '\n'.join(out)

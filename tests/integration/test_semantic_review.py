@@ -150,7 +150,7 @@ def case_reviewer_skipped(repo, data):
     s.touch(CTRL)
     last = s.stop('p1', stop_hook_active=True)
     check('then the cycle closes without blocking', last['decision'] is None, last)
-    check('reporting what could not be judged', '판정 못 한 후보' in last['summary'],
+    check('reporting what could not be judged', '판정 대기 1' in last['summary'],
           last['summary'])
     check('the skip is logged', any(e['reason'] == 'not_run' for e in s.events('review_skipped')),
           s.events('review_skipped'))
@@ -215,8 +215,8 @@ def case_scan_review(repo, data):
     proc = run_script('scan.py', ['--cwd', repo, '--no-lint', '--review', '--json',
                                   '--fail-on', 'warn'], env=env, cwd=repo)
     report = json.loads(proc.stdout)
-    batch = (report['head'].get('review') or {}).get('batch')
-    check('scan --review writes a batch', batch and os.path.isfile(batch), report['head'])
+    batch = (report.get('review') or {}).get('batch')
+    check('scan --review writes a batch', batch and os.path.isfile(batch), report)
     check('an unjudged candidate is not a finding', proc.returncode == 0, proc.returncode)
 
     record(s, batch, 'VIOLATION', '로드 안 됨')
@@ -237,8 +237,8 @@ def case_scan_review_without_candidates(repo, data):
     proc = run_script('scan.py', ['--cwd', repo, '--no-lint', '--review', '--json'],
                       env=env, cwd=repo)
     report = json.loads(proc.stdout)
-    check('the change has no semantic candidate', report['head']['semantic'] == 0, report['head'])
-    check('so --review does nothing', report['head']['review'] is None, report['head'])
+    check('the change has no semantic candidate', report['scope']['semantic'] == 0, report['scope'])
+    check('so --review does nothing', report['review'] is None, report)
     base = os.path.join(data, 'reviews')
     check('no batch is written', not os.path.isdir(base) or os.listdir(base) == [],
           base)

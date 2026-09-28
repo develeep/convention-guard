@@ -67,7 +67,7 @@ def case_severity_filter_does_not_hide_exit_code(tmp):
     write(repo, 'app/Svc/A.php', HDR + 'class A { public function f() {\n'
           '    try { $this->g(); } catch (\\Throwable $e) {}\n} }\n')
     proc = scan(repo, data, '--severity', 'error', '--fail-on', 'warn', '--json')
-    counts = json.loads(proc.stdout)['counts'] if proc.stdout.strip() else {}
+    counts = json.loads(proc.stdout)['summary'] if proc.stdout.strip() else {}
     check('the warn is counted', counts.get('warn', 0) >= 1, proc.stdout[:300])
     check('and it fails the gate even though it is not displayed', proc.returncode == 1,
           proc.returncode)

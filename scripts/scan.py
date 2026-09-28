@@ -18,14 +18,14 @@ Exit codes: 0 pass, 1 findings at or above --fail-on (or, with
 """
 
 import argparse
-import json
 import os
+import shlex
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import (autofix, config as configlib, gitdiff, hooks, pipeline, report,  # noqa: E402
-                 semantic)
+from lib import (autofix, config as configlib, fmt, gitdiff, hooks, pipeline,  # noqa: E402
+                 report, semantic)
 from lib.paths import git_toplevel, project_dir  # noqa: E402
 from lib.scope import ChangeScope, ScopeError  # noqa: E402
 
@@ -100,20 +100,39 @@ def review_semantic(result, cfg):
 UNCHECKED_LIMIT = 20
 
 
+def scope_args(args):
+    """The user's scope arguments, so a suggested command checks the same thing."""
+    out = ['--cwd', shlex.quote(args.cwd)] if args.cwd else []
+    if args.all:
+        out.append('--all')
+    elif args.files:
+        out += ['--files'] + [shlex.quote(f) for f in args.files]
+    elif args.range:
+        out += ['--range', shlex.quote(args.range)]
+    elif args.staged:
+        out.append('--staged')
+    if args.base_ref is not None:
+        out += ['--base-ref', shlex.quote(args.base_ref)]
+    if args.rule:
+        out += ['--rule', shlex.quote(args.rule)]
+    return out
+
+
 def main(argv=None):
     args = parse_args(argv)
     if args.write and not args.fix:
-        print('--write 는 --fix 와 함께 씁니다', file=sys.stderr)
+        fmt.eprint('error', '--write 는 --fix 와 함께 씁니다')
         return EXIT_UNINSPECTABLE
     root = git_toplevel(project_dir(args.cwd))
     cfg = configlib.load(root)
+    notes = list(cfg.notes)
     for level, text in cfg.notes:
-        print('[%s] %s' % (level, text), file=sys.stderr)
+        fmt.eprint(level, text)
 
     try:
         scope = build_scope(root, args, cfg)
     except ScopeError as exc:
-        print('검사 불가: %s' % exc, file=sys.stderr)
+        fmt.eprint('error', str(exc))
         return EXIT_UNINSPECTABLE
 
     rule_filter = (lambda r: args.rule in r['id']) if args.rule else None
@@ -121,10 +140,11 @@ def main(argv=None):
                           use_dismiss=not args.no_dismiss, rule_filter=rule_filter)
     for level, text in result.notes:
         if level in ('error', 'warn'):
-            print('[%s] %s' % (level, text), file=sys.stderr)
-    load_errors = [t for lv, t in list(cfg.notes) + list(result.notes) if lv == 'error']
+            fmt.eprint(level, text)
+            notes.append((level, text))
+    load_errors = [t for lv, t in notes if lv == 'error']
     if args.rule and not result.rules:
-        print('일치하는 규칙 없음: %s' % args.rule, file=sys.stderr)
+        fmt.eprint('error', '일치하는 규칙 없음: %s' % args.rule)
         return EXIT_UNINSPECTABLE
 
     fixes, fixed = [], []
@@ -147,56 +167,52 @@ def main(argv=None):
         counts[rule['severity']] = counts.get(rule['severity'], 0) + 1
     threshold = RANK[args.severity]
     shown = [h for h in hits if RANK.get(h[0]['severity'], 9) <= threshold]
-    payload = {
-        'head': {
-            'root': root,
-            'label': scope.label,
-            'stacks': result.stacks.ids,
-            'file_count': len(scope),
-            'rules_total': len(result.rules),
-            'rules_applicable': len(result.applicable),
-            'semantic': sum(len(c) for _, c in result.semantic_hits),
-            'lint_failures': result.lint_blocking,
-            'lint_notes': result.lint_notes,
-            'dismissed': result.dismissals,
-            'review': review,
-            'fixes': [f.to_dict() for f in (fixed if args.write else fixes)],
-            'fixes_applied': bool(args.write and fixed),
-        },
-        'counts': counts,
-        'findings': report.findings(shown),
-    }
-    if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
-    else:
-        color = not (args.no_color or not sys.stdout.isatty())
-        print(report.render_text(payload, report.Palette(color)))
-        # an audit can touch the whole repository, so the list folds here
-        unchecked = hooks.unchecked_note(result.unchecked, limit=UNCHECKED_LIMIT)
-        if unchecked:
-            print('\n%s' % unchecked)
-        if args.fix:
-            if args.write:
-                print('\n자동 수정 %d건을 적용했습니다 (위 결과는 적용 후 남은 것)' % len(fixed))
-            else:
-                print('\n자동 수정 가능 %d건 — 적용하려면 --write 를 붙이세요' % len(fixes))
-            if fixed or fixes:
-                print(autofix.diff(fixed if args.write else fixes))
-        if review and review['batch']:
-            print('\n심층 판정 대기 후보 %d건%s — convention-guard:convention-reviewer 에이전트에게 전달하세요:'
-                  % (review['candidates'],
-                     ' (예산 초과로 %d건 미룸)' % review['deferred'] if review['deferred'] else ''))
-            print('  python3 "%s" show "%s"' % (report.script_path('review.py'), review['batch']))
 
     if load_errors:
-        return EXIT_UNINSPECTABLE
-    if args.fail_on_pending and review and (review['candidates'] or review['deferred']):
-        return EXIT_FINDINGS
-    if args.fail_on == 'never':
-        return EXIT_PASS
-    # the exit code judges every finding, not just the ones --severity displayed
-    worst = min([RANK[rule['severity']] for rule, _ in hits], default=9)
-    return EXIT_FINDINGS if (result.lint_blocking or worst <= RANK[args.fail_on]) else EXIT_PASS
+        code = EXIT_UNINSPECTABLE
+    elif args.fail_on_pending and review and (review['candidates'] or review['deferred']):
+        code = EXIT_FINDINGS
+    elif args.fail_on == 'never':
+        code = EXIT_PASS
+    else:
+        # the exit code judges every finding, not just the ones --severity displayed
+        worst = min([RANK[rule['severity']] for rule, _ in hits], default=9)
+        code = EXIT_FINDINGS if (result.lint_blocking or worst <= RANK[args.fail_on]) \
+            else EXIT_PASS
+
+    semantic_count = sum(len(c) for _, c in result.semantic_hits)
+    applied = fixed if args.write else fixes
+    body = {
+        'scope': {'root': root, 'label': scope.label, 'file_count': len(scope),
+                  'stacks': result.stacks.ids, 'rules_total': len(result.rules),
+                  'rules_applicable': len(result.applicable), 'semantic': semantic_count},
+        'findings': report.findings(shown),
+        'lint': {'failures': result.lint_blocking, 'notes': result.lint_notes},
+        'review': review,
+        'fixes': [f.to_dict() for f in applied],
+        'fixes_applied': bool(args.write and fixed),
+        'dismissed': result.dismissals,
+        'unchecked': [{'file': f, 'reason': result.unchecked.reason(f)}
+                      for f in result.unchecked.files()],
+    }
+    pending = review['candidates'] + review['deferred'] if review else semantic_count
+    summary = dict({'total': sum(counts.values())}, **counts,
+                   lint_failures=len(result.lint_blocking), review_pending=pending,
+                   exit_code=code)
+    rest = scope_args(args)
+    steps = report.scan_steps(body, lambda *flags: fmt.command('scan.py', *(list(flags) + rest)),
+                              args.review)
+    data = fmt.envelope('scan', summary, body, notes, steps)
+    if args.json:
+        print(fmt.dumps(data))
+    else:
+        style = fmt.Style.for_stream(sys.stdout, args.no_color)
+        # an audit can touch the whole repository, so the list folds here
+        unchecked = hooks.unchecked_note(result.unchecked, limit=UNCHECKED_LIMIT)
+        print(style.finish(report.render_text(data, steps, style,
+                                              fix_diff=autofix.diff(applied) if args.fix else '',
+                                              unchecked=unchecked)))
+    return code
 
 
 if __name__ == '__main__':

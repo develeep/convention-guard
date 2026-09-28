@@ -1,227 +1,283 @@
 """Turning a pipeline result into words: the Stop hook's reason, the CLI
-report, and the JSON form. No decisions are made here."""
+report, and the JSON form. No decisions are made here; the shapes come from
+fmt.py (docs/output-format.md)."""
 
 import os
 
-from .paths import plugin_root
+from . import fmt
 
 # Hook output past 10k characters is spilled to a file and replaced by a
 # preview, which would hide the actual findings.
 REASON_LIMIT = 8000
 
+# anchors that point at a file or a change set, not at a line (F4)
+FILE_LEVEL = ('absent', 'paired')
+
 
 def script_path(name):
-    return os.path.join(plugin_root(), 'scripts', name).replace(os.sep, '/')
+    return fmt.script(name)
 
 
 def dismiss_hint(key):
     """The exact command for one candidate: the key pins the code, no re-scan."""
-    return ('python3 "%s" --key %s --by agent --reason "<한 줄 이유>"'
-            % (script_path('dismiss.py'), key))
+    return fmt.command('dismiss.py', '--key', key, '--by', 'agent', '--reason', '"<한 줄 이유>"')
 
 
-def _lint_block(out, failures, max_lines, header):
-    out.append(header)
+def cand_line(rule, cand):
+    """The line to show: None for a file- or change-level candidate, whose
+    detector line (1) is a placeholder. Keys and fingerprints never use it."""
+    return None if rule.get('kind') in FILE_LEVEL else cand.line
+
+
+def _lint_block(failures, max_lines, carried_text=None):
+    out = []
     for fail in failures:
         out.append('  $ %s' % fail['cmd'])
-        for line in fail['output'].split('\n')[:max_lines]:
-            out.append('    %s' % line)
-        if fail.get('carried'):
-            out.append('    (같은 파일의 기존 코드에 %d건 더 있지만 이번 변경이 '
-                       '아니라 차단하지 않았습니다)' % fail['carried'])
-    out.append('')
-
-
-def review_section(review, skipped=False):
-    """Ask the main agent to delegate judgment -- one line to hand over."""
-    counts = {}
-    for item in review['items']:
-        counts[item['rule_id']] = counts.get(item['rule_id'], 0) + 1
-    out = ['■ 심층 판정 필요 — 후보 %d건 (%s)'
-           % (len(review['items']), ', '.join('%s %d' % kv for kv in sorted(counts.items())))]
-    if skipped:
-        out.append('  지난번 판정 요청이 실행되지 않았습니다. 이번에는 꼭 판정을 맡기세요.')
-    out += ['  정규식만으로는 위반인지 알 수 없는 후보입니다. convention-guard:convention-reviewer',
-            '  에이전트에게 아래 명령 한 줄을 그대로 전달해 판정을 맡기세요:',
-            '    python3 "%s" show "%s"' % (script_path('review.py'),
-                                           review['batch'].replace(os.sep, '/')),
-            '  에이전트가 돌려준 VIOLATION 만 고치세요. 후보 파일을 직접 다시 판정할 필요는 없습니다.']
-    if review.get('deferred'):
-        out.append('  (나머지 %d건은 예산 때문에 다음 판정으로 미뤘습니다)' % review['deferred'])
-    out.append('')
+        out += fmt.clip_lines(['    %s' % line for line in fail['output'].split('\n')],
+                              max_lines, indent=4)
+        if carried_text and fail.get('carried'):
+            out += fmt.aux('참고', carried_text % fail['carried'])
     return out
 
 
+def _lint_notes(notes, style=fmt.PLAIN):
+    if not notes:
+        return []
+    return ([fmt.section('린터 참고', '이번 변경 밖에서 찾은 것 (차단하지 않음)', style)]
+            + _lint_block(notes, 5))
+
+
+def _warnings(warnings, limit=5, style=fmt.PLAIN):
+    if not warnings:
+        return []
+    out = [fmt.section('검사 경고', style=style)]
+    out += [fmt.item_head('warn', w, style) for w in warnings[:limit]]
+    if len(warnings) > limit:
+        out.append(fmt.more(len(warnings) - limit, '건', indent=0))
+    return out
+
+
+def _finding(rule, cands, notes=(), style=fmt.PLAIN, guidance=True):
+    out = [fmt.finding_head(rule['severity'], rule['id'], rule['title'], style)]
+    out += [fmt.location(c.file, cand_line(rule, c), c.snippet, style=style) for c in cands]
+    if guidance and (rule.get('message') or '').strip():
+        out += fmt.aux('안내', rule['message'], style=style)
+    for note in notes:
+        out += fmt.aux('참고', note, style=style)
+    return out
+
+
+def review_section(review, skipped=False):
+    """(section lines, ■ 다음 step): hand one command to the reviewer agent."""
+    counts = {}
+    for item in review['items']:
+        counts[item['rule_id']] = counts.get(item['rule_id'], 0) + 1
+    out = [fmt.section('판정 대기', '후보 %d건 (%s)' % (
+        len(review['items']), ', '.join('%s %d' % kv for kv in sorted(counts.items())))),
+        '  정규식만으로는 위반인지 알 수 없는 후보입니다.']
+    if skipped:
+        out += fmt.aux('참고', '지난번 판정 요청이 실행되지 않았습니다. 이번에는 꼭 판정을 맡기세요.')
+    notes = ['나머지 %d건은 예산 때문에 다음 판정으로 미뤘습니다' % review['deferred']] \
+        if review.get('deferred') else []
+    step = fmt.Step('convention-guard:convention-reviewer 에이전트에게 아래 명령 한 줄을 그대로 '
+                    '전달해 판정을 맡기세요. 돌려준 VIOLATION 만 고치세요.',
+                    fmt.command('review.py', 'show', '"%s"' % review['batch'].replace(os.sep, '/')),
+                    notes)
+    return out, step
+
+
+def hook_header(word, parts, kind='error'):
+    """F1 for the hook: `convention-guard ✖ 차단 — a · b`."""
+    return fmt.header(None, parts, status=(kind, word))
+
+
 def hook_reason(lint_failures, lint_notes, errors, warns, repeats=frozenset(), review=None,
-                warnings=()):
+                warnings=(), lint_count=None, info_count=0):
     """errors/warns: [(rule, [Candidate])]. repeats: rule ids raised last turn."""
-    out = []
+    lint_count = len(lint_failures) if lint_count is None else lint_count
+    head = hook_header('차단', [
+        '린터 실패 %d' % lint_count if lint_failures else '',
+        'error %d' % len(errors), 'warn %d' % len(warns),
+        'info %d' % info_count if info_count else '',
+        '판정 대기 %d' % len(review['items']) if review else '',
+        '검사 경고 %d' % len(warnings) if warnings else ''])
+    groups = [[head]]
     if lint_failures:
-        _lint_block(out, lint_failures, 20, '■ 린터 실패 — 확정 위반입니다. 먼저 고치세요.')
+        groups.append([fmt.section('린터 실패', '확정 위반입니다. 먼저 고치세요')] + _lint_block(
+            lint_failures, 20, '같은 파일의 기존 코드에 %d건 더 있지만 이번 변경이 아니라 차단하지 않았습니다'))
 
-    def render(title, hits):
-        out.append(title)
-        for rule, cands in hits:
-            mark = ' ← 지난 턴에 지적했는데 그대로입니다' if rule['id'] in repeats else ''
-            label = ' (리뷰어 판정: 위반)' if rule.get('review') else ''
-            out.append('  [%s] %s%s%s' % (rule['id'], rule['title'], label, mark))
-            for cand in cands:
-                out.append('    %s:%d  %s' % (cand.file, cand.line, cand.snippet))
-            for line in (rule.get('message') or '').strip().split('\n'):
-                if line:
-                    out.append('    > %s' % line)
-            out.append('')
+    def render(title, desc, hits):
+        for index, (rule, cands) in enumerate(hits):
+            notes = ['지난 턴에도 지적했습니다'] if rule['id'] in repeats else []
+            if rule.get('review'):
+                notes.append('리뷰어 판정 VIOLATION')
+            lines = _finding(rule, cands, notes)
+            groups.append(([fmt.section(title, desc)] if not index else []) + lines)
 
-    if errors:
-        render('■ 규칙 후보 (error)', errors)
-    if warns:
-        render('■ 참고 (warn — 이것만으로는 차단하지 않습니다)', warns)
-    if lint_notes:
-        out.append('■ 참고 — 린터가 이번 변경 밖에서 찾은 것 (차단하지 않습니다)')
-        for fail in lint_notes:
-            out.append('  $ %s' % fail['cmd'])
-            for line in fail['output'].split('\n')[:5]:
-                out.append('    %s' % line)
-        out.append('')
+    render('지적', '고치거나 기각하세요', errors)
+    render('참고', '차단하지 않습니다', warns)
+    step = None
     if review:
-        out += review_section(review)
-    if warnings:
-        out.append('■ 검사 경고')
-        for warning in warnings[:5]:
-            out.append('  %s' % warning)
-        out.append('')
+        lines, step = review_section(review)
+        groups.append(lines)
+    groups += [_lint_notes(lint_notes), _warnings(warnings)]
 
+    steps = []
     first = (errors or warns or [None])[0]
     if first:
-        out.append('위 규칙 후보는 정규식으로 좁힌 것이라 오탐이 있을 수 있습니다.')
-        out.append('각 항목이 실제 위반인지 코드를 보고 판단하세요. 위반이면 고치세요.')
-        out.append('오탐이면 고치지 말고 아래 명령으로 남기세요. 그 코드가 그대로인 동안')
-        out.append('다시 지적하지 않고, 로그에는 "기각"으로 기록됩니다.')
-        out.append('  %s' % dismiss_hint(first[1][0].key))
-        out.append('  다른 위치는 --key 대신 --rule <규칙id> --file <파일> --line <줄> 로 지정합니다.')
-    out.append('처리한 뒤 완료하면 같은 범위를 다시 검사해, 남았거나 수정하면서 새로 생긴 것만 알려드립니다.')
-    return clip_reason('\n'.join(out))
+        steps += [fmt.Step('후보는 정규식으로 좁힌 것이라 오탐이 있을 수 있습니다. 코드를 보고 위반이면 고치세요.'),
+                  fmt.Step('오탐이면 고치지 말고 기각으로 남기세요. 코드가 그대로인 동안 다시 지적하지 않습니다.',
+                           dismiss_hint(first[1][0].key),
+                           ['다른 위치는 --key 대신 --rule <규칙id> --file <파일> --line <줄>'])]
+    steps += [step, fmt.Step('끝내면 같은 범위를 다시 검사해 남은 것과 새로 생긴 것만 알립니다.')]
+    groups.append(fmt.next_section(steps))
+    return clip_reason(fmt.blocks(*groups))
 
 
-def verify_reason(outcome, last_chance, review=None, skipped=False):
+def verify_reason(outcome, last_chance, review=None, skipped=False, warnings=()):
     """The re-scan after a block: what is left, and what the fix introduced."""
     counts = outcome.counts()
-    out = ['■ 재검증 — 고쳐짐 %d / 기각 %d / 그대로 %d / 새로 생김 %d'
-           % (counts['fixed'], counts['dismissed'], counts['still'], counts['new']), '']
+    head = hook_header('재검증 차단', [
+        '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'],
+        '남음 %d' % counts['still'], '새로 생김 %d' % counts['new'],
+        '판정 대기 %d' % len(review['items']) if review else '',
+        '검사 경고 %d' % len(warnings) if warnings else ''])
+    groups = [[head]]
 
     def render(title, items):
         if not items:
             return
-        out.append(title)
         by_rule = {}
         for meta in items.values():
             by_rule.setdefault((meta['rule_id'], meta['title']), []).append(meta)
+        first = True
         for (rule_id, title_text), metas in sorted(by_rule.items()):
+            lines = [fmt.section(title)] if first else []
+            first = False
             if rule_id == 'lint':
-                out.append('  $ %s' % title_text)
-                for meta in metas:
-                    out.append('    %s' % meta['snippet'])
-                continue
-            out.append('  [%s] %s' % (rule_id, title_text))
-            for meta in sorted(metas, key=lambda m: (m['file'], m['line'])):
-                out.append('    %s:%d  %s' % (meta['file'], meta['line'], meta['snippet']))
-        out.append('')
+                lines += [fmt.item_head('error', '린터 실패'), '  $ %s' % title_text]
+                lines += ['    %s' % meta['snippet'] for meta in metas]
+            else:
+                lines.append(fmt.finding_head(metas[0]['severity'], rule_id, title_text))
+                lines += [fmt.location(m['file'], m['line'], m['snippet'])
+                          for m in sorted(metas, key=lambda m: (m['file'], m['line'] or 0))]
+            groups.append(lines)
 
     blocking = outcome.blocking()
-    render('■ 아직 그대로입니다', {k: v for k, v in outcome.still.items() if k in blocking})
-    render('■ 수정하면서 새로 생겼습니다', {k: v for k, v in outcome.new.items() if k in blocking})
+    render('남음', {k: v for k, v in outcome.still.items() if k in blocking})
+    render('새로 생김', {k: v for k, v in outcome.new.items() if k in blocking})
+    step = None
     if review:
-        out += review_section(review, skipped)
-    first = next((k for k in blocking if not k.startswith('lint:')), None)
-    if blocking:
-        out.append('위반이면 고치고, 오탐이면 고치지 말고 기각으로 남기세요.')
+        lines, step = review_section(review, skipped)
+        groups.append(lines)
+    groups.append(_warnings(warnings))
+
+    first = next((k for k in sorted(blocking) if not k.startswith('lint:')), None)
+    steps = []
     if first:
-        out.append('  %s' % dismiss_hint(first))
+        steps.append(fmt.Step('위반이면 고치고, 오탐이면 고치지 말고 기각으로 남기세요.', dismiss_hint(first)))
+    if any(k.startswith('lint:') for k in blocking):
+        steps.append(fmt.Step('린터 실패는 기각할 수 없습니다. 고치세요.'))
+    steps.append(step)
     if last_chance:
-        out.append('이번이 마지막 재검증입니다. 다음 완료 때는 남은 항목을 기록만 하고 차단하지 않습니다.')
-    return clip_reason('\n'.join(out))
+        steps.append(fmt.Step('이번이 마지막 재검증입니다. 다음에 끝낼 때는 남은 항목을 기록만 하고 '
+                              '차단하지 않습니다.'))
+    groups.append(fmt.next_section(steps))
+    return clip_reason(fmt.blocks(*groups))
 
 
 def autofix_section(fixes):
-    out = ['■ 자동 수정 %d건 — 아래 줄을 규칙대로 고쳤습니다. 이 파일들은 편집 전에 다시 읽으세요.'
-           % len(fixes)]
+    """■ 자동 수정 lines: one `✔ rule` head per rule, the fixed lines under it."""
+    out = [fmt.section('자동 수정', '%d건, 이 파일들은 편집 전에 다시 읽으세요' % len(fixes))]
+    by_rule = {}
     for fix in fixes:
-        out.append('  %s:%d  [%s]  %s' % (fix.file, fix.line, fix.rule_id, fix.after.strip()))
-    return '\n'.join(out) + '\n\n'
+        by_rule.setdefault(fix.rule_id, []).append(fix)
+    for rule_id, rule_fixes in by_rule.items():
+        out.append(fmt.item_head('pass', rule_id))
+        out += [fmt.location(f.file, f.line, f.after) for f in rule_fixes]
+    return out
+
+
+def with_section(reason, lines):
+    """`reason` with a section right after its header line."""
+    head, _, rest = reason.partition('\n\n')
+    return clip_reason(fmt.blocks([head], lines, [rest] if rest else []))
 
 
 def clip_reason(text):
     if len(text) > REASON_LIMIT:
-        text = text[:REASON_LIMIT] + '\n… (이하 생략 — 위 항목부터 처리하세요)'
+        cut = text.rfind('\n', 0, REASON_LIMIT)
+        text = text[:cut if cut > 0 else REASON_LIMIT] + '\n… 이하 생략 — 위 항목부터 처리하세요'
     return text
 
 
 # ---------------------------------------------------------------- CLI
 
-class Palette:
-    def __init__(self, color=True):
-        on = bool(color)
-        self.sev = {'error': '\033[31m' if on else '', 'warn': '\033[33m' if on else '',
-                    'info': '\033[36m' if on else ''}
-        self.dim = '\033[2m' if on else ''
-        self.bold = '\033[1m' if on else ''
-        self.reset = '\033[0m' if on else ''
-
-
 def findings(hits):
     return [{'rule_id': rule['id'], 'title': rule['title'], 'severity': rule['severity'],
              'source': rule['source'], 'guidance': rule.get('message') or '',
-             'locations': [c.to_dict() for c in cands]}
+             'locations': [{'file': c.file, 'line': cand_line(rule, c), 'snippet': c.snippet,
+                            'key': c.key} for c in cands]}
             for rule, cands in hits]
 
 
-def render_text(report, palette, show_guidance=True):
-    p = palette
-    out = []
-    head = report['head']
-    out.append('%sconvention-guard%s  %s' % (p.bold, p.reset, head['label']))
-    out.append('%s%s  |  스택: %s  |  검사 대상 %d개 파일%s'
-               % (p.dim, head['root'], ', '.join(head['stacks']) or '감지 실패',
-                  head['file_count'], p.reset))
-    if head['lint_failures']:
-        out.append('')
-        out.append('%s린터 실패 — 이번 변경 줄에서 확정 위반%s' % (p.sev['error'], p.reset))
-        for fail in head['lint_failures']:
-            out.append('  $ %s' % fail['cmd'])
-            for line in fail['output'].split('\n')[:15]:
-                out.append('    %s%s%s' % (p.dim, line, p.reset))
-            if fail.get('carried'):
-                out.append('    %s(기존 코드에 %d건 더 — 차단 대상 아님)%s'
-                           % (p.dim, fail['carried'], p.reset))
-    if head.get('lint_notes'):
-        out.append('')
-        out.append('%s린터가 이번 변경 밖에서 찾은 것 (차단하지 않음)%s' % (p.dim, p.reset))
-        for fail in head['lint_notes']:
-            out.append('  $ %s' % fail['cmd'])
-            for line in fail['output'].split('\n')[:5]:
-                out.append('    %s%s%s' % (p.dim, line, p.reset))
-    out.append('')
+def scan_steps(data, rerun, review_requested):
+    """■ 다음 for scan. rerun(*flags) -> the scan command with the user's scope."""
+    steps = []
+    if data['fixes'] and not data['fixes_applied']:
+        steps.append(fmt.Step('자동 수정을 적용하려면:', rerun('--fix', '--write')))
+    review, semantic = data['review'], data['scope']['semantic']
+    if review and review['batch']:
+        notes = ['나머지 %d건은 예산 때문에 다음 판정으로 미뤘습니다' % review['deferred']] \
+            if review['deferred'] else []
+        steps.append(fmt.Step('convention-guard:convention-reviewer 에이전트에게 아래 명령 한 줄을 그대로 '
+                              '전달해 판정을 맡기세요. 돌려준 VIOLATION 만 고치세요.',
+                              fmt.command('review.py', 'show', '"%s"' % review['batch']), notes))
+    elif review and review['deferred']:
+        steps.append(fmt.Step('판정 대기 %d건은 예산 때문에 미뤘습니다. 다시 실행하세요:'
+                              % review['deferred'], rerun('--review')))
+    elif semantic and not review_requested:
+        steps.append(fmt.Step('semantic 규칙 후보 %d건은 판정하지 않았습니다. 판정하려면:' % semantic,
+                              rerun('--review')))
+    return steps
 
-    if not report['findings']:
-        out.append('  지적 사항 없음')
-    for finding in report['findings']:
-        sev = finding['severity']
-        out.append('%s%-5s%s %s  %s%s%s' % (p.sev.get(sev, ''), sev, p.reset,
-                                            finding['title'], p.dim, finding['rule_id'],
-                                            p.reset))
-        for loc in finding['locations']:
-            out.append('      %s:%d  %s%s%s' % (loc['file'], loc['line'], p.dim,
-                                                loc['snippet'], p.reset))
-        if show_guidance and finding.get('guidance'):
-            for line in finding['guidance'].split('\n'):
-                out.append('      %s→ %s%s' % (p.dim, line, p.reset))
-        out.append('')
 
-    counts = report['counts']
-    out.append('%s요약%s  error %d / warn %d / info %d   (규칙 %d개 중 %d개 적용)'
-               % (p.bold, p.reset, counts['error'], counts['warn'], counts['info'],
-                  head['rules_total'], head['rules_applicable']))
-    if head.get('semantic'):
-        out.append('%s      semantic 규칙 후보 %d건은 이 명령으로 판정되지 않습니다%s'
-                   % (p.dim, head['semantic'], p.reset))
-    return '\n'.join(out)
+def _scan_lint(lint, style):
+    groups = []
+    if lint['failures']:
+        groups.append([fmt.section('린터 실패', '이번 변경 줄에서 확정 위반', style)]
+                      + _lint_block(lint['failures'], 15, '기존 코드에 %d건 더 — 차단 대상 아님'))
+    return groups
+
+
+def render_text(data, steps, style=fmt.PLAIN, fix_diff='', unchecked=None,
+                show_guidance=True):
+    """scan's text form of the --json envelope `data`."""
+    scope, summary = data['scope'], data['summary']
+    head = fmt.header('scan', [scope['label'], '파일 %d개' % scope['file_count'],
+                               '스택 %s' % ', '.join(scope['stacks']) if scope['stacks']
+                               else '스택 감지 실패',
+                               '규칙 %d/%d' % (scope['rules_applicable'], scope['rules_total'])],
+                      style=style)
+    groups = [[head]] + _scan_lint(data['lint'], style)
+    for index, f in enumerate(data['findings']):
+        lines = [fmt.section('지적', style=style)] if not index else []
+        lines.append(fmt.finding_head(f['severity'], f['rule_id'], f['title'], style))
+        lines += [fmt.location(loc['file'], loc['line'], loc['snippet'], style=style)
+                  for loc in f['locations']]
+        if show_guidance and f['guidance'].strip():
+            lines += fmt.aux('안내', f['guidance'], style=style)
+        groups.append(lines)
+    if data['lint']['notes']:
+        groups.append(_lint_notes(data['lint']['notes'], style))
+    if fix_diff:
+        desc = ('%d건 적용함 (아래 결과는 적용 후 남은 것)' if data['fixes_applied']
+                else '%d건 미리보기') % len(data['fixes'])
+        groups.append([fmt.section('자동 수정', desc, style)] + fix_diff.split('\n'))
+    if unchecked:
+        groups.append(_warnings([unchecked], style=style))
+    groups.append(fmt.next_section(steps, style))
+    counts = {s: summary[s] for s in fmt.SEVERITIES}
+    extra = ['린터 실패 %d' % summary['lint_failures']] if summary['lint_failures'] else []
+    groups.append([fmt.summary(counts, extra, style)])
+    return fmt.blocks(*groups)

@@ -163,4 +163,4 @@ rules:
 python3 scripts/detect_stack.py --cwd <레포>
 ```
 
-적용 중인 규칙(●)과 적용되지 않는 규칙(○)을 사유(프리셋 비활성, 스택 불일치, superseded, config disable)와 함께 보여줍니다.
+적용 중인 규칙(`✔ on`)과 적용되지 않는 규칙(`○ off`)을 사유(프리셋 비활성, 스택 불일치, superseded, config disable)와 함께 보여줍니다.

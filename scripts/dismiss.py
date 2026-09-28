@@ -27,7 +27,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import config as configlib, dismiss as dismisslib, gitdiff, log, pipeline  # noqa: E402
+from lib import config as configlib, dismiss as dismisslib, fmt, gitdiff, log, pipeline  # noqa: E402
 from lib.candidate import parse_key  # noqa: E402
 from lib.paths import git_toplevel, project_dir  # noqa: E402
 from lib.scope import ChangeScope, ScopeError  # noqa: E402
@@ -74,43 +74,53 @@ def rule_exists(root, cfg, rule_id):
         any(r['id'] == rule_id for r, _ in ruleset.inactive)
 
 
-def show_list(root):
+def show_list(root, style=fmt.PLAIN):
     recorded = dismisslib.load(root)
     if recorded.error:
-        print(recorded.error, file=sys.stderr)
+        fmt.eprint('error', recorded.error)
         return 2
+    where = os.path.relpath(recorded.path, root).replace(os.sep, '/')
+    head = fmt.header('dismiss --list', [where, '%d건' % len(recorded)], style=style)
     if not recorded.entries:
-        print('기각 기록 없음 (%s)' % recorded.path)
+        empty = fmt.item_head('info', '기각 기록이 없습니다', style=style)
+        print(style.finish(fmt.blocks([head], [empty])))
         return 0
-    print('%s  (%d건)' % (recorded.path, len(recorded)))
-    for entry in recorded.entries:
-        scope = '%s:%s' % (entry.get('file'), entry.get('hash')) if entry.get('hash') \
-            else '%s (파일 전체)' % entry.get('file')
-        print('  %-40s %s  [%s, %s]' % (entry.get('rule'), scope, entry.get('by') or '?',
-                                        entry.get('at') or '?'))
-        print('      %s' % (entry.get('reason') or '(이유 없음)'))
+    rows = [(e.get('rule'), e.get('file'), e.get('hash') or '파일 전체', e.get('by') or '?',
+             e.get('at') or '?', ' '.join(str(e.get('reason') or '-').split()))
+            for e in recorded.entries]
+    print(style.finish(fmt.blocks([head], fmt.table(['규칙', '파일', '지문', '누가', '날짜', '이유'],
+                                                     rows, style=style))))
     return 0
 
 
-def record(root, rule_id, relpath, reason, by, digest=None, snippet=None, line=None):
+def record(root, rule_id, relpath, reason, by, digest=None, snippet=None, line=None,
+           style=fmt.PLAIN):
     try:
         added = dismisslib.add(root, rule_id, relpath, reason, digest=digest, snippet=snippet,
                                line=line, by=by)
     except dismisslib.DismissalError as exc:
-        print(str(exc), file=sys.stderr)
+        fmt.eprint('error', str(exc))
         return 2
+    where = os.path.relpath(dismisslib.path(root), root).replace(os.sep, '/')
+    if not digest:
+        loc = fmt.location(relpath, snippet='(파일 전체)', style=style)
+    else:
+        loc = fmt.location(relpath, line, snippet or '', style=style)
+    item = [fmt.item_head('pass' if added else 'info', rule_id, style=style), loc]
+    if digest:
+        item += fmt.aux('참고', '키 %s:%s:%s' % (rule_id, relpath, digest), style=style)
     if not added:
-        print('이미 기록돼 있습니다 — %s %s%s' % (rule_id, relpath, ':' + digest if digest else ''))
+        print(style.finish(fmt.blocks([fmt.header('dismiss', ['이미 기록됨', where], style=style)],
+                                      item)))
         return 0
     log.event({'event': 'dismissed', 'repo': root, 'rule_id': rule_id, 'file': relpath,
                'line': line, 'hash': digest, 'scope': 'code' if digest else 'file',
                'reason': reason, 'by': by})
-    where = '%s:%s (지문 %s)' % (relpath, line, digest) if digest and line else \
-        ('%s (지문 %s)' % (relpath, digest) if digest else '%s 파일 전체' % relpath)
-    print('기록했습니다 — %s %s' % (rule_id, where))
-    print('  %s' % dismisslib.path(root))
-    print('이 코드가 바뀌면 다시 지적됩니다. 커밋해서 팀과 공유하세요.' if digest else
-          '이 파일에서는 이 규칙을 더 지적하지 않습니다. 커밋해서 팀과 공유하세요.')
+    step = fmt.Step('이 코드가 바뀌면 다시 지적됩니다. dismissed.yaml 을 커밋해 팀과 공유하세요.' if digest
+                    else '이 파일에서는 이 규칙을 더 지적하지 않습니다. dismissed.yaml 을 커밋해 팀과 '
+                         '공유하세요.')
+    print(style.finish(fmt.blocks([fmt.header('dismiss', ['1건 기록', where], style=style)], item,
+                                  fmt.next_section([step], style=style))))
     return 0
 
 
@@ -129,21 +139,22 @@ def main():
     args = parser.parse_args()
 
     root = git_toplevel(project_dir(args.cwd))
+    style = fmt.Style.for_stream()
     if args.list:
-        return show_list(root)
+        return show_list(root, style)
 
     if args.key:
         try:
             args.rule, args.file, digest = parse_key(args.key)
         except ValueError as exc:
-            print(str(exc), file=sys.stderr)
+            fmt.eprint('error', str(exc))
             return 2
     else:
         digest = None
     missing = [name for name, value in (('--rule', args.rule), ('--file', args.file),
                                         ('--reason', args.reason)) if not value]
     if missing:
-        print('필수 인자 누락: %s' % ', '.join(missing), file=sys.stderr)
+        fmt.eprint('error', '필수 인자 누락: %s' % ', '.join(missing))
         return 2
 
     relpath = args.file.replace(os.sep, '/')
@@ -153,40 +164,41 @@ def main():
 
     if args.key or args.whole_file:
         if not rule_exists(root, cfg, args.rule):
-            print('그런 규칙이 없습니다: %s  (detect_stack.py 로 목록 확인)' % args.rule,
-                  file=sys.stderr)
+            fmt.eprint('error', '그런 규칙이 없습니다: %s — detect_stack.py 로 목록을 확인하세요'
+                       % args.rule)
             return 2
         return record(root, args.rule, relpath, args.reason, args.by,
-                      digest=None if args.whole_file else digest)
+                      digest=None if args.whole_file else digest, style=style)
 
     try:
         rule, cands = current_candidates(root, cfg, args.rule, relpath)
     except ScopeError as exc:
-        print('검사 불가: %s' % exc, file=sys.stderr)
+        fmt.eprint('error', '검사 불가: %s' % exc)
         return 2
     if rule is None:
-        print('그런 규칙이 없습니다: %s  (detect_stack.py 로 목록 확인)' % args.rule,
-              file=sys.stderr)
+        fmt.eprint('error', '그런 규칙이 없습니다: %s — detect_stack.py 로 목록을 확인하세요'
+                   % args.rule)
         return 2
     mine = [c for c in cands if c.file == relpath]
     if args.line:
         # never fall back to another location: that would suppress code nobody looked at
         mine = [c for c in mine if c.line == args.line]
     if not mine:
-        print('지금 그 위치에서는 이 규칙이 걸리지 않습니다: %s %s:%s'
-              % (args.rule, relpath, args.line or '-'), file=sys.stderr)
-        print('코드가 이미 바뀌었다면 기각할 것이 없습니다. 파일 전체를 끄려면 '
-              '--whole-file 을 쓰세요.', file=sys.stderr)
+        fmt.eprint('error', '지금 그 위치에서는 이 규칙이 걸리지 않습니다: %s %s — 코드가 이미 '
+                            '바뀌었다면 기각할 것이 없습니다. 파일 전체를 끄려면 --whole-file 을 쓰세요'
+                   % (args.rule, relpath if not args.line else '%s:%d' % (relpath, args.line)))
         return 1
     if len(mine) > 1 and not args.line:
-        print('이 파일에 %d곳이 걸립니다. --line 으로 하나를 고르거나 --whole-file 을 쓰세요:'
-              % len(mine), file=sys.stderr)
+        fmt.eprint('error', '이 파일에 %d곳이 걸립니다 — --line 으로 하나를 고르거나 --whole-file 을 '
+                            '쓰세요' % len(mine))
         for cand in mine[:10]:
-            print('  %s:%d  %s' % (cand.file, cand.line, cand.snippet), file=sys.stderr)
+            print(fmt.location(cand.file, cand.line, cand.snippet), file=sys.stderr)
+        if len(mine) > 10:
+            print(fmt.more(len(mine) - 10, '곳'), file=sys.stderr)
         return 2
     target = mine[0]
     return record(root, args.rule, relpath, args.reason, args.by, digest=target.code_hash,
-                  snippet=target.snippet, line=target.line)
+                  snippet=target.snippet, line=target.line, style=style)
 
 
 if __name__ == '__main__':

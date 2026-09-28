@@ -21,8 +21,8 @@ subagent. No candidates, no AI call.
 
 import os
 
-from . import (autofix, config as configlib, cycle as cyclelib, dismiss as dismisslib, gitdiff,
-               log, pipeline, report, semantic, state as statelib)
+from . import (autofix, config as configlib, cycle as cyclelib, dismiss as dismisslib, fmt,
+               gitdiff, log, pipeline, report, semantic, state as statelib)
 from .candidate import VIOLATION, fingerprint, parse_key
 from .paths import git_toplevel, hook_project_dir
 from .scope import ChangeScope, ScopeError
@@ -135,7 +135,15 @@ def ends_with_question(message):
 
 
 def config_error(text):
-    return notice('convention-guard: 설정 오류로 검사를 건너뜁니다 — %s' % text)
+    first, _, rest = str(text).strip().partition('\n')
+    if rest:
+        first += ' … — 전체: %s' % fmt.command('detect_stack.py')
+    return notice(report.hook_header('건너뜀', ['설정 오류: %s' % first]))
+
+
+def _entry(rule, cand):
+    """cycle.entry, with no line for a file- or change-level candidate (F4)."""
+    return dict(cyclelib.entry(rule, cand), line=report.cand_line(rule, cand))
 
 
 # ---------------------------------------------------------------- Stop
@@ -191,12 +199,13 @@ def _scan_warnings(scan):
     return warnings
 
 
-def _warning_suffix(warnings):
-    return ' / 검사 경고: %s' % warnings[0] if warnings else ''
+def _warning_part(warnings):
+    return '검사 경고 %d: %s' % (len(warnings), warnings[0]) if warnings else ''
 
 
-def unchecked_note(unchecked, limit=None):
+def unchecked_note(unchecked, limit=None, short=False):
     """'구조 미확인 2개 파일 — a.php, b.php (...)', or None when there is none.
+    short: the systemMessage form, '구조 미확인 2개 파일 (a.php, b.php)'.
 
     A file whose structure could not be read had its conditions skipped, so
     its candidates came through unfiltered. Saying nothing would let that read
@@ -206,8 +215,10 @@ def unchecked_note(unchecked, limit=None):
         return None
     shown, folded = unchecked.summary(limit)
     listed = ', '.join(shown) + (' 외 %d개' % folded if folded else '')
-    return ('convention-guard: 구조 미확인 %d개 파일 — %s '
-            '(구조 조건을 적용하지 못해 후보를 그대로 올렸습니다)' % (len(unchecked), listed))
+    if short:
+        return '구조 미확인 %d개 파일 (%s)' % (len(unchecked), listed)
+    return ('구조 미확인 %d개 파일 — %s (구조 조건을 적용하지 못해 후보를 그대로 올렸습니다)'
+            % (len(unchecked), listed))
 
 
 def on_stop(payload):
@@ -222,19 +233,18 @@ def _with_autofix_note(ctx, out):
     if not ctx.autofixed:
         return out
     files = sorted({fix.file for fix in ctx.autofixed})
-    note = ('convention-guard: 자동 수정 %d건 (%s) — 해당 파일은 편집 전에 다시 읽으세요'
-            % (len(ctx.autofixed), ', '.join(files)))
+    note = ('자동 수정 %d (%s) — 편집 전에 다시 읽으세요' % (len(ctx.autofixed), ', '.join(files)))
     if out and out.get('decision') == 'block':
-        out['reason'] = report.autofix_section(ctx.autofixed) + out['reason']
-        out['systemMessage'] = note
+        out['reason'] = report.with_section(out['reason'], report.autofix_section(ctx.autofixed))
+        out['systemMessage'] = _join_messages(out.get('systemMessage'), note, 'pass')
         return out
-    return notice(note if not out else '%s / %s' % (out.get('systemMessage', ''), note))
+    return notice(_join_messages(out.get('systemMessage') if out else None, note, 'pass'))
 
 
 def _with_unchecked_note(ctx, out):
     """Structure conditions that could not be evaluated get said out loud."""
     scan = getattr(ctx, 'last_scan', None)
-    note = unchecked_note(scan.result.unchecked) if scan is not None else None
+    note = unchecked_note(scan.result.unchecked, short=True) if scan is not None else None
     if not note:
         return out
     if out and out.get('decision') == 'block':
@@ -243,8 +253,9 @@ def _with_unchecked_note(ctx, out):
     return notice(_join_messages(out.get('systemMessage') if out else None, note))
 
 
-def _join_messages(existing, note):
-    return '%s / %s' % (existing, note) if existing else note
+def _join_messages(existing, note, kind='warn'):
+    """One line, one `convention-guard`: notes follow the header after ` · `."""
+    return '%s · %s' % (existing, note) if existing else report.hook_header('기록', [note], kind)
 
 
 def _stop(ctx):
@@ -375,7 +386,7 @@ def _current(ctx, scan):
         return current
     for rule, cands in _findings(ctx, scan, respect_quiet=False):
         for cand in cands:
-            current[cand.key] = cyclelib.entry(rule, cand)
+            current[cand.key] = _entry(rule, cand)
     for fail in scan.result.lint_blocking:
         current[cyclelib.lint_key(fail)] = cyclelib.lint_entry(fail)
     return current
@@ -461,7 +472,7 @@ def _request_review(ctx, cycle, pending, label):
         return None
     by_key = {cand.review_key: (rule, cand) for rule, cand, _ in pending}
     cycle['review'] = {'batch': path, 'items': {
-        item['review_key']: dict(cyclelib.entry(*by_key[item['review_key']]),
+        item['review_key']: dict(_entry(*by_key[item['review_key']]),
                                  key=item['key'])
         for item in items}}
     ctx.event({'event': 'review_requested', 'cycle': cycle['id'], 'batch': path,
@@ -487,15 +498,16 @@ def _verify(ctx, cycle, scan):
              and streak < cfg.limit('max_consecutive_blocks'))
     if not again:
         _close(ctx, cycle, outcome, unreviewed=skipped + needs)
-        if not outcome.remaining() and not (skipped or needs):
-            return notice('convention-guard: 검사 경고 — %s' % warnings[0]) if warnings else None
         counts = outcome.counts()
-        return notice('convention-guard: 재검증 — 고쳐짐 %d / 기각 %d / 남음 %d / 새로 생김 %d%s. '
-                      '더 차단하지 않고 기록만 남깁니다.%s'
-                      % (counts['fixed'], counts['dismissed'], counts['still'], counts['new'],
-                         ' / 판정 못 한 후보 %d' % len(skipped + needs) if skipped or needs
-                         else '',
-                         ' / 검사 경고: %s' % warnings[0] if warnings else ''))
+        if not outcome.remaining() and not (skipped or needs):
+            return notice(report.hook_header('재검증 통과', [
+                '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'],
+                _warning_part(warnings)], 'pass'))
+        return notice(report.hook_header('재검증 종료', [
+            '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'],
+            '남음 %d' % counts['still'], '새로 생김 %d' % counts['new'],
+            '판정 대기 %d' % len(skipped + needs) if skipped or needs else '',
+            _warning_part(warnings), '이후 기록만'], 'warn'))
 
     _log_outcome(ctx, cycle, outcome)
     for _rule, cand, _pack in skipped:
@@ -516,12 +528,8 @@ def _verify(ctx, cycle, scan):
     ctx.event({'event': 'block', 'cycle': cycle['id'], 'attempt': cycle['attempt'],
                'kind': 'verify', 'keys': sorted(outcome.blocking()),
                'review': bool(review)})
-    counts = outcome.counts()
-    return block(report.verify_reason(outcome, last_chance, review, skipped=bool(skipped)),
-                 'convention-guard: 재검증 — 남음 %d / 새로 생김 %d%s'
-                 % (counts['still'], counts['new'],
-                    (' / 심층 판정 %d건 요청' % len(review['items']) if review else '')
-                    + (' / 검사 경고: %s' % warnings[0] if warnings else '')))
+    return _block(report.verify_reason(outcome, last_chance, review, skipped=bool(skipped),
+                                       warnings=warnings))
 
 
 def _open(ctx, scan):
@@ -580,31 +588,25 @@ def _open(ctx, scan):
         for _rule, cand, _pack in pending:
             ctx.event({'event': 'review_skipped', 'rule_id': cand.rule_id, 'key': cand.key,
                        'file': cand.file, 'reason': why})
-        extra = ' / 판정 대기 후보 %d건' % len(pending) if pending else ''
-        if capped and has_blocking:
-            return notice('convention-guard: error %d건 / 린트 실패 %d건%s 기록 '
-                          '(연속 차단 %d회 상한에 걸려 차단하지 않았습니다)%s'
-                          % (len(errors), lint_count, extra, streak,
-                             _warning_suffix(scan_warnings)))
-        if cfg.report_only and has_blocking:
-            return notice('convention-guard: error %d건 / 린트 실패 %d건%s 기록 '
-                          '(mode=report 라 차단하지 않았습니다)%s'
-                          % (len(errors), lint_count, extra,
-                             _warning_suffix(scan_warnings)))
-        parts = []
-        if warns:
-            parts.append('warn %d건 (%s)' % (len(warns), ', '.join(r['id'] for r, _ in warns)))
-        if infos:
-            parts.append('info %d건' % len(infos))
-        if result.lint_notes:
-            parts.append('린터가 기존 코드에서 찾은 것 %d건' % len(result.lint_notes))
-        if scan_warnings:
-            parts.append('검사 경고: %s' % scan_warnings[0])
-        if parts:
-            return notice('convention-guard: %s 기록. 차단하지 않았습니다.' % ', '.join(parts))
+        if has_blocking:
+            held = '연속 차단 %d회 상한' % streak if capped else 'mode=report'
+            return notice(report.hook_header('기록', [
+                '린터 실패 %d' % lint_count if lint_count else '',
+                'error %d' % len(errors) if errors else '',
+                '판정 대기 %d' % len(pending) if pending else '',
+                _warning_part(scan_warnings), '차단 안 함: %s' % held],
+                'error' if errors or lint_count else 'warn'))
+        parts = ['warn %d (%s)' % (len(warns), ', '.join(r['id'] for r, _ in warns))
+                 if warns else '',
+                 'info %d' % len(infos) if infos else '',
+                 '린터 참고 %d' % len(result.lint_notes) if result.lint_notes else '',
+                 _warning_part(scan_warnings)]
+        if any(parts):
+            only_info = infos and not (warns or result.lint_notes or scan_warnings)
+            return notice(report.hook_header('기록', parts, 'info' if only_info else 'warn'))
         return None
 
-    opened = {c.key: cyclelib.entry(r, c) for r, cands in shown for c in cands}
+    opened = {c.key: _entry(r, c) for r, cands in shown for c in cands}
     for fail in result.lint_blocking:
         opened[cyclelib.lint_key(fail)] = cyclelib.lint_entry(fail)
     seen = set(_current(ctx, scan)) | {cand.key for _, cand, _ in all_pending}
@@ -621,15 +623,14 @@ def _open(ctx, scan):
     ctx.event({'event': 'block', 'cycle': cycle['id'], 'attempt': 0, 'kind': 'open',
                'keys': sorted(opened), 'review': bool(review)})
 
-    reason = report.hook_reason(result.lint_blocking, result.lint_notes, errors, warns, repeats,
-                                review=review, warnings=scan_warnings)
-    summary = 'convention-guard: %s%s%s%s' % (
-        '린트 실패 %d건 ' % lint_count if result.lint_blocking else '',
-        'error %d건 / warn %d건' % (len(errors), len(warns)),
-        ' / info %d건' % len(infos) if infos else '',
-        (' / 심층 판정 %d건 요청' % len(review['items']) if review else '')
-        + (' / 검사 경고 %d건' % len(scan_warnings) if scan_warnings else ''))
-    return block(reason, summary)
+    return _block(report.hook_reason(result.lint_blocking, result.lint_notes, errors, warns,
+                                     repeats, review=review, warnings=scan_warnings,
+                                     lint_count=lint_count, info_count=len(infos)))
+
+
+def _block(reason):
+    """The user sees the reason's header line (D11)."""
+    return block(reason, reason.split('\n', 1)[0])
 
 
 def _rank(rule):

@@ -56,6 +56,8 @@ def case_fixed_passes(repo, data):
 
     done = s.turn(A, body('return 2;'), 'p1', stop_hook_active=True)
     check('after the fix the turn passes', done['decision'] is None, done)
+    check('and the user sees the cycle close',
+          done['summary'] == 'convention-guard ✔ 재검증 통과 — 고쳐짐 1 · 기각 0', done['summary'])
     check('the outcome is logged once as fixed', outcomes(s) == ['fixed'], s.events('verify'))
     check('the cycle is closed and the streak reset',
           s.state()['cycle'] is None and s.state()['consecutive_blocks'] == 0, s.state())
@@ -72,7 +74,7 @@ def case_still_blocks_once_more(repo, data):
     s.touch(A)
     again = s.stop('p1', stop_hook_active=True)
     check('an ignored finding blocks once more', again['decision'] == 'block', again)
-    check('the verify reason says it is still there', '아직 그대로' in again['reason'],
+    check('the verify reason says it is still there', '■ 남음' in again['reason'],
           again['reason'])
     check('and that this is the last chance', '마지막 재검증' in again['reason'])
 
@@ -84,7 +86,7 @@ def case_still_blocks_once_more(repo, data):
 
     nxt = s.turn(A, body(), 'p2')
     check('an unfixed finding comes back in the next request', nxt['decision'] == 'block', nxt)
-    check('marked as raised before', '지난 턴에 지적했는데' in nxt['reason'], nxt['reason'][:300])
+    check('marked as raised before', '지난 턴에도 지적했습니다' in nxt['reason'], nxt['reason'][:300])
 
 
 def case_new_violation_from_fix(repo, data):
@@ -92,7 +94,7 @@ def case_new_violation_from_fix(repo, data):
     s.turn(A, body('dd(1);'), 'p1')
     fixed = s.turn(A, body('var_dump(1);'), 'p1', stop_hook_active=True)
     check('a violation introduced by the fix blocks', fixed['decision'] == 'block', fixed)
-    check('it is called out as new', '새로 생겼습니다' in fixed['reason'], fixed['reason'])
+    check('it is called out as new', '■ 새로 생김' in fixed['reason'], fixed['reason'])
     check('the original is logged fixed and the replacement new',
           outcomes(s) == ['fixed', 'new'], s.events('verify'))
 
@@ -115,7 +117,7 @@ def case_settled_rule_can_come_back(repo, data):
     back = s.turn(A, body('dd(1);'), 'p2', stop_hook_active=True)
     check('a settled rule the fix brought back is still seen',
           back['decision'] == 'block', back)
-    check('and it is reported as new', '새로 생겼습니다' in back['reason'], back['reason'])
+    check('and it is reported as new', '■ 새로 생김' in back['reason'], back['reason'])
 
 
 def case_over_budget_is_not_new(repo, data):
@@ -227,7 +229,7 @@ def case_commit_during_open_cycle(repo, data):
     s.touch(A)
     verify = s.stop('p1', stop_hook_active=True)
     check('committing an unresolved violation does not classify it as fixed',
-          verify['decision'] == 'block' and '아직 그대로' in verify['reason'], verify)
+          verify['decision'] == 'block' and '■ 남음' in verify['reason'], verify)
 
 
 def case_no_prompt_ids(repo, data):

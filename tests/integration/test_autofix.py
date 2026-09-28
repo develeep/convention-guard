@@ -57,10 +57,10 @@ def case_hook_fixes_what_it_can():
         check('else if became elseif', 'elseif (' in body and 'else if' not in body, body)
         check('legacy code was not touched', '( int )$v' in read(path, 'app/Svc/Old.php'))
         check('what cannot be auto-fixed still blocks', result['decision'] == 'block', result)
-        check('the block says which files changed', '자동 수정 2건' in result['reason']
+        check('the block says which files changed', '자동 수정 — 2건' in result['reason']
               and 'app/Svc/A.php' in result['reason'], result['reason'][:400])
         check('fixed rules are not listed as findings',
-              'php-cast-spacing' not in result['reason'].split('■ 규칙 후보')[-1], result['reason'])
+              'php-cast-spacing' not in result['reason'].split('■ 지적')[-1], result['reason'])
         check('each fix is logged', len(s.events('autofix')) == 2, s.events('autofix'))
 
 
@@ -71,7 +71,7 @@ def case_only_fixable_passes():
         s = Session(path, os.path.join(tmp, 'data'), 'clean')
         result = s.turn('app/Svc/A.php', new_file(), 'p1')
         check('nothing left to block', result['decision'] is None, result)
-        check('but the user is told what changed', '자동 수정 2건' in result['summary'],
+        check('but the user is told what changed', '자동 수정 2 (' in result['summary'],
               result['summary'])
 
 
@@ -117,15 +117,15 @@ def case_scan_fix():
         dry = run_script('scan.py', ['--cwd', path, '--no-lint', '--fix', '--json',
                                      '--fail-on', 'warn'], env=env, cwd=path)
         report = json.loads(dry.stdout)
-        check('--fix lists the fixes', len(report['head']['fixes']) == 2, report['head'])
+        check('--fix lists the fixes', len(report['fixes']) == 2, report)
         check('--fix alone does not write', read(path, 'app/Svc/A.php') == new_file())
         check('and the gate still fails', dry.returncode == 1, dry.returncode)
 
         wet = run_script('scan.py', ['--cwd', path, '--no-lint', '--fix', '--write', '--json',
                                      '--fail-on', 'warn'], env=env, cwd=path)
         report = json.loads(wet.stdout)
-        check('--fix --write applies', report['head']['fixes_applied']
-              and '(int)$v' in read(path, 'app/Svc/A.php'), report['head'])
+        check('--fix --write applies', report['fixes_applied']
+              and '(int)$v' in read(path, 'app/Svc/A.php'), report)
         check('the report shows what is left (nothing)', report['findings'] == [],
               report['findings'])
         check('and the gate passes', wet.returncode == 0, wet.returncode)

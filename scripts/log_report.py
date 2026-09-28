@@ -30,13 +30,13 @@ Only schema-2 events (1.0) are read; 0.x rows are skipped and counted.
 
 import argparse
 import collections
-import json
 import os
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from lib import fmt  # noqa: E402
 from lib.log import log_path, read as read_log  # noqa: E402
 from lib.paths import git_toplevel, project_dir  # noqa: E402
 
@@ -175,49 +175,58 @@ def pct(value):
     return '-' if value is None else '%d%%' % round(value * 100)
 
 
-def render(items, linters, rows, legacy, path):
-    out = ['규칙 건강도  (이벤트 %d건%s, 로그 %s)' % (
-        len(rows), ', 0.x 이벤트 %d건 제외' % legacy if legacy else '', path), '']
-    out.append('%-40s %-5s %5s %5s %5s %5s %5s %6s %6s  %s'
-               % ('규칙', '강도', '후보', '고침', '남음', '기각', '신규', '수정률', '정밀도', '판정'))
-    out.append('-' * 118)
-    for item in items:
-        out.append('%-40s %-5s %5d %5d %5d %5d %5d %6s %6s  %s' % (
-            item['rule_id'] + (' *' if item['semantic'] else ''), item['severity'],
-            item['candidates'], item['fixed'], item['still'], item['dismissed'], item['new'],
-            pct(item['fix_rate']), pct(item['precision']), item['verdict']))
-    out.append('')
-    out.append('* = 의미 판정 규칙. 정밀도 = 리뷰어가 VIOLATION 으로 판정한 비율')
+def render(items, linters, rows, legacy, path, style=fmt.PLAIN):
+    head = fmt.header('log_report', ['이벤트 %d' % len(rows), '로그 %s' % path,
+                                     '0.x 이벤트 %d 제외' % legacy if legacy else ''], style=style)
+    health = [fmt.section('규칙 건강도', style=style)]
+    health += fmt.table(
+        ['규칙', '강도', '후보', '고침', '남음', '기각', '새로 생김', '수정률', '정밀도', '판정'],
+        [(item['rule_id'] + (' *' if item['semantic'] else ''), item['severity'],
+          item['candidates'], item['fixed'], item['still'], item['dismissed'], item['new'],
+          pct(item['fix_rate']), pct(item['precision']), item['verdict']) for item in items],
+        align=list('llrrrrrrrl'), style=style)
+    health += fmt.aux('참고', '* = 의미 판정 규칙. 정밀도 = 리뷰어가 VIOLATION 으로 판정한 비율',
+                      style=style)
     reviewed = [i for i in items if i['reviewed']]
+    semantic = []
     if reviewed:
-        out.append('')
-        out.append('의미 판정 내역  (판정 / VIOLATION / VALID / FALSE_POSITIVE / 게이트 오탐률)')
-        for item in reviewed:
-            v = item['verdicts']
-            out.append('  %-40s %4d %4d %4d %4d %7s'
-                       % (item['rule_id'][:40], item['reviewed'], v.get('VIOLATION', 0),
-                          v.get('VALID', 0), v.get('FALSE_POSITIVE', 0),
-                          pct(item['false_positive_rate'])))
-        out.append('  VALID = 게이트는 적절했고 코드가 정상 / FALSE_POSITIVE = 게이트가 잘못 잡음')
+        semantic = [fmt.section('의미 판정', style=style)]
+        semantic += fmt.table(
+            ['규칙', '판정', 'VIOLATION', 'VALID', 'FALSE_POSITIVE', '게이트 오탐률'],
+            [(i['rule_id'], i['reviewed'], i['verdicts'].get('VIOLATION', 0),
+              i['verdicts'].get('VALID', 0), i['verdicts'].get('FALSE_POSITIVE', 0),
+              pct(i['false_positive_rate'])) for i in reviewed],
+            align=list('lrrrrr'), style=style)
+        semantic += fmt.aux('참고', 'VALID = 게이트는 적절했고 코드가 정상 / FALSE_POSITIVE = 게이트가 잘못 잡음',
+                            style=style)
     weak = [i for i in items if i['verdict'] not in ('건강함', '데이터 부족')]
-    if weak:
-        out.append('')
-        out.append('손봐야 할 규칙 %d개:' % len(weak))
-        for item in weak:
-            out.append('  %s — %s' % (item['rule_id'], item['verdict']))
-            if item['top_files']:
-                out.append('      자주 걸린 파일: %s' % ', '.join(item['top_files']))
-            for reason in item['dismiss_reasons']:
-                out.append('      기각 사유: %s' % reason)
+    tune = [fmt.section('손볼 규칙', '%d개' % len(weak), style=style)] if weak else []
+    for item in weak:
+        tune.append(fmt.item_head('warn', '%s — %s' % (item['rule_id'], item['verdict']),
+                                  style=style))
+        if item['top_files']:
+            tune += fmt.aux('참고', '자주 걸린 파일 %s' % ', '.join(item['top_files']), style=style)
+        for reason in item['dismiss_reasons']:
+            tune += fmt.aux('이유', '기각 사유 — %s' % reason, style=style)
+    lint_block = []
     if linters:
-        out.append('')
-        out.append('린터  (실패 / 그중 차단 / 출력 파싱 성공)')
-        for cmd, entry in sorted(linters.items()):
-            out.append('  %-60s %4d / %4d / %4d'
-                       % (cmd[:60], entry['failed'], entry['blocking'], entry['anchored']))
-        out.append('  파싱 성공이 실패보다 적은 린터는 변경 줄로 좁혀지지 않아 출력 전체로 차단합니다 '
-                   '— stacks/*.yaml 의 parse 를 확인하세요.')
-    return '\n'.join(out)
+        lint_block = [fmt.section('린터', style=style)]
+        lint_block += fmt.table(
+            ['명령', '실패', '그중 차단', '출력 파싱 성공'],
+            [(cmd, e['failed'], e['blocking'], e['anchored'])
+             for cmd, e in sorted(linters.items())],
+            align=list('lrrr'), style=style)
+        lint_block += fmt.aux('참고', '파싱 성공이 실패보다 적은 린터는 변경 줄로 좁혀지지 않아 출력 전체로 '
+                                     '차단합니다 — stacks/*.yaml 의 parse 를 확인하세요.', style=style)
+    return style.finish(fmt.blocks([head], health, semantic, tune, lint_block))
+
+
+def envelope(items, linters, rows, legacy):
+    weak = [i for i in items if i['verdict'] not in ('건강함', '데이터 부족')]
+    summary = {'events': len(rows), 'legacy_skipped': legacy, 'rule_count': len(items),
+               'needs_tuning': len(weak)}
+    return fmt.envelope('log-report', summary, {'events': len(rows), 'legacy_skipped': legacy,
+                                                'rules': items, 'linters': linters})
 
 
 def main():
@@ -231,18 +240,23 @@ def main():
     path = args.log or log_path()
     repo = git_toplevel(project_dir(args.repo)) if args.repo else None
     rows, legacy = select(read_log(path), repo, args.since)
+    style = fmt.Style.for_stream()
     if not rows:
-        print('읽을 이벤트가 없습니다: %s%s' % (path, ' (0.x 이벤트 %d건은 읽지 않습니다)' % legacy
-                                           if legacy else ''))
-        print('훅이 아직 돌지 않았거나 CLAUDE_PLUGIN_DATA / userConfig log_dir 경로가 다릅니다.')
+        if args.json:
+            print(fmt.dumps(envelope([], {}, rows, legacy)))
+            return 0
+        head = fmt.header('log_report', ['이벤트 0', '로그 %s' % path,
+                                         '0.x 이벤트 %d 제외' % legacy if legacy else ''], style=style)
+        print(style.finish(fmt.blocks([head], [fmt.item_head(
+            'info', '읽을 이벤트가 없습니다 — 훅이 아직 돌지 않았거나 CLAUDE_PLUGIN_DATA / userConfig '
+                    'log_dir 경로가 다릅니다', style=style)])))
         return 0
     stats, linters = build(rows)
     items = summarize(stats)
     if args.json:
-        print(json.dumps({'events': len(rows), 'legacy_skipped': legacy, 'rules': items,
-                          'linters': linters}, ensure_ascii=False, indent=2))
+        print(fmt.dumps(envelope(items, linters, rows, legacy)))
     else:
-        print(render(items, linters, rows, legacy, path))
+        print(render(items, linters, rows, legacy, path, style))
     return 0
 
 

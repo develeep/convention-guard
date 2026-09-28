@@ -67,10 +67,10 @@ def case_broken_repo(tmp):
     install(data, repo, options={'log_dir': './logs'})
     code, seen, proc = readiness(repo, data)
     check('exit 1 when something fails', code == 1, proc.stdout + proc.stderr)
-    check('a broken dismissed.yaml fails', ('C6', 'FAIL') in seen, seen)
-    check('a relative log_dir fails', ('B5', 'FAIL') in seen, seen)
-    check('a rule that reaches no file warns', ('D2', 'WARN') in seen, seen)
-    check('user-only enablement warns', ('B2', 'WARN') in seen, seen)
+    check('a broken dismissed.yaml fails', ('C6', 'fail') in seen, seen)
+    check('a relative log_dir fails', ('B5', 'fail') in seen, seen)
+    check('a rule that reaches no file warns', ('D2', 'warn') in seen, seen)
+    check('user-only enablement warns', ('B2', 'warn') in seen, seen)
 
 
 def case_clean_repo(tmp):
@@ -78,9 +78,9 @@ def case_clean_repo(tmp):
     make_repo(repo, {'composer.json': LARAVEL_COMPOSER, 'app/A.php': '<?php\n'})
     install(data, repo, project=True, options={'log_dir': os.path.join(tmp, 'logs')})
     code, seen, proc = readiness(repo, data)
-    check('no FAIL on a clean repo', not any(s == 'FAIL' for _, s in seen), seen)
+    check('no FAIL on a clean repo', not any(s == 'fail' for _, s in seen), seen)
     check('exit 0', code == 0, proc.stdout + proc.stderr)
-    check('project scope with its marketplace passes', ('B2', 'PASS') in seen, seen)
+    check('project scope with its marketplace passes', ('B2', 'pass') in seen, seen)
 
 
 def case_not_git(tmp):
@@ -116,7 +116,7 @@ def case_project_false(tmp):
         'extraKnownMarketplaces': {'team-market': {'source': {'source': 'git', 'url': 'x'}}}}))
     write(repo, '.claude/settings.local.json', json.dumps({'enabledPlugins': {KEY: True}}))
     _, seen, _ = readiness(repo, data)
-    check('project false + local true warns about teammates', ('B2', 'WARN') in seen, seen)
+    check('project false + local true warns about teammates', ('B2', 'warn') in seen, seen)
 
 
 def case_full_run_is_isolated(tmp):

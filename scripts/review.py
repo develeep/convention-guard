@@ -28,44 +28,57 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import semantic  # noqa: E402
-from lib.candidate import VERDICTS, VIOLATION  # noqa: E402
+from lib import fmt, semantic  # noqa: E402
+from lib.candidate import FALSE_POSITIVE, VALID, VERDICTS, VIOLATION  # noqa: E402
+
+# the order counts are read in: what the main agent acts on first
+ORDER = (VIOLATION, VALID, FALSE_POSITIVE)
+HAND_BACK = '메인 에이전트에게 돌려줄 것'
 
 
-def script_path():
-    return os.path.abspath(__file__).replace(os.sep, '/')
+def record_command(path):
+    return fmt.command('review.py', 'record', '"%s"' % path.replace(os.sep, '/'))
+
+
+def where(item):
+    return '%s:%d' % (item['file'], item['line']) if item.get('line') else item['file']
 
 
 def show(batch, path):
-    out = ['# convention-guard 판정 배치 — 후보 %d건' % len(batch['items']),
-           'repo: %s' % batch['repo'], '']
+    """A Markdown document for the reviewer, so its headings stay Markdown
+    (docs/output-format.md 6); the pieces inside follow the common grammar."""
+    items = batch['items']
+    out = ['# ' + fmt.header('review show', ['후보 %d건' % len(items), 'repo %s' % batch['repo']]),
+           '']
     by_rule = {}
-    for item in batch['items']:
+    for item in items:
         by_rule.setdefault(item['rule_id'], []).append(item)
-    for rule_id, items in by_rule.items():
+    for rule_id, found in by_rule.items():
         rule = batch['rules'][rule_id]
-        out += ['## [%s] %s  (%s)' % (rule_id, rule['title'], rule['severity']), '',
-                '판정 기준:']
-        out += ['  %s' % line for line in rule['instruction'].split('\n')]
-        out.append('')
-        for item in items:
-            ctx = item['context']
-            out += ['### 후보 %d — %s:%d' % (item['id'], item['file'], item['line']),
+        out += ['## ' + fmt.finding_head(rule['severity'], rule_id, rule['title']), '',
+                '#### 판정 기준', rule['instruction'].strip(), '']
+        for item in found:
+            out += ['### 후보 %d — %s' % (item['id'], where(item)),
                     '    %s' % item['snippet'], '']
-            for section in ctx['sections']:
-                out += ['%s:' % section['title'], section['text'], '']
-            if ctx.get('truncated'):
-                out.append('(일부 생략됨 — 판정에 꼭 필요할 때만 Read 로 더 보세요)')
-                out.append('')
-    ids = ', '.join(str(item['id']) for item in batch['items'])
-    out += ['---', '모든 후보(%s)에 대한 판정을 한 번에 기록하세요:' % ids, '',
-            "python3 \"%s\" record \"%s\" <<'JSON'" % (script_path(), path.replace(os.sep, '/')),
+            for section in item['context']['sections']:
+                out += ['#### %s' % section['title'], section['text'], '']
+    # ponytail: a fence, not the 4-space block: an indented `JSON` would not
+    # end the heredoc if the reviewer pasted it as shown
+    out += ['## 다음', '판정을 모두 적어 한 번에 기록하세요:', '', '```bash',
+            "%s <<'JSON'" % record_command(path),
             '[' + ',\n '.join('{"id": %d, "verdict": "…", "reason": "…"}' % item['id']
-                              for item in batch['items']) + ']',
-            'JSON', '',
-            'verdict: VIOLATION (실제 위반) / VALID (위반 아님) / FALSE_POSITIVE (게이트가 잘못 잡음)',
-            '확신이 없으면 VALID 입니다.']
+                              for item in items) + ']',
+            'JSON', '```', '',
+            '- verdict: VIOLATION (실제 위반) · VALID (위반 아님) · FALSE_POSITIVE (게이트가 잘못 잡음)',
+            '- 확신이 없으면 VALID 입니다.']
     return '\n'.join(out)
+
+
+def show_json(batch, path):
+    return fmt.envelope('review-show', {'candidates': len(batch['items']),
+                                        'rules': len(batch['rules'])},
+                        {'path': path.replace(os.sep, '/'), 'batch': batch},
+                        steps=[fmt.Step('판정을 모두 적어 한 번에 기록', record_command(path))])
 
 
 def validate(batch, answers):
@@ -130,40 +143,53 @@ def record(batch, path, answers):
     return []
 
 
-def summary(batch, verdicts):
+def summary(batch, verdicts, command='summary', style=fmt.PLAIN):
+    """`record` and `summary` text: the counts, then only the violations,
+    grouped by rule, for the reviewer to hand back as they are."""
     counts = {v: 0 for v in VERDICTS}
     for v in verdicts.values():
         counts[v['verdict']] = counts.get(v['verdict'], 0) + 1
-    out = ['기록된 판정 — %s' % ' / '.join('%s %d' % (k, counts[k]) for k in VERDICTS)]
+    lead = '판정 %d건%s' % (len(verdicts), ' 기록' if command == 'record' else '')
+    head = [fmt.header('review ' + command, [lead] + ['%s %d' % (k, counts[k]) for k in ORDER],
+                       style=style)]
     violations = sorted((v for v in verdicts.values() if v['verdict'] == VIOLATION),
-                        key=lambda v: (v['file'], v['line']))
-    if violations:
-        out.append('')
-        out.append('메인 에이전트에게 돌려줄 내용 (VIOLATION 만):')
-        for v in violations:
-            out.append('[%s] %s:%d — %s' % (v['rule_id'], v['file'], v['line'], v['reason']))
-    else:
-        out.append('')
-        out.append('메인 에이전트에게 돌려줄 내용: 위반 없음')
-    return '\n'.join(out)
+                        key=lambda v: (v['file'], v['line'] or 0))
+    if not violations:
+        return style.finish(fmt.blocks(head, [fmt.section(HAND_BACK, style=style),
+                                              fmt.item_head('pass', '위반 없음', style)]))
+    by_rule = {}
+    for v in violations:
+        by_rule.setdefault(v['rule_id'], []).append(v)
+    groups = []
+    for rule_id, found in by_rule.items():
+        rule = batch['rules'].get(rule_id) or {}
+        lines = [fmt.finding_head(rule.get('severity') or 'error', rule_id,
+                                  rule.get('title') or rule_id, style)]
+        for v in found:
+            lines.append(fmt.location(v['file'], v['line'], style=style))
+            lines += fmt.aux('이유', v['reason'], style=style)
+        groups.append(lines)
+    groups[0] = [fmt.section(HAND_BACK, 'VIOLATION 만', style)] + groups[0]
+    return style.finish(fmt.blocks(head, *groups))
 
 
 def main():
     parser = argparse.ArgumentParser(description='convention-guard 의미 판정 배치 도구')
     parser.add_argument('command', choices=['show', 'record', 'summary'])
     parser.add_argument('batch', help='배치 파일 경로 (Stop 훅이나 scan.py --review 가 알려준 경로)')
-    parser.add_argument('--json', action='store_true', help='show: 배치 원본 JSON 출력')
+    parser.add_argument('--json', action='store_true', help='show: 배치를 JSON 봉투로 출력')
+    parser.add_argument('--no-color', action='store_true', help='record, summary: 색을 끔')
     args = parser.parse_args()
 
     path = os.path.abspath(args.batch)
     try:
         batch = semantic.read_batch(path)
     except (OSError, ValueError) as exc:
-        print('배치를 읽을 수 없습니다: %s' % exc, file=sys.stderr)
+        fmt.eprint('error', '배치를 읽을 수 없습니다: %s' % exc)
         return 2
 
     if args.command == 'show':
-        print(json.dumps(batch, ensure_ascii=False, indent=1) if args.json else show(batch, path))
+        print(fmt.dumps(show_json(batch, path)) if args.json else show(batch, path))
         return 0
 
     if args.command == 'record':
@@ -171,20 +197,21 @@ def main():
         try:
             answers = json.loads(raw)
         except ValueError as exc:
-            print('JSON 으로 읽을 수 없습니다: %s' % exc, file=sys.stderr)
+            fmt.eprint('error', 'JSON 으로 읽을 수 없습니다: %s' % exc)
             return 2
         problems = record(batch, path, answers)
         if problems:
-            print('기록하지 않았습니다. 고친 뒤 전체를 다시 기록하세요:', file=sys.stderr)
+            fmt.eprint('error', '기록하지 않았습니다 — 고친 뒤 전체를 다시 기록하세요')
             for problem in problems:
                 print('  - %s' % problem, file=sys.stderr)
             return 2
 
     verdicts = semantic.read_verdicts(path)
     if verdicts is None:
-        print('아직 기록된 판정이 없습니다: %s' % semantic.verdicts_path(path), file=sys.stderr)
+        fmt.eprint('error', '아직 기록된 판정이 없습니다: %s' % semantic.verdicts_path(path))
         return 2
-    print(summary(batch, verdicts))
+    print(summary(batch, verdicts, args.command,
+                  fmt.Style.for_stream(no_color=args.no_color)))
     return 0
 
 

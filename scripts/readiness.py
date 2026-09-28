@@ -32,7 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import detect_stack  # noqa: E402
-from lib import config as configlib, dismiss as dismisslib, pipeline  # noqa: E402
+from lib import config as configlib, dismiss as dismisslib, fmt, pipeline  # noqa: E402
 from lib import rules as rulelib  # noqa: E402
 from lib.install import (check_data_dirs, check_hooks, check_install, check_scopes,  # noqa: E402
                          check_user_config, read_json)
@@ -71,10 +71,10 @@ class Report:
         self.items = []
 
     def add(self, item_id, status, text, fix=''):
-        self.items.append({'id': item_id, 'status': status, 'text': text, 'fix': fix})
+        self.items.append({'id': item_id, 'status': status.lower(), 'text': text, 'fix': fix})
 
     def failed(self):
-        return any(i['status'] == 'FAIL' for i in self.items)
+        return any(i['status'] == 'fail' for i in self.items)
 
 
 def sandbox_env(base, keep_home=False):
@@ -287,7 +287,7 @@ def check_volume(rep, root, script_dir, commits, base):
         rep.add('E1', 'FAIL', 'scan.py 가 검사하지 못했습니다: %s' % result['error'])
         rep.add('I1', 'SKIP', 'E1 검사가 실패해 소요 시간을 재지 못했습니다')
         return
-    counts = result['counts']
+    counts = result['summary']
     per = (counts['error'] + counts['warn']) / float(n)
     top = sorted(result['findings'], key=lambda f: -len(f['locations']))[:3]
     rep.add('E1', 'WARN' if per > FINDINGS_PER_COMMIT_WARN else 'PASS',
@@ -309,8 +309,9 @@ def check_legacy_volume(rep, root, script_dir, base):
         return
     by_rule = sorted(((len(f['locations']), f['rule_id']) for f in result['findings']),
                      reverse=True)[:5]
+    counts = result['summary']
     rep.add('E2', 'PASS', '전수조사 error %d건 — %s' % (
-        result['counts']['error'], ', '.join('%s %d+' % (r, n) for n, r in by_rule) or '없음'))
+        counts['error'], ', '.join('%s %d+' % (r, n) for n, r in by_rule) or '없음'))
 
 
 # ---------------------------------------------------------------- J. 보안 · K. CI
@@ -409,26 +410,36 @@ def check_internal_error(rep, root_dir, base):
         rep.add('H3', 'FAIL', 'check.py 실행 실패: %s' % exc)
         return
     ok = proc.returncode == 0 and '내부 오류' in proc.stdout
-    rep.add('H3', 'PASS' if ok else 'FAIL', 'Stop 훅 내부 오류 → exit %d, %s' % (
+    rep.add('H3', 'PASS' if ok else 'FAIL', 'Stop 훅 내부 오류 — exit %d, %s' % (
         proc.returncode, '사유를 말함' if ok else '침묵 또는 비정상 종료: %r' % proc.stdout[-120:]))
 
 
 # ---------------------------------------------------------------- 출력
 
-ORDER = {'FAIL': 0, 'WARN': 1, 'MANUAL': 2, 'SKIP': 3, 'PASS': 4}
+ORDER = {'fail': 0, 'warn': 1, 'manual': 2, 'skip': 3, 'pass': 4}
+STATUSES = sorted(ORDER, key=ORDER.get)
 
 
-def render(rep, root, version, seconds):
-    out = ['convention-guard 도입 점검 — %s · 플러그인 %s (%.0f초)' % (root, version, seconds), '']
+def tally(items):
+    return {s: sum(i['status'] == s for i in items) for s in STATUSES}
+
+
+def render(rep, root, version, seconds, style=fmt.PLAIN):
+    head = fmt.header('readiness', [root, '플러그인 %s' % version, '%.0f초' % seconds], style=style)
+    lines = []
     for item in rep.items:
-        out.append('[%-6s] %-3s %s' % (item['status'], item['id'], item['text']))
+        text = item['text'].strip().split('\n')
+        lead = '%s  %s ' % (style.paint('%s %s' % (fmt.GLYPH[item['status']],
+                                                   fmt.pad(item['status'], 6)), item['status']),
+                            fmt.pad(item['id'], 3))
+        lines.append(lead + text[0])
+        if len(text) > 1:
+            lines.append(fmt.more(len(text) - 1, indent=14))
         if item['fix']:
-            out.append('               → %s' % item['fix'])
-    tally = {}
-    for item in rep.items:
-        tally[item['status']] = tally.get(item['status'], 0) + 1
-    out += ['', '요약: ' + ' · '.join('%s %d' % (s, tally[s]) for s in sorted(tally, key=ORDER.get))]
-    return '\n'.join(out)
+            lines += fmt.aux('조치', item['fix'], indent=14, style=style)
+    counts = tally(rep.items)
+    table = fmt.table(STATUSES, [[counts[s] for s in STATUSES]], align=['r'] * 5, style=style)
+    return style.finish(fmt.blocks([head], lines, table))
 
 
 def guarded(rep, item_id, fn, *args):
@@ -480,7 +491,7 @@ def main():
     session = project_dir(args.cwd)     # Claude Code keys settings on this, not the git root
     code, top, _ = run(['git', 'rev-parse', '--show-toplevel'], session)
     if code != 0:
-        print('검사 불가: git 레포가 아닙니다: %s' % session, file=sys.stderr)
+        fmt.eprint('error', '검사 불가: git 레포가 아닙니다: %s' % session)
         return 2
     root = top.strip()
     root_dir = plugin_root()
@@ -491,10 +502,10 @@ def main():
     rep.items.sort(key=lambda i: (ORDER[i['status']], i['id']))
 
     if args.json:
-        print(json.dumps({'root': root, 'version': version, 'items': rep.items},
-                         ensure_ascii=False, indent=2))
+        print(fmt.dumps(fmt.envelope('readiness', tally(rep.items),
+                                     {'root': root, 'version': version, 'items': rep.items})))
     else:
-        print(render(rep, root, version, time.time() - start))
+        print(render(rep, root, version, time.time() - start, fmt.Style.for_stream()))
     return 1 if rep.failed() else 0
 
 

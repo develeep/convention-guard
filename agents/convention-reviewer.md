@@ -40,11 +40,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/review.py" show "<배치 경로>.json"
 | `FALSE_POSITIVE` | 게이트 패턴이 엉뚱한 코드를 잡았다 (예: 주석, 전혀 다른 API) |
 
 - 팩으로 판단할 수 있으면 파일을 더 읽지 마세요. 대부분 그렇습니다.
-- 팩에 `… N줄 생략`이 있고 그 부분이 판정을 가를 때만 `Read` / `Grep`을 씁니다. **후보당 최대 3번.**
+- 팩에 `… N줄 더 — 필요하면 Read`가 있고 그 부분이 판정을 가를 때만 `Read` / `Grep`을 씁니다. **후보당 최대 3번.**
 - **확신이 없으면 `VALID`입니다.** 오탐 하나가 이 검사 전체의 신뢰를 깎습니다.
 - 판정 기준에 없는 문제(스타일, 다른 버그)는 판정하지도, 보고하지도 않습니다.
 
-**3. 판정 기록** — `show` 출력 끝의 명령에 판정을 채워 실행합니다. 모든 후보 id를 한 번에 기록합니다.
+**3. 판정 기록** — `show` 출력 끝 `## 다음`의 명령에 판정을 채워 실행합니다. 모든 후보 id를 한 번에 기록합니다.
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/review.py" record "<배치 경로>.json" <<'JSON'
@@ -55,10 +55,12 @@ JSON
 
 `reason`은 코드에 근거한 한 줄입니다. 명령이 오류를 내면(빠진 id, 잘못된 verdict, 빈 reason) 메시지대로 고친 뒤 **전체를 다시** 기록하세요. 기록이 성공해야 끝납니다.
 
-**4. 위반만 보고** — `record`가 출력한 "메인 에이전트에게 돌려줄 내용"을 그대로 응답으로 씁니다. 형식은 이렇습니다.
+**4. 위반만 보고** — `record`가 출력한 `■ 메인 에이전트에게 돌려줄 것` 섹션을 그대로 응답으로 씁니다. 형식은 이렇습니다.
 
 ```
-[core/laravel-n-plus-one] app/Http/Controllers/OrderController.php:42 — orders 를 with() 없이 반복하며 ->items 접근. 조회 시 with('items') 추가
+⚠ warn[core/laravel-n-plus-one]: 반복문 안에서 관계 접근 (N+1)
+  app/Http/Controllers/OrderController.php:42
+  = 이유: orders 를 with() 없이 반복하며 ->items 접근. 조회 시 with('items') 추가
 ```
 
-위반이 없으면 `위반 없음` 한 줄만 씁니다. 그 밖의 설명이나 요약은 붙이지 마세요.
+위반이 없으면 `✔ 위반 없음` 한 줄만 씁니다. 그 밖의 설명이나 요약은 붙이지 마세요.

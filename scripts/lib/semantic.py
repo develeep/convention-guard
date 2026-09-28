@@ -191,7 +191,7 @@ def read_batch(path):
     with open(path, 'r', encoding='utf-8') as fh:
         batch = json.load(fh)
     if not isinstance(batch, dict) or batch.get('version') != BATCH_VERSION:
-        raise ValueError('convention-guard 판정 배치 파일이 아닙니다: %s' % path)
+        raise ValueError('판정 배치 파일이 아닙니다: %s' % path)
     return batch
 
 

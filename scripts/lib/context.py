@@ -11,7 +11,7 @@ to a line budget:
     related_files      files named by a symbol in the function, e.g. the Model
                        a query uses: {symbol: '\\b([A-Z]\\w+)::', glob: 'app/Models/{1}.php'}
 
-What was cut is marked `… N줄 생략`, so the reviewer knows to Read further
+What was cut is marked `… N줄 더 — 필요하면 Read`, so the reviewer knows to Read further
 only when the pack is genuinely not enough.
 
 `context_hash` fingerprints the primary region (the function, or the snippet
@@ -46,16 +46,29 @@ IMPORT_RE = re.compile(r'^\s*(?:use\s+[\w\\]|import\b|from\s+\S+\s+import\b|pack
                        r'(?:const|let|var)\s+.*=\s*require\()')
 
 
-def number(lines, start):
-    """'  42| code' lines, start is 1-based."""
-    width = len(str(start + len(lines)))
-    return '\n'.join('%*d| %s' % (width, start + i, line) for i, line in enumerate(lines))
+def number(pairs, width=None):
+    """' 42| code' lines for [(lineno, text)], lineno 1-based. One width for the
+    whole block, so the bars line up however far apart the numbers are."""
+    pairs = list(pairs)
+    width = width or len(str(max([n for n, _ in pairs] or [0])))
+    return '\n'.join('%*d| %s' % (width, n, line) for n, line in pairs)
+
+
+def numbered(lines, start, width=None):
+    """number() for a run of lines starting at 1-based `start`."""
+    return number(((start + i, line) for i, line in enumerate(lines)), width)
+
+
+def cut_marker(count, width):
+    """F9 marker, lined up with the code after the `NN| ` gutter."""
+    return '%s… %d줄 더 — 필요하면 Read' % (' ' * (width + 2), count)
 
 
 def _clip_region(lines, start, end, focus, max_lines):
     """Numbered text for [start, end], elided around `focus` when too long."""
     if end - start + 1 <= max_lines:
-        return number(lines[start:end + 1], start + 1), end - start + 1, False
+        return numbered(lines[start:end + 1], start + 1), end - start + 1, False
+    width = len(str(end + 1))
     half = FUNCTION_AROUND // 2
     head = (start, min(start + 4, end))
     mid = (max(head[1] + 1, focus - half), min(end - 3, focus + half))
@@ -66,8 +79,8 @@ def _clip_region(lines, start, end, focus, max_lines):
         if a > b:
             continue
         if prev_end is not None and a > prev_end + 1:
-            parts.append('     … %d줄 생략 — 필요하면 Read' % (a - prev_end - 1))
-        parts.append(number(lines[a:b + 1], a + 1))
+            parts.append(cut_marker(a - prev_end - 1, width))
+        parts.append(numbered(lines[a:b + 1], a + 1, width))
         shown += b - a + 1
         prev_end = b
     return '\n'.join(parts), shown, True
@@ -167,7 +180,7 @@ def build(scope, cand, review, list_files=None):
         a, b = max(0, idx - radius), min(len(lines) - 1, idx + radius)
         pack.primary = '\n'.join(lines[a:b + 1])
         pack.add('snippet', '후보 주변 (%d-%d줄)' % (a + 1, b + 1),
-                 number(lines[a:b + 1], a + 1), b - a + 1)
+                 numbered(lines[a:b + 1], a + 1), b - a + 1)
 
     def room():
         return budget - pack.lines
@@ -178,7 +191,7 @@ def build(scope, cand, review, list_files=None):
         found = found[:min(IMPORT_MAX_LINES, room())]
         if found:
             pack.add('imports', 'import / use',
-                     '\n'.join(number([line], i + 1) for i, line in found), len(found))
+                     number((i + 1, line) for i, line in found), len(found))
 
     if 'changed_hunks' in wanted and room() > 0:
         skip = set(range(region[0] + 1, region[1] + 2)) if region else set()
@@ -186,7 +199,7 @@ def build(scope, cand, review, list_files=None):
         added = added[:min(HUNKS_MAX_LINES, room())]
         if added:
             pack.add('changed_hunks', '이번 변경이 같은 파일에 추가한 다른 줄',
-                     '\n'.join(number([t], n) for n, t in added), len(added))
+                     number(added), len(added))
 
     if 'related_files' in specs and room() > 0 and list_files:
         spec = specs['related_files']
@@ -211,8 +224,8 @@ def build(scope, cand, review, list_files=None):
                 if take <= 0:
                     continue
                 pack.add('related_files', '%s (심볼 %s)' % (rel, name),
-                         number(other_lines[:take], 1)
-                         + ('\n     … %d줄 생략 — 필요하면 Read' % (len(other_lines) - take)
+                         numbered(other_lines[:take], 1)
+                         + ('\n' + cut_marker(len(other_lines) - take, len(str(take)))
                             if len(other_lines) > take else ''),
                          take, len(other_lines) > take)
                 limit -= 1

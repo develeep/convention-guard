@@ -67,7 +67,7 @@ Stop
 
 - 규칙별 상한 `semantic_review.max_context_lines`, 배치 전체 상한 `semantic_review.context_budget_lines`
 - 한 배치의 후보 수 상한 `semantic_review.max_candidates`. 넘치는 후보는 다음 판정으로 미룹니다
-- 잘린 곳에는 `… N줄 생략 — 필요하면 Read` 가 붙습니다. 리뷰어는 판정에 꼭 필요할 때만, 후보당 최대 3번 더 읽습니다
+- 잘린 곳에는 `… N줄 더 — 필요하면 Read` 가 붙습니다. 리뷰어는 판정에 꼭 필요할 때만, 후보당 최대 3번 더 읽습니다
 
 함수 경계는 언어별 휴리스틱입니다: 중괄호 언어(php, js/ts, go, java/kotlin, rust, c)는 시그니처를 찾아 괄호 짝을 맞추고, Python 은 들여쓰기로 찾습니다. `for (...) {` 같은 제어문은 함수로 보지 않습니다.
 

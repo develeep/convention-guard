@@ -27,7 +27,9 @@ def findings(repo, data, extra):
     if proc.returncode != 0:
         return ['<exit %d> %s' % (proc.returncode, proc.stderr.strip())]
     report = json.loads(proc.stdout)
-    return sorted('%s %s:%d' % (f['rule_id'], loc['file'], loc['line'])
+    # a file- or change-level candidate has no line (null) and prints as the file alone
+    return sorted('%s %s' % (f['rule_id'], loc['file'] if loc['line'] is None
+                             else '%s:%d' % (loc['file'], loc['line']))
                   for f in report['findings'] for loc in f['locations'])
 
 

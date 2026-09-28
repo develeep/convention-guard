@@ -232,7 +232,7 @@ def case_hook_blocks_only_changed_lines(tmp):
     legacy = stop(3, 'legacy')
     check('a linter finding on an untouched line does not block the turn',
           legacy['decision'] is None, legacy)
-    check('it is still reported to the user', '기존 코드' in legacy['summary'], legacy)
+    check('it is still reported to the user', '린터 참고 1' in legacy['summary'], legacy)
 
     ours = stop(20, 'ours')
     check('a linter finding on a changed line blocks', ours['decision'] == 'block', ours)

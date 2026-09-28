@@ -58,7 +58,7 @@ python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude/plugin
   - 실패하면: WSL 에서 쓰거나 훅 대신 `scan.py` + CI(K)로 운영하세요. **저장소 CI 에서 검증되지 않은 경로입니다.**
 
 - [ ] **A3. 검사 대상이 git 워크트리다** [자동]
-  - 기대: git 이 아니면 `검사 불가: git 레포가 아닙니다` + **exit 2** (통과를 뜻하는 0 이 아님). `readiness.py` 자신도 같은 규칙으로 exit 2.
+  - 기대: git 이 아니면 stderr `convention-guard: error: git 레포가 아닙니다` + **exit 2** (통과를 뜻하는 0 이 아님). `readiness.py` 자신도 같은 규칙으로 exit 2.
 
 - [ ] **A4. 추가 의존성이 없다** [자동][샌드박스]
   - 왜: 실행 경로는 표준 라이브러리만 씁니다. PyYAML 은 있으면 쓰고 없으면 내장 파서.
@@ -127,7 +127,7 @@ python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude/plugin
   - 실패하면: `config.yaml` 에 `stacks:`. 모노레포는 루트에서 한 번만 판정하므로 `applies_to.files` / `exclude` 로 나누세요.
 
 - [ ] **C4. 린터 위임이 의도대로다** [자동]
-  - 기대: 없는 린터는 `설치 안 됨 — 건너뜀`, 있는 린터는 `변경 줄만 차단 (parse: …)`. `출력 파싱 불가 → 전체 출력으로 차단` 이면 WARN — 무관한 기존 에러로도 막힙니다.
+  - 기대: 없는 린터는 `설치 안 됨 — 건너뜀`, 있는 린터는 `변경 줄만 차단 (parse: …)`. `출력 파싱 불가 — 전체 출력으로 차단` 이면 warn — 무관한 기존 에러로도 막힙니다.
   - 번들 명령은 `npx --no-install`, `./vendor/bin/*` 처럼 **이미 있는 바이너리만** 씁니다.
   - 실패하면: `stacks/*.yaml` 에 `parse:`, 또는 `linters.enabled: false`.
 
@@ -149,7 +149,7 @@ python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude/plugin
   - 기대: 모든 `tests.match` 가 걸리고 `no_match` 는 안 걸림. override 는 원본에 병합된 상태로 검사. `fix.auto` 는 위반을 해소하고 정상 코드는 그대로.
 
 - [ ] **D2. 적용 규칙마다 닿는 파일이 있다** [자동]
-  - 왜: `● 적용` 이어도 `applies_to.files` 가 레포 구조와 안 맞으면 (`app/**` 인데 코드가 `src/`) 영원히 걸리지 않습니다. 켜져 있는데 죽은 규칙입니다.
+  - 왜: `✔ on` 이어도 `applies_to.files` 가 레포 구조와 안 맞으면 (`app/**` 인데 코드가 `src/`) 영원히 걸리지 않습니다. 켜져 있는데 죽은 규칙입니다.
   - 기대: 적용 규칙마다 추적 파일 1개 이상에 닿음 (짝 규칙은 `when_changed` 기준).
   - 실패하면: 그 스택이 아직 없으면 무시해도 됩니다. 구조가 다르면 `override` 로 `applies_to.files` 수정.
 
@@ -212,9 +212,9 @@ python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude/plugin
 
 **가장 중요한 섹션입니다.** 위험한 방식은 하나 — "고장났는데 통과처럼 보이는 것". [샌드박스] — `tests/integration/test_cli_contract.py`, `test_lint_anchor.py`, `test_self_exclude.py`, `test_migrate.py`.
 
-- [ ] **H1. 잘못된 설정은 검사를 건너뛰되 말한다** — `convention-guard: 설정 오류로 검사를 건너뜁니다 — ...`. CLI 는 exit 2.
+- [ ] **H1. 잘못된 설정은 검사를 건너뛰되 말한다** — `convention-guard ✖ 건너뜀 — 설정 오류: ...`. CLI 는 stderr `convention-guard: error: ...` + exit 2.
 - [ ] **H2. 0.x 설정 키는 이동처까지 말한다** — `block_level: 0.x 설정입니다 → mode (scripts/migrate.py)`. 기본값으로 조용히 돌아가지 않음.
-- [ ] **H3. 내부 버그가 턴을 깨지 않는다** [자동] — `readiness.py` 가 설치본 `check.py` 에 비정상 입력을 넣어 확인: exit 0 + `내부 오류로 이번 검사를 건너뜁니다 — <원인>`.
+- [ ] **H3. 내부 버그가 턴을 깨지 않는다** [자동] — `readiness.py` 가 설치본 `check.py` 에 비정상 입력을 넣어 확인: exit 0 + `convention-guard ✖ 건너뜀 — 내부 오류: <원인>`.
 - [ ] **H4. 구조를 읽지 못한 파일은 고지된다** — `구조 미확인 N개 파일 — ...`, 후보는 걸러지지 않고 올라감.
 - [ ] **H5. 범위 계산 실패가 통과로 읽히지 않는다** — 검사 불가 메시지 + exit 2.
 - [ ] **H6. 검사되지 않은 편집·린터가 고지된다** — 수집 훅 예산 초과, 스냅샷 없는 Bash, 예산 안에 못 돈 린터 → `검사되지 않았습니다`.

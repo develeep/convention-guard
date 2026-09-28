@@ -24,7 +24,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import config as configlib, lint, pipeline, rules as rulelib  # noqa: E402
+from lib import config as configlib, fmt, lint, pipeline, rules as rulelib  # noqa: E402
 from lib.paths import git_toplevel, project_dir  # noqa: E402
 
 BEGIN = '<!-- convention-guard:begin 자동 생성 — 규칙을 고친 뒤 setup.py emit 으로 재생성하세요 -->'
@@ -50,11 +50,14 @@ def group_of(rule):
 
 
 def line_of(rule):
-    if rule['prevent']:
-        return rule['prevent']
-    # the first paragraph, not the first line: YAML wraps a sentence across lines
-    first = rule['message'].strip().replace('\r\n', '\n').split('\n\n')[0]
-    return '%s — %s' % (rule['title'], ' '.join(l.strip() for l in first.split('\n')))
+    """`**error** `core/x` 제목 — 안내`: the severity and id say which rule the hook
+    will name if this line is not followed."""
+    guidance = rule['prevent']
+    if not guidance:
+        # the first paragraph, not the first line: YAML wraps a sentence across lines
+        first = rule['message'].strip().replace('\r\n', '\n').split('\n\n')[0]
+        guidance = ' '.join(l.strip() for l in first.split('\n'))
+    return '**%s** `%s` %s — %s' % (rule['severity'], rule['id'], rule['title'], guidance)
 
 
 def linter_lines(root, cfg, stacks):
@@ -149,11 +152,16 @@ def emit(args):
     root = git_toplevel(project_dir(args.cwd))
     rules, linters, errors = pick(root)
     for text in errors:
-        print('[error] %s' % text, file=sys.stderr)
+        fmt.eprint('error', text)
     if errors:
         return 2
+    style = fmt.Style.for_stream()
     if not rules and not linters:
-        print('컨텍스트에 넣을 규칙이 없습니다. detect_stack.py 로 적용 규칙을 확인하세요.')
+        print(style.finish(fmt.blocks(
+            [fmt.header('setup emit', ['규칙 0개'], style=style)],
+            [fmt.item_head('info', '컨텍스트에 넣을 규칙이 없습니다', style=style)],
+            fmt.next_section([fmt.Step('적용 규칙을 확인하세요:', fmt.command('detect_stack.py'))],
+                             style=style))))
         return 0
 
     groups = {}
@@ -173,9 +181,13 @@ def emit(args):
             print('===== %s =====\n%s' % (target, block))
             return 0
         write_managed(os.path.join(root, target), block)
-        print('%s 관리 블록 갱신 — 규칙 %d개, 린터 %d개' % (target, len(rules), len(linters)))
+        written = ['  %s  (관리 블록)' % target]
         if args.agents_md and ensure_import(os.path.join(root, 'CLAUDE.md')):
-            print('CLAUDE.md 에 %s 가져오기를 추가했습니다' % AGENTS_IMPORT)
+            written.append('  CLAUDE.md  (%s 가져오기 추가)' % AGENTS_IMPORT)
+        print(style.finish(fmt.blocks(
+            [fmt.header('setup emit --%s' % ('agents-md' if args.agents_md else 'claude-md'),
+                        ['규칙 %d개' % len(rules), '린터 %d개' % len(linters)], style=style)],
+            [fmt.section('쓴 파일', style=style)] + written)))
         return 0
 
     files = {}
@@ -205,12 +217,14 @@ def emit(args):
         _write_whole(path, content)
         written.append(os.path.relpath(path, root))
     removed = _remove_stale(outdir, set(files))
-    print('규칙 %d개를 %d개 파일로 썼습니다:' % (len(rules), len(written)))
-    for rel in written:
-        print('  %s' % rel)
-    for rel in removed:
-        print('  (삭제) %s — 더 이상 해당 규칙이 없습니다' % os.path.relpath(rel, root))
-    print('\npaths: 프론트매터가 붙은 파일은 그 경로의 파일을 읽을 때 컨텍스트에 들어갑니다.')
+    print(style.finish(fmt.blocks(
+        [fmt.header('setup emit', ['규칙 %d개' % len(rules), '파일 %d개' % len(written)],
+                    style=style)],
+        [fmt.section('쓴 파일', style=style)] + ['  %s' % rel for rel in written],
+        [fmt.section('지운 파일', '더 이상 해당 규칙이 없습니다', style=style)]
+        + ['  %s' % os.path.relpath(rel, root) for rel in removed] if removed else [],
+        fmt.next_section([fmt.Step('paths: 프론트매터가 붙은 파일은 그 경로의 파일을 읽을 때 컨텍스트에 '
+                                   '들어갑니다. 커밋해 팀과 공유하세요.')], style=style))))
     return 0
 
 
@@ -310,8 +324,8 @@ def draft_config(root):
 def init(args):
     root = git_toplevel(project_dir(args.cwd))
     if rulelib.legacy_layout(root):
-        print('%s 가 있습니다 — 새로 만들지 말고 scripts/migrate.py 로 옮기세요'
-              % rulelib.LEGACY_DIRNAME, file=sys.stderr)
+        fmt.eprint('error', '%s 가 있습니다 — 새로 만들지 말고 scripts/migrate.py 로 옮기세요'
+                   % rulelib.LEGACY_DIRNAME)
         return 2
     target = os.path.join(rulelib.repo_dir(root), 'config.yaml')
     text = draft_config(root)
@@ -319,14 +333,19 @@ def init(args):
         print(text)
         return 0
     if os.path.exists(target) and not args.force:
-        print('이미 있습니다: %s  (덮어쓰려면 --force, 미리보기는 --stdout)' % target,
-              file=sys.stderr)
+        fmt.eprint('error', '이미 있습니다: %s (덮어쓰려면 --force, 미리보기는 --stdout)' % target)
         return 1
     os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(target, 'w', encoding='utf-8') as fh:
         fh.write(text)
-    print('썼습니다: %s' % os.path.relpath(target, root))
-    print('다음: detect_stack.py 로 적용 규칙을 확인하고, scan.py 로 최근 변경분을 측정하세요.')
+    style = fmt.Style.for_stream()
+    print(style.finish(fmt.blocks(
+        [fmt.header('setup init', ['%s 씀' % os.path.relpath(target, root).replace(os.sep, '/')],
+                    style=style)],
+        fmt.next_section([fmt.Step('적용 규칙을 확인하세요:', fmt.command('detect_stack.py')),
+                          fmt.Step('최근 변경분을 측정하세요:',
+                                   fmt.command('scan.py', '--range', 'HEAD~20..HEAD'))],
+                         style=style))))
     return 0
 
 

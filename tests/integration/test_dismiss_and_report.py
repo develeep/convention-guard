@@ -15,6 +15,7 @@ Report:
 """
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -70,8 +71,9 @@ def case_integrity():
         with open(os.path.join(repo, DISMISSED), 'a', encoding='utf-8') as fh:
             fh.write('  # 팀 메모: 이 항목들은 분기마다 다시 본다\n')
         listed = dismiss(repo, data, '--list')
+        digest = re.search(r'hash: "?([0-9a-f]{10})', read(repo, DISMISSED)).group(1)
         check('--list shows the fingerprint',
-              any('app/Svc/A.php:' in line for line in listed.stdout.splitlines()), listed.stdout)
+              any(A in line and digest in line for line in listed.stdout.splitlines()), listed.stdout)
 
         by_key = dismiss(repo, data, '--key', 'core/php-no-debug-output:%s:%s'
                          % (A, 'abcdef1234'), '--reason', '키로 기록')
@@ -96,7 +98,7 @@ def case_audit_finding_can_be_dismissed():
         clean = run_script('scan.py', ['--cwd', repo, '--no-lint', '--fail-on', 'never',
                                        '--no-color'], env=isolated_env(data), cwd=repo)
         check('the change scope sees nothing -- it is committed, untouched code',
-              '지적 사항 없음' in clean.stdout, clean.stdout)
+              '✔ 지적 없음' in clean.stdout, clean.stdout)
 
         out = dismiss(repo, data, '--rule', 'core/php-no-debug-output', '--file', A,
                       '--line', '8', '--reason', '레거시 디버그 유틸', '--by', 'agent')
