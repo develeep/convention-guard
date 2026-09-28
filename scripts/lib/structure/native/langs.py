@@ -90,6 +90,9 @@ class LangDef(NamedTuple):
     tag_boundaries: Tuple[Tuple[str, str], ...] = ()
     text_comment: Tuple[Tuple[str, str, bool], ...] = ()       # comments outside tags
     starts_in_code: bool = True
+    # `/.../flags` can be a literal (JS). Its quotes and backticks open nothing,
+    # and a `/` that might be division is division (SR-12b).
+    regex_literals: bool = False
     function_pattern: Optional[re.Pattern] = None
     # Iteration that is written as a call taking a callback -- `xs.map(x => {`,
     # `$users->each(function ($u) {`. FR-01.2 counts `each` and `map` as loops,
@@ -138,6 +141,7 @@ LANGUAGES = {
         block_comment=C_BLOCK,
         string_delims=QUOTES,
         multiline_strings=(Multiline('`', '`', escape='\\', interpolation=('${', '}')),),
+        regex_literals=True,
         function_pattern=FUNCTION_PATTERNS['js'],
         iteration_call=ITERATION_CALLS['js'],
         class_keywords=('class', 'interface', 'enum'),

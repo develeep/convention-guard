@@ -97,6 +97,26 @@ def case_block_empty():
           conditions.evaluate(rule(block_empty=True), fs, Span(6, 11)) == REJECT)
 
 
+def case_block_empty_with_regex():
+    """The reported file: a regex literal with a quote used to break parsing,
+    so block_empty came back UNKNOWN and a non-empty catch was flagged."""
+    print('case_block_empty_with_regex:')
+    body = ("export class A {\n    public async run(): Promise<void> {\n        try {\n"
+            "            let c = 'x';\n            c = c.replaceAll(/'/g, \"''\");\n"
+            "            return;\n        } catch (error) {\n%s        }\n    }\n}\n")
+    for label, inner, expected in (
+            ('a non-empty catch next to a regex is rejected',
+             '            throw new Error(error.message);\n', REJECT),
+            ('an empty catch next to a regex is accepted', '', ACCEPT)):
+        text = body % inner
+        fs = structure.analyze(text, 'js')
+        start = text.index('catch')
+        span = Span(start, text.index('}', text.index('{', start)) + 1)
+        check('the file parses (%s)' % label, fs.ok, fs.reason)
+        got = conditions.evaluate(rule(block_empty=True), fs, span)
+        check(label, got == expected, got)
+
+
 def case_unknown():
     print('case_unknown:')
     broken = PHP + '$a = "oops;\ndd(1);\n'
@@ -149,7 +169,7 @@ def case_never_raises():
 
 def main():
     for case in (case_gate, case_not_in, case_in_scope, case_block_empty,
-                 case_unknown, case_combining, case_never_raises):
+                 case_block_empty_with_regex, case_unknown, case_combining, case_never_raises):
         case()
     return finish('structure.conditions')
 

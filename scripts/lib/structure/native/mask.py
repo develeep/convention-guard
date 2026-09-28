@@ -47,6 +47,21 @@ class _Patterns(NamedTuple):
 
 
 _NEWLINE = re.compile(r'\n')
+# The rest of a regex literal after its opening `/`, flags included, matched in
+# one go (NR-03). `\\.` consumes an escaped slash; a `[...]` class may hold `/`.
+# Every alternative starts on a different character, so this never backtracks
+# into itself. A literal cannot cross a line: no closing `/` on the line means
+# the opener was division after all.
+_REGEX_BODY = re.compile(r'(?:[^\\/\[\n]|\\.|\[(?:[^\\\]\n]|\\.)*\])+/[A-Za-z]*')
+# What may come right before a regex literal. Anything else -- an identifier, a
+# number, `)`, `]`, a closing quote -- makes `/` division, the safe reading:
+# a missed regex is today's behaviour, a false one breaks a sound file.
+_REGEX_AFTER_PUNCT = frozenset('(,=:[!&|?{};')
+_REGEX_AFTER_WORD = frozenset(('return', 'typeof', 'case', 'do', 'else', 'in', 'of', 'new',
+                               'delete', 'void', 'throw', 'instanceof', 'yield', 'await'))
+_TRAILING_WORD = re.compile(r'(\w+)$')
+# How far back to look for the previous token; past it, `/` is division.
+_LOOKBEHIND = 64
 _HEREDOC_ID = re.compile(r"[ \t]*(['\"]?)(\w+)\1")
 _CACHE = {}
 _TERMINATORS = {}
@@ -84,6 +99,9 @@ def _build(langdef):
         code.append(('ml%d' % i, re.escape(spec.open), len(spec.open)))
     for i, delim in enumerate(langdef.string_delims):
         code.append(('sd%d' % i, re.escape(delim.open), len(delim.open)))
+    if langdef.regex_literals:
+        # weight 1, so `//` and `/*` are tried first (SR-01)
+        code.append(('rx', '/', 1))
     for _open, close in langdef.tag_boundaries:
         code.append(('tagclose', re.escape(close), len(close)))
         break                                   # every boundary shares one closer
@@ -240,6 +258,8 @@ def _step_code(text, langdef, pats, stack, frame, match, group, comments, string
         stack.append(frame)
     elif group.startswith('ml'):
         return _open_multiline(text, pats, stack, match, int(group[2:]))
+    elif group == 'rx':
+        return _regex_literal(text, match.start(), strings, base)
     elif group == 'tagclose':
         if len(stack) > 1:
             stack.pop()
@@ -253,6 +273,27 @@ def _step_code(text, langdef, pats, stack, frame, match, group, comments, string
             stack.pop()
             stack[-1].start = match.start()       # the next fragment owns the `}`
     return None
+
+
+def _regex_can_start(text, start):
+    """Does `/` at `start` open a regex literal? Judged by the token before it."""
+    window = text[max(0, start - _LOOKBEHIND):start].rstrip()
+    if not window:
+        return start <= _LOOKBEHIND           # start of file, not just a long gap
+    if window[-1] in _REGEX_AFTER_PUNCT:
+        return True
+    word = _TRAILING_WORD.search(window)
+    return bool(word) and word.group(1) in _REGEX_AFTER_WORD
+
+
+def _regex_literal(text, start, strings, base):
+    """Record a regex literal and return where code resumes (SR-12b)."""
+    if _regex_can_start(text, start):
+        body = _REGEX_BODY.match(text, start + 1)
+        if body is not None:
+            strings.append(Span(base + start, base + body.end()))
+            return body.end()
+    return start + 1                          # division
 
 
 def _open_multiline(text, pats, stack, match, index):

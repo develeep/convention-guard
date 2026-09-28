@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Comment and string spans, per language.
 
-`business-rules.md` SR-01~SR-12. Spans include their delimiters (Q1=A), an
+`business-rules.md` SR-01~SR-12b. Spans include their delimiters (Q1=A), an
 interpolation hole splits a literal into fragments (CQ1=A), and a token left
 open at end of file is a failure, not a guess (Q2=B).
 """
@@ -182,9 +182,46 @@ def case_failures():
           all(0 <= s.start < s.end <= len(text) for s in res.strings + res.comments))
 
 
+def case_js_regex_literals():
+    """SR-12b. A regex literal is one literal span; its quotes, backticks and
+    slashes open nothing. When `/` could be either, it is division."""
+    print('case_js_regex_literals:')
+    for label, src, literal in (
+            ("a quote in a regex opens no string", 'x.replaceAll(/\'/g, "")', "/\'/g"),
+            ('a double quote in a regex opens no string', 'x.split(/"/)', '/"/'),
+            ('a backtick in a regex opens no template', 'x.split(/`/)', '/`/'),
+            ('a slash inside a character class does not end it', 'x.split(/[*/]/)', '/[*/]/'),
+            ('an escaped slash does not end it', "x.match(/a\\/'b/)", "/a\\/'b/"),
+            ('a regex after return', "return /'/.test(s);", "/'/"),
+            ('a regex after =', "const r = /'/g;", "/'/g")):
+        text = src + '\n'
+        res = run(text, 'js')
+        check(label, res.ok and literal in pieces(text, res.strings),
+              '%s %s' % (res.reason, pieces(text, res.strings)))
+    for label, src in (('division between identifiers', "a / b; c = 'x';"),
+                       ('division after a call', "f(a) / 2; s = 'y';"),
+                       ('division after a number', "n = 10 / 2 / 5; s = 'z';"),
+                       ('division after an index', "xs[0] / xs[1]; s = 'w';")):
+        text = src + '\n'
+        res = run(text, 'js')
+        check(label + ' is not a regex', res.ok and all(
+            not p.startswith('/') for p in pieces(text, res.strings)),
+            '%s %s' % (res.reason, pieces(text, res.strings)))
+    # after `;` a slash reads as a regex opener, but no `/` closes it on the line
+    res = run("w = {};\n/ 2 + 'q';\n", 'js')
+    check('a slash with no closing slash on its line is division, not a failure',
+          res.ok, str(res.reason))
+    text = "if (/{/.test(s)) {\n  go();\n}\n"
+    res = run(text, 'js')
+    check('a regex is not code: its braces are masked', res.ok and '/{/' in pieces(
+        text, res.strings), str(pieces(text, res.strings)))
+    res = run(PHP + "$x = f('a') / 2;\n", 'php')
+    check('php has no regex literals: a slash is just a slash', res.ok, str(res.reason))
+
+
 def main():
     for case in (case_basics, case_php_specifics, case_interpolation,
-                 case_other_languages, case_blade, case_failures):
+                 case_other_languages, case_blade, case_failures, case_js_regex_literals):
         case()
     return finish('structure.native.mask')
 
