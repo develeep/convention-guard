@@ -78,7 +78,8 @@ semantic_review:
 
 | 스킬 | 언제 |
 |---|---|
-| `convention-setup` | 도입, 설정 다시 잡기, 0.x 마이그레이션 |
+| `convention-setup` | 도입 (언제나 최초 실행 기준으로 새로 셋업) |
+| `convention-readiness` | 실서비스에 켜기 전 도입 체크리스트 전 항목 점검 |
 | `convention-discover` | CLAUDE.md·PR 리뷰·코드에서 팀 컨벤션을 찾아 규칙 후보로 |
 | `convention-check` | 훅 없이 지금 검사 (커밋·PR 직전, 브랜치, 전수조사) |
 | `rule-add` | 반복되는 리뷰 지적을 규칙으로 |
@@ -93,6 +94,7 @@ semantic_review:
 | `dismiss.py` | 오탐 기각 기록 |
 | `review.py` | 의미 판정 배치 보기·기록 (리뷰어 에이전트용) |
 | `log_report.py` | 규칙 건강도 |
+| `readiness.py` | 도입 체크리스트([docs/production-readiness.md](docs/production-readiness.md)) 자동 점검. `--quick` `--all` |
 | `setup.py` | `init` 설정 초안, `emit` 적용 규칙 전부와 린터를 컨텍스트 문서로 |
 | `migrate.py` | 0.x → 1.0 |
 | `check.py` / `collect.py` | Stop / PostToolUse 훅 |
@@ -115,6 +117,7 @@ CI:
 | [docs/semantic-review.md](docs/semantic-review.md) | 의미 판정 흐름, 최소 컨텍스트, 판정 캐시, 비용 |
 | [docs/configuration.md](docs/configuration.md) | 전체 설정 키, mode, 린터 위임, 설정 오류 |
 | [docs/development.md](docs/development.md) | 테스트, 규칙·엔진·스킬 변경 절차, 릴리스 |
+| [docs/production-readiness.md](docs/production-readiness.md) | 실 서비스 도입 체크리스트 — 배선·정확도·장애 모드·CI·운영 |
 | [docs/migration-1.0.md](docs/migration-1.0.md) | 0.x 에서 옮기기 |
 
 ## 알려진 한계

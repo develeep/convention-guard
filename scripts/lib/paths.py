@@ -49,15 +49,21 @@ def git_toplevel(path):
 
 def user_option(key, default=None):
     """userConfig value, delivered to hooks as CLAUDE_PLUGIN_OPTION_<KEY>."""
-    raw = os.environ.get('CLAUDE_PLUGIN_OPTION_' + key.upper())
+    return parse_option(os.environ.get('CLAUDE_PLUGIN_OPTION_' + key.upper()), default)
+
+
+def parse_option(raw, default=None):
+    """How a userConfig value reads: '' is unset, yes/no/on/off/1/0 are booleans."""
+    if isinstance(raw, bool):
+        return raw
     if raw is None or raw == '':
         return default
-    low = raw.strip().lower()
-    if low in ('true', '1', 'yes', 'on'):
+    text = str(raw).strip()
+    if text.lower() in ('true', '1', 'yes', 'on'):
         return True
-    if low in ('false', '0', 'no', 'off'):
+    if text.lower() in ('false', '0', 'no', 'off'):
         return False
-    return raw.strip()
+    return text
 
 
 def data_dir():

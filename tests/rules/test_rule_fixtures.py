@@ -41,10 +41,12 @@ from lib.yamlio import read as read_yaml  # noqa: E402
 matcher = fixtures.matcher
 
 
-def layers(repo):
-    """[(path, source, raw)] with local overrides merged into their targets."""
+def layers(repo, user_dir=None):
+    """[(path, source, raw)] with user/local overrides merged into their targets."""
     out, by_id = [], {}
     bases = [(os.path.join(ROOT, 'rules'), 'core')]
+    if user_dir:
+        bases.append((user_dir, 'user'))
     if repo:
         bases.append((rulelib.local_rules_dir(repo), 'local'))
     for base, source in bases:
@@ -69,13 +71,15 @@ def layers(repo):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--repo', help='로컬 오버레이까지 함께 검사할 레포 경로')
+    parser.add_argument('--user-dir', help='개인 규칙 디렉터리도 함께 검사 '
+                                           '(보통 ~/.claude/convention-guard/rules)')
     args = parser.parse_args()
 
     failures, warnings, checked, rules = [], [], 0, 0
     presets, preset_notes = rulelib.load_presets(ROOT)
     failures += [text for _, text in preset_notes]
 
-    for path, source, raw, err in layers(args.repo):
+    for path, source, raw, err in layers(args.repo, args.user_dir):
         rel = os.path.relpath(path, ROOT) if path.startswith(ROOT) else path
         if err:
             failures.append('%s: %s' % (rel, err))
