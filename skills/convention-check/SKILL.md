@@ -13,7 +13,7 @@ Stop 훅과 **같은 파이프라인**을 씁니다. 수동 결과와 훅 결과
 - [ ] 1. 범위 고르기
 - [ ] 2. scan.py 실행
 - [ ] 3. 결정론 후보 판정 (직접 Read)
-- [ ] 4. semantic 후보가 있으면 --review → convention-reviewer 에게 위임
+- [ ] 4. 의미 판정 후보가 있으면 --review → convention-reviewer 에게 위임
 - [ ] 5. 오탐은 기각 기록, VIOLATION 만 위반으로 보고
 - [ ] 6. (요청 시) 고치고 재검사
 ```
@@ -25,7 +25,7 @@ scan.py
   ├ 결정론 후보 (detect 만 있는 규칙)
   │    → 메인 에이전트가 필요한 최소 코드 맥락을 Read 해서 판정
   │
-  └ semantic 후보 (semantic_review 가 있는 규칙)
+  └ 의미 판정 후보 (semantic_review 가 있는 규칙)
        → scan.py --review → 판정 배치 → convention-reviewer 에이전트
        → VIOLATION / VALID / FALSE_POSITIVE 기록 → VIOLATION 만 돌아옴
 ```
@@ -40,7 +40,7 @@ scan.py
 |---|---|
 | (기본) 지금 바뀐 것 | 없음 |
 | 커밋 직전 | `--staged` |
-| PR 올리기 전, 브랜치 전체 | `--range origin/main..HEAD` |
+| PR 올리기 전, 브랜치 전체 | `--base-ref auto` (기본 브랜치와의 merge-base 이후 전부) |
 | 이 파일 | `--files app/X.php` |
 | 레거시 규모, 도입 전 감사 | `--all`  |
 
@@ -58,11 +58,11 @@ scan.py는 결정론적인 검사를 수행하고, 컨벤션 위반 가능성이
 
 종료 코드:
 
-0: 검사 결과 위반 없음
-1: 위반 발견
-2: 검사 불가
+- `0`: error 지적 없음 — **warn·info 후보는 있을 수 있으므로 출력을 반드시 읽습니다**
+- `1`: error 지적 또는 변경 줄에 걸린 린터 실패
+- `2`: 검사 불가
 
-`2` 결과가 없는게 아니라 Git 저장소가 아니거나, 범위가 잘못되었거나, 설정 오류 등으로 검사를 완료하지 못한 경우이므로 stderr를 확인하고 사용자에게 검사 실패 원인을 전달합니다. 
+`2` 는 결과가 없는 것이 아니라 Git 저장소가 아니거나, 범위가 잘못되었거나, 설정 오류 등으로 검사를 완료하지 못한 경우입니다. stderr 를 확인하고 사용자에게 검사 실패 원인을 전달합니다.
 
 옵션 전체와 CI 연동: [references/cli.md](references/cli.md)
 
@@ -73,7 +73,7 @@ scan.py는 결정론적인 검사를 수행하고, 컨벤션 위반 가능성이
 - 린터 실패는 확정 위반입니다. 판정 없이 맨 앞에 둡니다.
 - 요약의 `semantic 규칙 후보 N건` 은 **여기서 판정하지 않습니다** — 4단계로 갑니다. 그 후보의 코드를 직접 Read 해서 판정하지 마세요.
 
-### 4. semantic 후보는 convention-reviewer 에게
+### 4. 의미 판정 후보는 convention-reviewer 에게
 
 2단계 요약에 `semantic 규칙 후보 N건` 이 **0건이면 이 단계를 건너뜁니다** — 리뷰어를 부르지 않습니다.
 
@@ -95,7 +95,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/dismiss.py" --rule <규칙id> --file <파
 
 기각 기준과 파일 전체 기각: [references/dismiss.md](references/dismiss.md)
 
-보고에 넣는 것은 **확정된 위반**뿐입니다: 린터 실패, 3단계에서 위반으로 판정한 결정론 후보, 리뷰어가 `VIOLATION` 으로 돌려준 semantic 후보. 리뷰어의 `VALID`·`FALSE_POSITIVE` 는 위반이 아니므로 보고하지 않습니다 (판정은 이미 기록됐고, rule-tune 이 그 차이로 규칙을 손봅니다).
+보고에 넣는 것은 **확정된 위반**뿐입니다: 린터 실패, 3단계에서 위반으로 판정한 결정론 후보, 리뷰어가 `VIOLATION` 으로 돌려준 의미 판정 후보. 리뷰어의 `VALID`·`FALSE_POSITIVE` 는 위반이 아니므로 보고하지 않습니다 (판정은 이미 기록됐고, rule-tune 이 그 차이로 규칙을 손봅니다).
 
 보고는 규칙별로 묶고, 위반마다 위치와 고칠 방법 한 줄. 20건이 넘으면 규칙별 건수로 요약하고 상위 몇 개만 보여줍니다. 지적 0건이면 그대로 보고하고 끝냅니다 — 범위를 넓혀 억지로 찾지 않습니다.
 
@@ -109,7 +109,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --fix --no-color            # �
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --fix --write --no-color    # 적용 후 남은 것 보고
 ```
 
-semantic 위반을 고쳤으면 재검사도 `--review` 로 합니다. 함수 본문이나 규칙이 바뀐 후보만 다시 판정 대상이 됩니다.
+의미 판정 위반을 고쳤으면 재검사도 `--review` 로 합니다. 함수 본문이나 규칙이 바뀐 후보만 다시 판정 대상이 됩니다.
 
 재검사에서 **새로 생긴** 지적이 있으면 방금 수정이 만든 것입니다. 그 수정부터 다시 봅니다.
 

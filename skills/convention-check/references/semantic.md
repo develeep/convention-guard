@@ -34,7 +34,7 @@ python3 "<plugin>/scripts/scan.py" --review --no-color
 | 판정 | 뜻 | 보고 |
 |---|---|---|
 | `VIOLATION` | 실제 컨벤션 위반 | 보고하고, 요청 시 수정 |
-| `VALID` | 게이트는 적절했지만 그 코드는 정상 | 보고하지 않음 |
+| `VALID` | 게이트가 겨냥한 종류의 코드였지만 위반은 아님 | 보고하지 않음 |
 | `FALSE_POSITIVE` | 게이트(detect 정규식)가 엉뚱한 코드를 잡음 | 보고하지 않음 — rule-tune 이 규칙을 좁히는 근거 |
 
 `VALID` 와 `FALSE_POSITIVE` 는 둘 다 위반이 아니지만 규칙 품질에서는 다른 데이터이므로 합치지 않습니다.

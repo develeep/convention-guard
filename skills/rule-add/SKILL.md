@@ -26,7 +26,7 @@ description: 반복되는 리뷰 지적이나 팀 컨벤션 항목을 convention
 
 | 대상 | 맡길 곳 |
 |---|---|
-| 포맷, import 순서, 미사용 변수 | 린터·포맷터 설정 (`examples/formatters/`) |
+| 포맷, import 순서, 미사용 변수 | 린터·포맷터 설정 (`${CLAUDE_PLUGIN_ROOT}/examples/formatters/`) |
 | 타입 추론, 호출 그래프 | phpstan / tsc / golangci-lint |
 | 코드에 흔적이 남지 않는 것 (커밋 메시지, 설계 합의) | 문서 |
 
