@@ -25,7 +25,7 @@ detect: {...}                     # 아래
 semantic_review: {...}            # 선택. 아래
 message: |                        # 위반일 때 에이전트가 읽는 지침: 문제 한 줄 + 할 일 한 줄
   ...
-prevent: 쓰기 전에 알아야 할 한 줄   # 선택. setup.py emit 이 컨텍스트로 내보냄
+prevent: 쓰기 전에 알아야 할 한 줄   # 선택. setup.py emit 이 제목 — message 대신 이 줄을 씀
 fix: {...}                        # 선택. 아래
 tests:
   match: [...]                    # 걸려야 하는 것 (1개 이상 필수)

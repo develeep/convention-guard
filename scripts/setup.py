@@ -8,10 +8,11 @@
     python3 setup.py emit --claude-md     # CLAUDE.md 관리 블록
     python3 setup.py emit --stdout        # 쓰지 않고 미리보기
 
-Instruction vs. verification: the hook catches what can be checked after the
-fact, so only rules that carry a `prevent` line -- things expensive to undo
-once written -- go into context. Everything else stays out, because a long
-list of mechanically-checkable rules buried in context gets ignored anyway.
+Every applicable rule goes into context, even the ones the hook also checks
+after the fact: an agent that knows the convention before writing produces
+fewer blocks than one that learns it from the block. A rule's `prevent` line
+is used when it has one, otherwise its title and the first line of its
+message. Each linter that would run gets one line naming its command.
 
 Only the managed block (between the begin/end markers) is owned by this
 script. Anything a person writes around it survives regeneration.
@@ -32,9 +33,7 @@ MARKER = 'convention-guard:begin'
 HEADINGS = {'common': '공통', 'php': 'PHP', 'js': 'JavaScript / TypeScript', 'go': 'Go',
             'local': '이 레포 전용', 'user': '개인'}
 AGENTS_IMPORT = '@AGENTS.md'
-# Past a dozen lines per file, prevention lines stop being read as rules and
-# start being read as noise.
-DEFAULT_BUDGET = 12
+LINT_GROUP = 'lint'
 
 
 def group_of(rule):
@@ -50,37 +49,58 @@ def group_of(rule):
     return 'common' if head.startswith('_') else head
 
 
-def pick(root, all_severities=False):
+def line_of(rule):
+    if rule['prevent']:
+        return rule['prevent']
+    # the first paragraph, not the first line: YAML wraps a sentence across lines
+    first = rule['message'].strip().replace('\r\n', '\n').split('\n\n')[0]
+    return '%s — %s' % (rule['title'], ' '.join(l.strip() for l in first.split('\n')))
+
+
+def linter_lines(root, cfg, stacks):
+    """One line per linter that would actually run here."""
+    if not cfg['linters']['enabled']:
+        return []
+    out = []
+    for entry in stacks.lint:
+        if not lint.binary_present(root, entry):
+            continue
+        argv = entry['cmd'].split() if isinstance(entry['cmd'], str) else entry['cmd']
+        cmd = ' '.join(a for a in argv if a != '{files}')
+        scope = ', '.join(entry.get('files') or []) or '모든 파일'
+        line = '`%s` 가 %s 를 검사합니다. 끝내기 전에 통과시키세요.' % (cmd, scope)
+        if line not in out:
+            out.append(line)
+    return out
+
+
+def pick(root):
     cfg = configlib.load(root)
     stacks = pipeline.detect_stacks(root, cfg)
     ruleset = pipeline.load_rules(root, cfg, stacks)
     errors = [t for lv, t in list(cfg.notes) + list(ruleset.notes) if lv == 'error']
-    picked = []
-    for rule in ruleset.rules:
-        if not rulelib.stack_ok(rule, stacks.tags, stacks.versions):
-            continue
-        if rule['prevent']:
-            picked.append(rule)
-        elif all_severities and rule['severity'] == 'error':
-            picked.append(dict(rule, prevent='%s — %s' % (rule['title'],
-                                                          rule['message'].split('\n')[0])))
-    return sorted(picked, key=lambda r: (rulelib.severity_rank(r), r['id'])), errors
+    picked = [dict(rule, prevent=line_of(rule)) for rule in ruleset.rules
+              if rulelib.stack_ok(rule, stacks.tags, stacks.versions)]
+    picked.sort(key=lambda r: (rulelib.severity_rank(r), r['id']))
+    return picked, linter_lines(root, cfg, stacks), errors
 
 
-def body_for(group, rules, budget, heading_level=1, with_preface=True):
+def body_for(group, rules, heading_level=1, with_preface=True):
     out = ['%s %s 컨벤션 — 쓰기 전에 알아야 할 것' % ('#' * heading_level,
                                                   HEADINGS.get(group, group)), '']
     if with_preface:
         out += [preface(), '']
-    out += ['- %s' % rule['prevent'] for rule in rules[:budget]]
-    if len(rules) > budget:
-        out += ['', '<!-- 예산(%d개) 초과로 %d개 생략됨 -->' % (budget, len(rules) - budget)]
+    out += ['- %s' % rule['prevent'] for rule in rules]
     return '\n'.join(out)
 
 
+def lint_body(lines, heading_level=1):
+    return '\n'.join(['%s 린터' % ('#' * heading_level), ''] + ['- %s' % l for l in lines])
+
+
 def preface():
-    return ('기계적으로 판정되는 규칙은 작업이 끝날 때 훅이 검사하므로 여기 적지 않습니다. '
-            '아래는 나중에 잡기 어렵거나, 잡혔을 때 되돌리는 비용이 큰 것들입니다.')
+    return ('이 레포에 적용되는 컨벤션 전부입니다. 작업이 끝나면 훅이 같은 규칙으로 검사하므로, '
+            '쓰기 전에 지키면 차단되지 않습니다.')
 
 
 def managed(body):
@@ -127,13 +147,13 @@ def ensure_import(claude_md):
 
 def emit(args):
     root = git_toplevel(project_dir(args.cwd))
-    rules, errors = pick(root, args.all_severities)
+    rules, linters, errors = pick(root)
     for text in errors:
         print('[error] %s' % text, file=sys.stderr)
     if errors:
         return 2
-    if not rules:
-        print('컨텍스트에 넣을 규칙이 없습니다. 규칙에 prevent 한 줄을 붙이세요.')
+    if not rules and not linters:
+        print('컨텍스트에 넣을 규칙이 없습니다. detect_stack.py 로 적용 규칙을 확인하세요.')
         return 0
 
     groups = {}
@@ -142,16 +162,18 @@ def emit(args):
 
     if args.agents_md or args.claude_md:
         # one document has no path scoping: every line loads in every session
-        body = '\n\n'.join([preface()] + [body_for(g, rs, args.budget, heading_level=2,
-                                                   with_preface=False)
-                                          for g, rs in sorted(groups.items())])
+        parts = [body_for(g, rs, heading_level=2, with_preface=False)
+                 for g, rs in sorted(groups.items())]
+        if linters:
+            parts.append(lint_body(linters, heading_level=2))
+        body = '\n\n'.join([preface()] + parts)
         block = managed(body)
         target = 'AGENTS.md' if args.agents_md else 'CLAUDE.md'
         if args.stdout:
             print('===== %s =====\n%s' % (target, block))
             return 0
         write_managed(os.path.join(root, target), block)
-        print('%s 관리 블록 갱신 — 규칙 %d개' % (target, len(rules)))
+        print('%s 관리 블록 갱신 — 규칙 %d개, 린터 %d개' % (target, len(rules), len(linters)))
         if args.agents_md and ensure_import(os.path.join(root, 'CLAUDE.md')):
             print('CLAUDE.md 에 %s 가져오기를 추가했습니다' % AGENTS_IMPORT)
         return 0
@@ -160,13 +182,17 @@ def emit(args):
     for group, group_rules in sorted(groups.items()):
         globs = []
         for rule in group_rules:
-            if not rule['files']:
+            # a paired rule without `files` still only concerns its when_changed paths
+            reach = rule['files'] or (rule['when_changed'] if rule['kind'] == 'paired' else [])
+            if not reach:
                 globs = []          # one global rule makes the whole file global
                 break
-            globs += [g for g in rule['files'] if g not in globs]
+            globs += [g for g in reach if g not in globs]
         front = ['---', 'paths:'] + ['  - "%s"' % g for g in globs] + ['---', ''] if globs else []
-        block = managed(body_for(group, group_rules, args.budget))
+        block = managed(body_for(group, group_rules))
         files['convention-%s.md' % group] = '\n'.join(front) + block
+    if linters:
+        files['convention-%s.md' % LINT_GROUP] = managed(lint_body(linters))
 
     outdir = os.path.join(root, args.out)
     if args.stdout:
@@ -311,15 +337,12 @@ def main():
     p_init.add_argument('--stdout', action='store_true', help='쓰지 않고 출력만')
     p_init.add_argument('--force', action='store_true', help='기존 config.yaml 을 덮어씁니다')
     p_init.add_argument('--cwd')
-    p_emit = sub.add_parser('emit', help='prevent 규칙을 에이전트 컨텍스트 문서로 내보냅니다')
+    p_emit = sub.add_parser('emit', help='적용 규칙 전부와 린터를 에이전트 컨텍스트 문서로 내보냅니다')
     p_emit.add_argument('--out', default='.claude/rules', help='규칙 파일 디렉터리')
     target = p_emit.add_mutually_exclusive_group()
     target.add_argument('--agents-md', action='store_true', help='AGENTS.md 관리 블록으로')
     target.add_argument('--claude-md', action='store_true', help='CLAUDE.md 관리 블록으로')
     p_emit.add_argument('--stdout', action='store_true', help='쓰지 않고 출력만')
-    p_emit.add_argument('--budget', type=int, default=DEFAULT_BUDGET, help='그룹당 규칙 상한')
-    p_emit.add_argument('--all-severities', action='store_true',
-                        help='prevent 가 없는 error 규칙도 제목으로 포함')
     p_emit.add_argument('--cwd')
     args = parser.parse_args()
     if args.command == 'init':

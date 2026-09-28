@@ -16,7 +16,7 @@ description: 반복되는 리뷰 지적이나 팀 컨벤션 항목을 convention
 - [ ] 4. 실제 코드에서 위반·정상 사례 찾기
 - [ ] 5. 규칙 파일 작성
 - [ ] 6. 검증 루프 (픽스처 → 전수조사 → 좁히기)
-- [ ] 7. 예방 컨텍스트 여부 결정
+- [ ] 7. 컨텍스트 문서 재생성
 - [ ] 8. 보고
 ```
 
@@ -76,17 +76,13 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --rule <id> --no-lint --fa
 
 플러그인 규칙이라면 앵커가 `when_line_added` 단독이 아닐 때 `tests/rules/scenarios/` 에 git 시나리오(새 코드는 걸림 / 손대지 않은 레거시는 조용함)도 추가하고 `python3 "${CLAUDE_PLUGIN_ROOT}/tests/run_all.py"` 를 돌립니다.
 
-### 7. 예방 컨텍스트 여부
+### 7. 컨텍스트 문서 재생성
 
-대부분의 규칙은 훅이 잡으므로 컨텍스트에 넣지 않습니다. **잡힌 뒤 되돌리는 비용이 클 때만** `prevent:` 한 줄(명령형)을 붙이고 재생성합니다.
-
-| prevent 를 붙임 | 붙이지 않음 |
-|---|---|
-| 파일 구조를 바꿔야 고쳐지는 것 (검증 계층, 'use client' 분리) | 한 줄 치환으로 끝나는 것 |
-| 되돌리기 어려운 것 (마이그레이션) | 포맷터가 고치는 것 |
+적용되는 규칙은 전부 AGENTS.md (또는 `.claude/rules/`) 에 들어갑니다. 기본 문구는 `제목 — message 첫 문단` 입니다. 쓰기 전에 알아야 할 것을 명령형 한 줄로 더 잘 말할 수 있으면 `prevent:` 를 붙입니다 — 그 줄이 대신 쓰입니다. 규칙을 만들었으면 레포가 쓰는 방식으로 재생성합니다.
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" emit --stdout
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" emit --agents-md   # AGENTS.md 를 쓰는 레포
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" emit               # .claude/rules/ 를 쓰는 레포
 ```
 
 ### 8. 보고

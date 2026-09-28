@@ -45,7 +45,7 @@ S=~/.claude/plugins/.../convention-guard/scripts   # 설치 위치
 python3 $S/detect_stack.py                  # 감지된 스택·프리셋·적용 규칙·린터
 python3 $S/setup.py init                    # .claude/convention-guard/config.yaml 초안 (mode: report)
 python3 $S/scan.py --range HEAD~20..HEAD    # 최근 변경분에 몇 건이 걸리는지 측정
-python3 $S/setup.py emit --agents-md        # 되돌리기 비싼 규칙만 AGENTS.md 로
+python3 $S/setup.py emit --agents-md        # 적용 규칙 전부 + 린터를 AGENTS.md 로
 ```
 
 도입 첫 2~3주는 `mode: report` 로 기록만 쌓고, `rule-tune` 스킬로 건강도를 본 뒤 `mode: fix` 로 올리세요.
@@ -93,7 +93,7 @@ semantic_review:
 | `dismiss.py` | 오탐 기각 기록 |
 | `review.py` | 의미 판정 배치 보기·기록 (리뷰어 에이전트용) |
 | `log_report.py` | 규칙 건강도 |
-| `setup.py` | `init` 설정 초안, `emit` 예방 규칙을 컨텍스트 문서로 |
+| `setup.py` | `init` 설정 초안, `emit` 적용 규칙 전부와 린터를 컨텍스트 문서로 |
 | `migrate.py` | 0.x → 1.0 |
 | `check.py` / `collect.py` | Stop / PostToolUse 훅 |
 

@@ -10,6 +10,9 @@
    its stack; it is not a repo-only rule loaded into every session.
 5. A generated per-group file whose rules disappeared is removed, unless a
    person has added to it.
+6. Every applicable rule is written, not only those with `prevent` (the rule's
+   title and first message line stand in), with no per-group cap, and every
+   linter that would run gets one line naming its command.
 """
 import os
 import sys
@@ -33,12 +36,21 @@ def read(repo, rel):
 def case_agents_md(tmp):
     repo, data = os.path.join(tmp, 'repo'), os.path.join(tmp, 'data')
     make_repo(repo, {'composer.json': LARAVEL_COMPOSER,
+                     'vendor/bin/pint': '',
                      'AGENTS.md': '# 프로젝트\r\n\r\n빌드는 make 로 합니다.\r\n'})
     proc = emit(repo, data, '--agents-md')
     check('emit --agents-md succeeds', proc.returncode == 0, proc.stdout + proc.stderr)
     agents = read(repo, 'AGENTS.md')
     check('human text is kept', '빌드는 make 로 합니다.' in agents, agents)
     check('the prevent lines are in', 'declare(strict_types=1)' in agents, agents)
+    check('a rule without prevent is in too (title stands in)', '디버그 출력 잔여물' in agents,
+          agents)
+    check('a wrapped message is not cut mid-sentence',
+          '디렉터리 구조와 맞는 namespace 가 있어야' in agents, agents)
+    check('nothing is cut by a per-group cap', '생략됨' not in agents, agents)
+    check('an installed linter gets one line', './vendor/bin/pint --test -v' in agents, agents)
+    check('the {files} placeholder is not shown', '{files}' not in agents, agents)
+    check('a linter that is not installed is left out', 'php-cs-fixer' not in agents, agents)
     check('CRLF is followed', '\r\n' in agents and '\n' not in agents.replace('\r\n', ''),
           repr(agents[-120:]))
     check('CLAUDE.md imports AGENTS.md', '@AGENTS.md' in read(repo, 'CLAUDE.md'))
@@ -79,6 +91,9 @@ def case_groups_and_stale_files(tmp):
           not os.path.exists(os.path.join(repo, '.claude', 'rules', 'convention-go.md')))
     check('a generated file a person added to is kept',
           os.path.exists(os.path.join(repo, '.claude', 'rules', 'convention-js.md')))
+    check('a rule without prevent is written per group too', '디버그 출력 잔여물' in php, php)
+    check('no linter file when no linter is installed',
+          not os.path.exists(os.path.join(repo, '.claude', 'rules', 'convention-lint.md')))
 
 
 if __name__ == '__main__':
