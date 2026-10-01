@@ -1,10 +1,10 @@
 """Package entry: refuse an interpreter this release cannot run on.
 
-3.0 needs Python 3.9 (NFR-04.1). Without this, an upgrade on 3.8 shows a
-SyntaxError from whichever module was imported first -- true, but it tells
-nobody what to do. This module is read before any of ours, so it is the last
-place that can still speak; for the same reason it may only use syntax 3.8
-can parse.
+4.0 needs Python 3.10: the structure engine (tree-sitter) has no wheels below
+it. Without this, an older interpreter shows a SyntaxError from whichever
+module was imported first -- true, but it tells nobody what to do. This
+module is read before any of ours, so it is the last place that can still
+speak; for the same reason it may only use syntax 3.6 can parse.
 
 A hook must never break the agent, so it exits 0 either way. It does say
 something, though: a silent skip is indistinguishable from a clean check, and
@@ -14,11 +14,11 @@ switching the plugin off for a whole session unnoticed is worse than noise.
 import os
 import sys
 
-MINIMUM = (3, 9)
+MINIMUM = (3, 10)
 HOOK_ENTRY_POINTS = ('check.py', 'collect.py')
 
-_MESSAGE = ('convention-guard 3.0 은 Python %d.%d 이상이 필요합니다 (현재 %d.%d). '
-            '1.x 를 계속 쓰거나 Python 을 올리세요 — docs/migration-3.0.md')
+_MESSAGE = ('convention-guard 4.0 은 Python %d.%d 이상이 필요합니다 (현재 %d.%d). '
+            'python3 가 3.10 이상을 가리키게 하세요 (Homebrew, python.org, 배포판 패키지)')
 
 
 def _refuse():

@@ -34,11 +34,8 @@ def case_parsers():
           parsed('eslint-json', eslint))
     phpstan = '{"files":{"/repo/app/A.php":{"messages":[{"line":7,"message":"oops"}]}}}'
     check('phpstan-json', parsed('phpstan-json', phpstan) == [('app/A.php', 7)])
-    golangci = ('{"Issues":[{"Pos":{"Filename":"pkg/a.go","Line":5},'
-                '"Text":"err ignored","FromLinter":"errcheck"}]}')
-    check('golangci-json', parsed('golangci-json', golangci) == [('pkg/a.go', 5)])
-    unix = './pkg/a.go:9:3: composite literal uses unkeyed fields\nnot a finding\n'
-    check('unix', parsed('unix', unix) == [('pkg/a.go', 9)], parsed('unix', unix))
+    unix = './app/A.php:9:3: Undefined variable $x\nnot a finding\n'
+    check('unix', parsed('unix', unix) == [('app/A.php', 9)], parsed('unix', unix))
     github = '::error title=lint/style,file=/repo/src/b.ts,line=4,col=1::use const\n'
     check('github', parsed('github', github) == [('src/b.ts', 4)], parsed('github', github))
     diff = ('--- a/app/A.php\n+++ b/app/A.php\n@@ -14,2 +14,2 @@\n'
@@ -169,10 +166,10 @@ def case_lint_file_chunks(tmp):
 
 
 def case_dirs_placeholder():
-    argv = lint._build({'cmd': ['go', 'vet', '{dirs}']},
-                       ['pkg/a/x.go', 'pkg/a/y.go', 'pkg/b/z.go', 'main.go'])
-    check('{dirs} collapses to unique packages',
-          argv == ['go', 'vet', './pkg/a', './pkg/b', '.'], argv)
+    argv = lint._build({'cmd': ['phpstan', 'analyse', '{dirs}']},
+                       ['app/a/X.php', 'app/a/Y.php', 'app/b/Z.php', 'index.php'])
+    check('{dirs} collapses to unique directories',
+          argv == ['phpstan', 'analyse', './app/a', './app/b', '.'], argv)
 
 
 FAKE_LINTER = ('import os, sys\n'

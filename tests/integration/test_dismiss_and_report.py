@@ -168,18 +168,25 @@ def case_whole_line_fingerprint():
         check('changing its tail brings it back',
               [n for n, _, _ in locations(repo, data, LONG_RULE)] == [8, 9])
 
-        # what 3.2 left in the file: the fingerprint of the clipped snippet
-        old = fingerprint(clip(LONG + '->first();'))
+        # a file without `version: 4` was written before 4.0: named, not applied
+        digest = fingerprint(LONG + '->first();')
         write(repo, DISMISSED, 'dismissed:\n  - rule: %s\n    file: %s\n    hash: "%s"\n'
-              '    reason: "3.2"\n' % (LONG_RULE, A, old))
-        # and keeps 3.2's meaning: it covers every line with those 120 characters,
-        # line 8 included -- only a record written from now on is exact
-        check('a 3.2 record still holds (dual matching)',
-              locations(repo, data, LONG_RULE) == [], locations(repo, data, LONG_RULE))
+              '    reason: "3.x"\n' % (LONG_RULE, A, digest))
+        check('a pre-4.0 file is not applied',
+              [n for n, _, _ in locations(repo, data, LONG_RULE)] == [8, 9],
+              locations(repo, data, LONG_RULE))
+        out = dismiss(repo, data, '--rule', LONG_RULE, '--file', A, '--line', '8',
+                      '--reason', 'x')
+        check('and nothing is appended to it', out.returncode == 2
+              and '4.0 이전 형식' in out.stderr, out.stdout + out.stderr)
+        write(repo, DISMISSED, 'version: 4\n' + read(repo, DISMISSED))
+        check('the same entry under version: 4 applies',
+              [n for n, _, _ in locations(repo, data, LONG_RULE)] == [8],
+              locations(repo, data, LONG_RULE))
 
 
 def case_bom_line_one_record():
-    """R6/R11 -- 3.2 read a BOM into line 1, so its record carries the BOM."""
+    """R6 -- a BOM is not part of line 1: its key is the key of the text."""
     print('case_bom_line_one_record:')
     with tempdir() as tmp:
         repo, data = laravel(tmp)
@@ -188,9 +195,12 @@ def case_bom_line_one_record():
         rule = 'core/php-no-debug-output'
         lines = [n for n, _, _ in locations(repo, data, rule) if n == 1]
         check('line 1 of a BOM file is a candidate', lines == [1], lines)
-        old = fingerprint(clip('﻿<?php dd(1);'))
-        dismiss(repo, data, '--key', '%s:app/Svc/C.php:%s' % (rule, old), '--reason', '3.2')
-        check('its 3.2 record still holds', all(n != 1 for n, _, _ in locations(repo, data, rule)))
+        key = '%s:app/Svc/C.php:%s' % (rule, fingerprint('<?php dd(1);'))
+        check('its key ignores the BOM', [k for n, k, _ in locations(repo, data, rule)
+                                          if n == 1] == [key])
+        dismiss(repo, data, '--key', key, '--reason', 'x')
+        check('and a dismissal by that key holds',
+              all(n != 1 for n, _, _ in locations(repo, data, rule)))
 
 
 def case_identical_lines():
@@ -227,8 +237,8 @@ def case_path_is_normalised():
         repo, data = laravel(tmp)
         (line, key, _), = [h for h in locations(repo, data, rule) if h[0] == 8]
         digest = key.rsplit(':', 1)[1]
-        write(repo, DISMISSED, 'dismissed:\n  - rule: %s\n    file: ./%s\n    hash: "%s"\n'
-              '    reason: x\n' % (rule, A, digest))
+        write(repo, DISMISSED, 'version: 4\ndismissed:\n  - rule: %s\n    file: ./%s\n'
+              '    hash: "%s"\n    reason: x\n' % (rule, A, digest))
         check('a hand-written ./ path applies', [h[0] for h in locations(repo, data, rule)]
               == [9], locations(repo, data, rule))
 

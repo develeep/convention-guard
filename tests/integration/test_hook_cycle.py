@@ -22,7 +22,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import (LARAVEL_COMPOSER, Session, check, commit, finish, git,  # noqa: E402
-                     make_repo, run_script, tempdir, write)
+                     make_repo, run_script, store_rows, tempdir, write)
 from lib.candidate import clip, fingerprint  # noqa: E402
 
 HDR = '<?php\ndeclare(strict_types=1);\nnamespace App;\n'
@@ -269,29 +269,6 @@ def case_no_prompt_ids(repo, data):
           extra['decision'] is None and s.state()['cycle'] is None, extra)
 
 
-def case_key_change_mid_cycle(repo, data):
-    """R11 -- a cycle opened under the 3.2 key (the clipped snippet's hash) is
-    verified by a version that hashes the whole line: same candidate, still."""
-    s = Session(repo, data, 'rekey')
-    code = 'dd(1); /* %s */' % ('x' * 130)
-    first = s.turn(A, body(code), 'p1')
-    check('the long line blocks', first['decision'] == 'block', first)
-    line = body(code).split('\n')[3]
-    new, old = fingerprint(' '.join(line.split())), fingerprint(clip(line))
-    path = os.path.join(data, 'session-rekey.json')
-    with open(path, encoding='utf-8') as fh:
-        text = fh.read()
-    check('the key is the whole line now', (':%s' % new) in text and new != old, new)
-    with open(path, 'w', encoding='utf-8') as fh:
-        fh.write(text.replace(':%s' % new, ':%s' % old))   # as 3.2 wrote it
-
-    s.touch(A)
-    again = s.stop('p1', stop_hook_active=True)
-    check('it is still there -- not fixed plus new', outcomes(s) == ['still'],
-          s.events('verify'))
-    check('and blocks as a remaining finding', '■ 남음' in (again.get('reason') or ''), again)
-
-
 def case_deletion_only_turn(repo, data):
     """R19 -- a turn that only deletes lines is checked: emptying a legacy
     catch is this change's doing."""
@@ -439,13 +416,19 @@ def case_base_outlives_a_week(repo, data):
     """R23c -- a live session's base is refreshed, so the 7-day GC keeps it."""
     import time
     s = Session(repo, data, 'week')
+    import sqlite3
     s.edit(A, body('return 1;'))
-    base = os.path.join(data, 'base-week.json')
     old = time.time() - 8 * 86400
-    os.utime(base, (old, old))
+    conn = sqlite3.connect(os.path.join(data, 'convention-guard.db'))
+    conn.execute('UPDATE session_seen SET updated = ? WHERE session = ?', (old, 'week'))
+    conn.commit()
+    conn.close()
     s.edit(A, body('return 2;'))
-    check('touching the session refreshes its base', os.path.getmtime(base) > old + 86400,
-          os.path.getmtime(base))
+    seen = store_rows(data, 'SELECT updated FROM session_seen WHERE session = ?', ('week',))
+    check('touching the session refreshes it', seen and seen[0][0] > old + 86400, seen)
+    s.stop('p1')
+    check('so the 7-day GC keeps its base',
+          store_rows(data, 'SELECT ref FROM session_base WHERE session = ?', ('week',)) != [])
 
 
 def case_bash_without_pre_is_said(repo, data):
@@ -552,7 +535,6 @@ CASES = [
     (case_commit_before_first_stop, 'once_per_session: false\n'),
     (case_commit_during_open_cycle, 'once_per_session: false\n'),
     (case_no_prompt_ids, ''),
-    (case_key_change_mid_cycle, 'once_per_session: false\n'),
     (case_deletion_only_turn, ''),
     (case_too_large_is_said, ''),
     (case_empty_repo_commit, ''),

@@ -1,9 +1,11 @@
-"""YAML in and out, with or without PyYAML.
+"""YAML in and out, with the bundled parser only.
 
-PyYAML is used when importable; otherwise the bundled subset parser keeps the
-hook working on a machine without pip packages. Writing never needs a YAML
-library: values are emitted as JSON-quoted scalars, which both parsers read
-back identically (including Korean text and colons).
+Rules have to load before anything is installed, so the parser cannot be a
+download. And it is the only one: PyYAML is not used even when it is there,
+so two machines can never read the same rule two ways. (PyYAML stays a
+development dependency -- tests/unit/test_yaml_parity.py uses it as the
+answer key for miniyaml.) Writing never needs a YAML library: values are
+emitted as JSON-quoted scalars, which read back identically.
 """
 
 import json
@@ -11,23 +13,10 @@ import os
 
 from . import miniyaml
 
-if os.environ.get('CONVENTION_GUARD_NO_PYYAML'):
-    _pyyaml = None  # forces the bundled parser; used by the self-test
-else:
-    try:
-        import yaml as _pyyaml
-    except Exception:  # pragma: no cover - optional dependency
-        _pyyaml = None
-
 YamlError = miniyaml.YamlError
 
 
 def load(text):
-    if _pyyaml is not None:
-        try:
-            return _pyyaml.safe_load(text) or {}
-        except _pyyaml.YAMLError as exc:
-            raise YamlError(str(exc))
     return miniyaml.load(text)
 
 

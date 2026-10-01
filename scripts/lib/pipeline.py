@@ -73,6 +73,8 @@ def run(scope, cfg, plugin_root=None, run_lint=True, cap=None, use_dismiss=True,
             # never check as if nothing had been declined: every dismissed
             # finding would come back and block again
             ruleset.notes.append(('error', recorded.error))
+        elif recorded.warning:
+            ruleset.notes.append(('warn', recorded.warning))
         is_dismissed = recorded.is_dismissed
         dismissals = len(recorded)
 

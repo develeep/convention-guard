@@ -36,8 +36,7 @@ from lib import rules as rulelib  # noqa: E402
 from lib.rules import fixtures  # noqa: E402
 from lib.yamlio import read as read_yaml  # noqa: E402
 
-# Matching moved to `lib/rules/fixtures.py` so `migrate.py` can approve a
-# conversion with the very same judgement this suite will hold it to (MR-09).
+# Matching lives in `lib/rules/fixtures.py`.
 matcher = fixtures.matcher
 
 

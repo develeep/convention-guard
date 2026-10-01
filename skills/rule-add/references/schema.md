@@ -114,7 +114,7 @@ applies_to:
 
 | 메시지 | 고칠 것 |
 |---|---|
-| 0.x 규칙 형식입니다 | `triggers`/`context_injection` 등 → `scripts/migrate.py` |
+| 알 수 없는 키 | 4.0 규칙 형식에 없는 최상위 키 — 이 문서의 키만 씁니다 |
 | applies_to.stacks 가 필요합니다 | 스택 태그 또는 `["*"]` |
 | 앵커가 정확히 하나 있어야 합니다 | detect 의 앵커 키 정리 |
 | when_file_added 에는 must_contain_in_file 이 필요합니다 | 조건 추가 |

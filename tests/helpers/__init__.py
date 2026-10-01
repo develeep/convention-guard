@@ -62,6 +62,40 @@ def run_cases(cases, label, fresh_dir=True):
     return finish(label)
 
 
+# ---------------------------------------------------------------- the store
+
+def store_rows(data, sql, args=()):
+    """Rows from the hooks' database in `data`, read the way a person would
+    look -- a plain sqlite3 connection, nothing from lib/."""
+    import sqlite3
+    path = os.path.join(data, 'convention-guard.db')
+    if not os.path.isfile(path):
+        return []
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute(sql, args).fetchall()
+    finally:
+        conn.close()
+
+
+def read_session_state(data, session):
+    rows = store_rows(data, 'SELECT state FROM session_state WHERE session = ?', (session,))
+    if not rows:
+        raise FileNotFoundError('no session state for %s in %s' % (session, data))
+    return json.loads(rows[0][0])
+
+
+def write_session_state(data, session, state):
+    import sqlite3
+    conn = sqlite3.connect(os.path.join(data, 'convention-guard.db'))
+    try:
+        conn.execute('INSERT OR REPLACE INTO session_state (session, state) VALUES (?, ?)',
+                     (session, json.dumps(state, ensure_ascii=False)))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------- git repos
 
 def git(repo, *args, check_rc=True):
@@ -177,11 +211,8 @@ class Session:
         self.touch(rel)
         return self.stop(prompt_id, **kwargs)
 
-    def state(self, kind=''):
-        suffix = '-%s' % kind if kind else ''
-        path = os.path.join(self.data, 'session-%s%s.json' % (self.name, suffix))
-        with open(path, encoding='utf-8') as fh:
-            return json.load(fh)
+    def state(self):
+        return read_session_state(self.data, self.name)
 
     def events(self, kind=None):
         path = os.path.join(self.data, 'firings.jsonl')

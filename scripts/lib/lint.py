@@ -11,8 +11,8 @@ would block the agent for no reason.
 
 And each command declares how to read its output (`parse:`). Without that the
 linter half of this plugin had no anchor: the rules only look at added lines,
-but `phpstan app/Legacy.php` reports the whole file and `go vet ./...` the
-whole module, so touching one line in a five-year-old file blocked the turn on
+but `phpstan app/Legacy.php` reports the whole file and `tsc` the whole
+project, so touching one line in a five-year-old file blocked the turn on
 errors nobody in this change wrote. Parsed file:line pairs let the caller
 block on findings that sit on changed lines and pass the rest through as
 context. A command with no parser -- or one whose output does not parse --
@@ -131,17 +131,6 @@ def _parse_phpstan_json(root, text):
     return out
 
 
-def _parse_golangci_json(root, text):
-    out = []
-    for issue in (json.loads(text or '{}') or {}).get('Issues') or []:
-        pos = issue.get('Pos') or {}
-        if pos.get('Line'):
-            out.append(_loc(root, pos.get('Filename') or '', pos['Line'],
-                            '%s (%s)' % (issue.get('Text', ''),
-                                         issue.get('FromLinter', ''))))
-    return out
-
-
 def _parse_unix(root, text):
     out = []
     for line in (text or '').split('\n'):
@@ -203,7 +192,6 @@ def _parse_diff(root, text):
 PARSERS = {
     'eslint-json': _parse_eslint_json,
     'phpstan-json': _parse_phpstan_json,
-    'golangci-json': _parse_golangci_json,
     'unix': _parse_unix,
     'github': _parse_github,
     'diff': _parse_diff,

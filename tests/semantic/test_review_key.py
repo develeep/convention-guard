@@ -18,7 +18,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from helpers import check, finish  # noqa: E402
+from helpers import ROOT, check, finish  # noqa: E402
 from lib import context, semantic  # noqa: E402
 from lib.candidate import Candidate, VALID  # noqa: E402
 from lib.rules import schema  # noqa: E402
@@ -179,7 +179,8 @@ def case_context():
 def case_cache_roundtrip():
     print('case_cache_roundtrip:')
     key = key_for()
-    cache = {'/repo': {key: {'verdict': VALID, 'reason': '이미 로드됨', 'at': 2e9}}}
+    # load_cache(root) hands back one repo's entries
+    cache = {key: {'verdict': VALID, 'reason': '이미 로드됨', 'at': 2e9}}
     check('an unchanged candidate hits the cache',
           (semantic.lookup('/repo', key, None, cache) or {}).get('verdict') == VALID)
 
@@ -227,48 +228,37 @@ def case_related_context_is_whole():
 def case_cache_writes():
     """R23j -- writing the cache drops what has expired and loses nothing to a
     reviewer writing at the same time."""
-    import json
+    import subprocess
     import tempfile
-    import threading
     import time
+    from lib import store
     print('case_cache_writes:')
     with tempfile.TemporaryDirectory() as tmp:
-        path = os.path.join(tmp, 'verdicts.json')
+        db = os.path.join(tmp, store.FILENAME)
+        conn = store.connect(db)
         old = time.time() - 3 * 86400
-        with open(path, 'w', encoding='utf-8') as fh:
-            json.dump({'/repo': {'stale': {'verdict': VALID, 'at': old}},
-                       '/other': {'theirs': {'verdict': VALID, 'at': old}}}, fh)
-        semantic.store(path, '/repo', {'fresh': {'verdict': VALID, 'reason': 'r'}}, ttl_days=1)
-        data = json.load(open(path, encoding='utf-8'))
+        with store.transaction(conn):
+            conn.executemany('INSERT INTO verdict (root, review_key, verdict, at) VALUES (?, ?, ?, ?)',
+                             [('/repo', 'stale', VALID, old), ('/other', 'theirs', VALID, old)])
+        semantic.store('/repo', {'fresh': {'verdict': VALID, 'reason': 'r'}}, ttl_days=1, db=db)
+        keys = {(r, k) for r, k in conn.execute('SELECT root, review_key FROM verdict')}
         check('an expired verdict of this repo is dropped on write',
-              set(data['/repo']) == {'fresh'}, data)
-        check("another repo's entries wait for that repo's own TTL",
-              'theirs' in data['/other'], data)
+              ('/repo', 'stale') not in keys and ('/repo', 'fresh') in keys, keys)
+        check("another repo's entries wait for that repo's own TTL", ('/other', 'theirs') in keys,
+              keys)
 
-        original = semantic.load_cache
-
-        def slow_load(cache, ttl_days=None):
-            out = original(cache, ttl_days)
-            if threading.current_thread().name == 'first':
-                time.sleep(0.4)             # read, then stall before writing
-            return out
-
-        semantic.load_cache = slow_load
-        try:
-            first = threading.Thread(name='first', target=semantic.store,
-                                     args=(path, '/repo', {'a': {'verdict': VALID}}))
-            second = threading.Thread(name='second', target=semantic.store,
-                                      args=(path, '/repo', {'b': {'verdict': VALID}}))
-            first.start()
-            time.sleep(0.1)
-            second.start()
-            first.join()
-            second.join()
-        finally:
-            semantic.load_cache = original
-        data = json.load(open(path, encoding='utf-8'))
-        check('two reviewers writing at once both land', {'a', 'b'} <= set(data['/repo']),
-              sorted(data['/repo']))
+        writer = ('import sys; sys.path.insert(0, %r)\n'
+                  'from lib import semantic\n'
+                  'for i in range(40):\n'
+                  '    semantic.store("/repo", {"%%s-%%d" %% (sys.argv[1], i): {"verdict": "VALID"}},'
+                  ' ttl_days=30, db=%r)\n' % (os.path.join(ROOT, 'scripts'), db))
+        procs = [subprocess.Popen([sys.executable, '-c', writer, name]) for name in ('a', 'b', 'c')]
+        codes = [p.wait() for p in procs]
+        landed = {k for (k,) in conn.execute("SELECT review_key FROM verdict WHERE root = '/repo'")}
+        check('three reviewers writing at once all land', codes == [0, 0, 0]
+              and all('%s-%d' % (n, i) in landed for n in 'abc' for i in range(40)),
+              (codes, len(landed)))
+        store.close_all()
 
 
 if __name__ == '__main__':

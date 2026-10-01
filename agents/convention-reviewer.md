@@ -26,7 +26,7 @@ maxTurns: 25
 **1. 배치 읽기** — 받은 명령을 그대로 실행합니다.
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/review.py" show "<배치 경로>.json"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/review.py" show "<배치 참조>"
 ```
 
 규칙마다 **판정 기준**이 있고, 후보마다 **컨텍스트 팩**(감싸는 함수, import, 관련 파일)이 붙어 있습니다.
@@ -48,7 +48,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/review.py" show "<배치 경로>.json"
 **3. 판정 기록** — `show` 출력 끝 `## 다음`의 명령에 판정을 채워 실행합니다. 모든 후보 id를 한 번에 기록합니다.
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/review.py" record "<배치 경로>.json" <<'JSON'
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/review.py" record "<배치 참조>" <<'JSON'
 [{"id": 1, "verdict": "VIOLATION", "reason": "orders 를 with() 없이 반복하며 ->items 접근"},
  {"id": 2, "verdict": "VALID", "reason": "38줄에서 with('customer') 로 eager load 됨"}]
 JSON

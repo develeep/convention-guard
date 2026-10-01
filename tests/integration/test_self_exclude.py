@@ -40,13 +40,6 @@ def case_own_config_is_not_content(tmp):
     check('own config and generated context are never scanned', not found, found)
 
 
-def case_unmigrated_layout_is_not_content(tmp):
-    make_repo(tmp, {'package.json': '{"dependencies": {"next": "15.0.0"}}'})
-    write(tmp, '.claude/convention-rules/config.yaml', COMMENT)
-    found = offenders(tmp)
-    check('a 0.x config directory is not scanned either', not found, found)
-
-
 if __name__ == '__main__':
-    sys.exit(run_cases([case_own_config_is_not_content, case_unmigrated_layout_is_not_content],
+    sys.exit(run_cases([case_own_config_is_not_content],
                        '자체 설정 파일 제외'))

@@ -1,10 +1,8 @@
 """Run a rule against its own `tests.match` / `tests.no_match` fragments.
 
-Both the fixture runner and `migrate.py` have to answer the same question --
-"would this rule fire on this snippet?" -- and they have to answer it the same
-way. A migration that adds `not_in: [comment]` is only safe if the tool that
-approves it matches exactly like the suite that will later hold the rule to
-it, so the matching lives here, once, and both sides import it (MR-09).
+"Would this rule fire on this snippet?" -- answered the way detection
+answers it: fragments are composed into a file and matched with the same
+structure conditions.
 """
 
 import re

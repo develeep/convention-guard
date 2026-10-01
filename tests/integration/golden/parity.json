@@ -1,19 +1,4 @@
 {
-  "go/all": [
-    "core/go-context-first-param pkg/store/store.go:11",
-    "core/go-no-ignored-error pkg/store/store.go:16",
-    "core/go-no-panic pkg/store/legacy.go:4",
-    "core/go-no-panic pkg/store/store.go:21",
-    "core/go-wrap-error pkg/store/store.go:19",
-    "core/no-orphan-todo pkg/store/store.go:17"
-  ],
-  "go/working-tree": [
-    "core/go-context-first-param pkg/store/store.go:11",
-    "core/go-no-ignored-error pkg/store/store.go:16",
-    "core/go-no-panic pkg/store/store.go:21",
-    "core/go-wrap-error pkg/store/store.go:19",
-    "core/no-orphan-todo pkg/store/store.go:17"
-  ],
   "laravel/all": [
     "core/laravel-controller-needs-validation app/Http/Controllers/UserController.php:5",
     "core/laravel-migration-needs-down database/migrations/2026_01_01_000000_create_orders.php:5",

@@ -83,7 +83,7 @@ def review_section(review, skipped=False):
         if review.get('deferred') else []
     step = fmt.Step('convention-guard:convention-reviewer 에이전트에게 아래 명령 한 줄을 그대로 '
                     '전달해 판정을 맡기세요. 돌려준 VIOLATION 만 고치세요.',
-                    fmt.command('review.py', 'show', '"%s"' % review['batch'].replace(os.sep, '/')),
+                    fmt.command('review.py', 'show', '"%s"' % review['batch']),
                     notes)
     return out, step
 

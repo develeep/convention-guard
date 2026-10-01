@@ -5,6 +5,7 @@ meant to be committed:
 
     <repo>/.claude/convention-guard/dismissed.yaml
 
+    version: 4
     dismissed:
       - rule: "core/php-line-too-long"
         file: "app/Http/Controllers/OrderController.php"
@@ -22,6 +23,10 @@ This file is a team artifact, so it is never rewritten wholesale (comments in
 it are the team's) and never silently ignored: a file that does not parse is
 an error every entry point reports, because treating it as empty would bring
 back every finding the team already declined.
+
+`version: 4` marks a file written for 4.0. One without it was written by an
+earlier release and is not read -- 4.0 keeps no compatibility with earlier
+records -- but it is named (a warning), never passed over in silence.
 """
 
 import os
@@ -33,9 +38,11 @@ from .rules import repo_dir
 from .yamlio import load as yaml_load, scalar
 
 FILENAME = 'dismissed.yaml'
+VERSION = 4
 HEADER = ('# convention-guard: 오탐으로 판단해 넘긴 지적들. 커밋해서 팀과 공유하세요.\n'
           '# hash 는 넘긴 코드의 지문입니다. 그 코드가 바뀌면 다시 지적됩니다.\n'
-          '# hash 가 없는 항목은 그 파일 전체에서 규칙을 끕니다.\n')
+          '# hash 가 없는 항목은 그 파일 전체에서 규칙을 끕니다.\n'
+          'version: %d\n' % VERSION)
 
 
 class DismissalError(Exception):
@@ -43,10 +50,13 @@ class DismissalError(Exception):
 
 
 class Dismissals:
-    def __init__(self, keys=frozenset(), entries=(), error=None, path=None):
+    def __init__(self, keys=frozenset(), entries=(), error=None, path=None, warning=None,
+                 outdated=False):
         self.keys = keys          # {(rule, file, hash)} and {(rule, file)}
         self.entries = list(entries)
         self.error = error
+        self.warning = warning    # read, but something in it was not applied
+        self.outdated = outdated  # written by a release before 4.0: not read at all
         self.path = path
 
     def __len__(self):
@@ -85,6 +95,13 @@ def load(root):
     entries = data.get('dismissed') or []
     if isinstance(entries, dict):
         entries = [entries]
+    if data.get('version') != VERSION:
+        if not entries:
+            return Dismissals(path=target, outdated=True)
+        return Dismissals(path=target, outdated=True, warning=(
+            '%s 는 4.0 이전 형식이라 읽지 않았습니다 (기각 %d건 미적용) — 지적이 다시 나오면 '
+            '다시 기각하고, 이 파일은 지우거나 맨 위에 version: %d 을 넣은 새 파일로 바꾸세요'
+            % (target, len(entries), VERSION)))
     keys, kept = set(), []
     for entry in entries if isinstance(entries, list) else []:
         if not isinstance(entry, dict):
@@ -110,7 +127,7 @@ def covered(cands, relpath, digest):
     """The candidates in `relpath` a dismissal with `digest` would hide --
     more than one when the same code sits on several lines (R18)."""
     return [c for c in cands if c.file == relpath
-            and (c.code_hash == digest or digest in c.legacy_hashes)]
+            and c.code_hash == digest]
 
 
 def predicate(dismissals):
@@ -128,6 +145,8 @@ def add(root, rule_id, relpath, reason, digest=None, snippet=None, line=None, by
     current = load(root)
     if current.error:
         raise DismissalError(current.error)
+    if current.warning and current.outdated:
+        raise DismissalError(current.warning)
     if current.has(rule_id, relpath, digest):
         return False
     target = path(root)
@@ -146,6 +165,11 @@ def add(root, rule_id, relpath, reason, digest=None, snippet=None, line=None, by
         block.append('    # %s:%s  %s' % (relpath, line, ' '.join(str(snippet).split())[:100]))
 
     prefix = ''
+    if current.outdated and existing.strip():
+        # an old file with nothing in it: say what it is, keep what the team wrote
+        existing = 'version: %d%s%s' % (VERSION, newline, existing)
+        with open(target, 'w', encoding='utf-8', newline='') as fh:
+            fh.write(existing)
     if not existing.strip():
         prefix = HEADER + 'dismissed:\n'
     else:

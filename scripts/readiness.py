@@ -18,7 +18,6 @@ Exit: 0 no FAIL / 1 at least one FAIL / 2 cannot check (not a git repo).
 import argparse
 import concurrent.futures
 import glob
-import importlib.util
 import json
 import os
 import re
@@ -61,7 +60,6 @@ SUITES = [
     ('H', 'integration/test_cli_contract.py'),
     ('H', 'integration/test_lint_anchor.py'),
     ('H', 'integration/test_self_exclude.py'),
-    ('H', 'integration/test_migrate.py'),
     ('L4', 'integration/test_setup_emit.py'),
 ]
 
@@ -116,11 +114,11 @@ def check_env(rep, root):
         code, out, _ = run([exe, '-c', 'import sys; print("%d.%d.%d" % sys.version_info[:3])'],
                            root)
         version = out.strip() or '?'
-        ok = code == 0 and tuple(int(x) for x in version.split('.')[:2]) >= (3, 9)
+        ok = code == 0 and tuple(int(x) for x in version.split('.')[:2]) >= (3, 10)
         rep.add('A1', 'PASS' if ok else 'FAIL',
                 'python3 = %s (%s — 이 셸 기준. Claude Code 가 훅을 띄우는 PATH 가 다르면 다를 수 있음)'
                 % (version, exe),
-                '' if ok else 'Python 3.9 이상을 python3 로 잡아 주세요')
+                '' if ok else 'Python 3.10 이상을 python3 로 잡아 주세요')
     if os.name == 'nt':
         rep.add('A2', 'WARN', 'Windows 네이티브입니다 — hooks.json 의 python3 호출이 검증되지 '
                               '않은 경로입니다', 'WSL 에서 쓰거나 scan.py + CI 로 운영하세요')
@@ -130,28 +128,19 @@ def check_env(rep, root):
 
 
 def check_no_deps(rep, root, script_dir, base):
-    """The fallback parser must reach the same conclusion about this repo."""
-    have_yaml = importlib.util.find_spec('yaml') is not None
-    outs = []
-    for no_yaml in ('', '1'):
-        env = dict(sandbox_env(base, keep_home=True), CONVENTION_GUARD_NO_PYYAML=no_yaml)
-        code, out, err = run([sys.executable, os.path.join(script_dir, 'detect_stack.py'),
-                              '--json', '--cwd', root], root, env)
-        try:
-            info = json.loads(out)
-        except ValueError:
-            rep.add('A4', 'FAIL', 'detect_stack.py 가 실행되지 않습니다: %s' % err.strip()[-200:])
-            return
-        outs.append(sorted((r['id'], r['status'], r['severity']) for r in info['rules']))
-    same = outs[0] == outs[1]
-    if not have_yaml:
-        rep.add('A4', 'SKIP' if same else 'FAIL', 'PyYAML 이 없어 내장 파서로만 동작 확인 — 두 파서의 '
-                '판정 비교는 하지 못했습니다' if same else '내장 파서로 실행하지 못했습니다')
+    """Rules load with nothing installed: the bundled parser is the only one."""
+    code, out, err = run([sys.executable, os.path.join(script_dir, 'detect_stack.py'),
+                          '--json', '--cwd', root], root, sandbox_env(base, keep_home=True))
+    try:
+        info = json.loads(out)
+    except ValueError:
+        rep.add('A4', 'FAIL', 'detect_stack.py 가 실행되지 않습니다: %s' % (err or out).strip()[-200:])
         return
-    rep.add('A4', 'PASS' if same else 'FAIL',
-            '설치 없이 동작, PyYAML 유무와 무관하게 같은 규칙 판정' if same else
-            'PyYAML 과 내장 파서가 이 레포 설정을 다르게 읽습니다',
-            '' if same else 'config.yaml·로컬 규칙의 YAML 문법을 단순하게 (tests/unit/test_yaml_parity.py)')
+    broken = [n for n in info.get('notes') or [] if n.get('level') == 'error']
+    rep.add('A4', 'FAIL' if broken else 'PASS',
+            '설치 없이 규칙 %d개를 내장 파서로 읽음' % len(info.get('rules') or [])
+            + (' — 오류 %d: %s' % (len(broken), broken[0].get('text')) if broken else ''),
+            'config.yaml·로컬 규칙의 YAML 문법을 단순하게 (docs/rules.md)' if broken else '')
 
 
 def check_skills(rep, root_dir):
@@ -179,9 +168,6 @@ def check_config(rep, root, info):
     if cfg['mode'] != 'report':
         rep.add('C1', 'WARN', 'mode: %s — 차단이 켜져 있습니다. 도입 첫 2~3주라면 report 를 권합니다'
                 % cfg['mode'], 'E1 이 커밋당 2건 이하이고 rule-tune 점검을 거쳤는지 확인하세요')
-    if rulelib.legacy_layout(root):
-        rep.add('C1', 'FAIL', '%s (0.x 설정)이 남아 있습니다' % rulelib.LEGACY_DIRNAME,
-                'convention-setup 은 이 상태에서 init 하지 않습니다. 디렉터리를 치우세요')
     stacks = info['stacks']
     rep.add('C3', 'PASS' if stacks else 'WARN', '스택: %s · 프리셋: %s' % (
         ', '.join(stacks) or '감지 실패',
@@ -335,7 +321,7 @@ def check_security(rep, root, root_dir):
     rep.add('J1', 'FAIL' if shell else 'PASS', 'shell=True 사용: %s' % (', '.join(shell) or '없음'))
     rep.add('J2', 'FAIL' if network else 'PASS', '네트워크 모듈 import: %s'
             % (', '.join(network) or '없음'))
-    artifact = re.compile(r'(firings\.jsonl|touched-|verdicts\.json|cache-yaml)')
+    artifact = re.compile(r'(firings\.jsonl|convention-guard\.db)')
     _, status, _ = run(['git', 'status', '--porcelain', '--untracked-files=all'], root)
     leaked = [l[3:] for l in status.splitlines() if artifact.search(l)]
     leaked += [p for p in tracked_files(root) if artifact.search(p) and p not in leaked]

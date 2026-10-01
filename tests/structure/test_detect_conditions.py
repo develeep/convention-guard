@@ -348,7 +348,7 @@ def case_unchecked_ratio():
     print('case_unchecked_ratio:')
     tried = unknown = 0
     for builder in (fixtures.laravel_repo, fixtures.next_repo,
-                    fixtures.go_repo, fixtures.nest_repo):
+                    fixtures.nest_repo):
         with tempdir() as tmp:
             builder(tmp)
             got_tried, got_unknown = _unchecked_ratio(tmp)

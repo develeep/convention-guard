@@ -5,11 +5,11 @@ Read by readiness.py (checklist section B). Nothing here writes anything, and
 none of it trusts the shape of a JSON file it did not write.
 """
 
-import glob
 import json
 import os
 import time
 
+from . import store
 from .paths import parse_option, plugin_root
 
 PLUGIN = 'convention-guard'
@@ -173,10 +173,6 @@ def hook_data_dir(key):
     return None
 
 
-def newest(pattern):
-    return max((os.path.getmtime(p) for p in glob.glob(pattern)), default=None)
-
-
 def check_hooks(rep, key):
     manifest = as_dict(read_json(os.path.join(plugin_root(), 'hooks', 'hooks.json')).get('hooks'))
     wired = (all(k in manifest for k in ('PreToolUse', 'PostToolUse', 'Stop'))
@@ -188,10 +184,10 @@ def check_hooks(rep, key):
         rep.add('B3', 'WARN', '훅 데이터 디렉터리가 없습니다 — 훅이 아직 한 번도 돌지 않았습니다',
                 'Claude Code 세션에서 파일을 한 줄 고치고 턴을 끝낸 뒤 다시 점검하세요')
         return data
-    touched = newest(os.path.join(data, 'touched-*.txt'))
+    touched = store.last_activity(store.path(data))
     age_days = (time.time() - touched) / 86400 if touched else None
     if touched is None or age_days > HOOK_EVIDENCE_DAYS:
-        rep.add('B3', 'WARN', '%s 에 최근 수집 기록(touched-*)이 없습니다%s' % (
+        rep.add('B3', 'WARN', '%s 에 최근 수집 기록이 없습니다%s' % (
             data, '' if touched is None else ' (마지막 %d일 전)' % age_days),
             '세션에서 파일을 한 줄 고친 뒤 다시 점검하세요')
     else:

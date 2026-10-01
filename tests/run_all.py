@@ -11,8 +11,10 @@ runner. Each suite is a plain script whose exit code is the verdict.
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -38,7 +40,17 @@ def main():
     parser.add_argument('--quiet', action='store_true', help='실패한 스위트만 출력')
     args = parser.parse_args()
 
-    env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
+    # in-process suites read rules through the parse cache, which lives in the
+    # store: give the whole run its own data dir, never this machine's
+    data = tempfile.mkdtemp(prefix='cg-tests-')
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', CLAUDE_PLUGIN_DATA=data)
+    try:
+        return _run(args, env)
+    finally:
+        shutil.rmtree(data, ignore_errors=True)
+
+
+def _run(args, env):
     failed = []
     for label, cmd in suites(args.repo):
         proc = subprocess.run([sys.executable] + cmd, capture_output=True, text=True,

@@ -88,14 +88,14 @@ def case_base_ref_union(tmp):
 
 
 def case_paired_stack_gate(tmp):
-    make_repo(tmp, {'go.mod': 'module x\n\ngo 1.22\n'})
+    make_repo(tmp, {'package.json': '{"name": "x"}\n'})
     write(tmp, 'routes/api.php', "<?php\nRoute::get('/x');\n")
     detected = stacklib.detect(ROOT, tmp)
-    check('repo detected as go only', detected['stacks'] == ['go'], detected['stacks'])
+    check('repo detected as js only', detected['stacks'] == ['js'], detected['stacks'])
 
     changed = gitdiff.added_lines(tmp, ['routes/api.php'])
     ids = hit_ids(tmp, detected['tags'], changed, gitdiff.new_files(tmp) & set(changed))
-    check('laravel paired rule stays out of a go repo',
+    check('laravel paired rule stays out of a js repo',
           'core/laravel-route-needs-test' not in ids, ids)
 
     with tempdir() as other:

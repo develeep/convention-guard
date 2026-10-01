@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import hooks, semantic, state  # noqa: E402
+from lib import hooks, state  # noqa: E402
 
 
 def main():
@@ -21,7 +21,6 @@ def main():
         return 0
     try:
         state.gc_old_sessions()
-        semantic.gc_batches()
         out = hooks.on_stop(payload)
     except Exception as exc:  # never break the agent on our own bug -- but say so:
         # a silent skip looks exactly like a clean check, so a broken config or

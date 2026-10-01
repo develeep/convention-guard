@@ -99,7 +99,7 @@ core 규칙은 레포에서 `override: core/<id>` 파일로 좁힙니다 (형식
 손본 규칙:
 - core/next-no-public-secret: 기각 5건(공개 키) → no_match 3개 추가, _KEY 대안 제거 · 전수조사 41→3건
 승격: core/laravel-controller-needs-validation warn→error (수정률 86%, 14건)
-보류(데이터 부족): core/go-wrap-error, core/react-no-index-key
+보류(데이터 부족): core/nest-no-raw-req-res, core/react-no-index-key
 모드: report 유지 — laravel-no-query-in-blade 수정률 41%
 새 규칙 후보: PR 리뷰에서 "DTO 없이 배열 반환" 지적 4회 → rule-add
 ```

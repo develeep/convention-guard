@@ -33,8 +33,8 @@ def case_schema():
     print('case_schema:')
     rule = rulelib.normalize(rule_yaml(), 'x.yaml', 'local')
     check('a minimal rule loads as a line rule', rule['kind'] == 'line' and rule['id'] == 'local/x')
-    expect_error('0.x keys are rejected with a migration hint',
-                 {'triggers': {'code_regex': 'x'}, 'applies_to': {'stacks': ['*']}}, 'migrate.py')
+    expect_error('unknown top-level keys are rejected',
+                 {'triggers': {'code_regex': 'x'}, 'applies_to': {'stacks': ['*']}}, '알 수 없는 키')
     expect_error('stacks is required', rule_yaml(applies_to={'files': ['*.php']}), 'stacks')
     expect_error('two anchors are rejected',
                  rule_yaml(detect={'when_line_added': 'a', 'file_regex': 'b'}), '정확히 하나')
@@ -197,9 +197,9 @@ def case_config_layers():
 
         write(repo, '.claude/convention-guard/config.yaml', 'max_rules: 3\nblock_level: report\n')
         cfg = config.load(repo, ROOT)
-        errors = [text for level, text in cfg.notes if level == 'error']
-        check('0.x keys are errors that point at migrate.py',
-              len(errors) == 2 and all('migrate.py' in e for e in errors), cfg.notes)
+        warns = [text for level, text in cfg.notes if level == 'warn']
+        check('keys 4.0 does not know are named and ignored',
+              len(warns) == 2 and all('알 수 없는 설정' in w for w in warns), cfg.notes)
 
 
 def case_presets_and_overrides():
@@ -262,14 +262,6 @@ def case_presets_and_overrides():
         check('a local override does not depend on filename order',
               local['local/custom']['severity'] == 'error', local.get('local/custom'))
 
-        write(repo, '.claude/convention-rules/config.yaml', 'max_rules: 3\n')
-        for name in ('blade.yaml', 'a-patch.yaml', 'z-custom.yaml'):
-            os.remove(os.path.join(repo, '.claude', 'convention-guard', 'rules', name))
-        os.rmdir(os.path.join(repo, '.claude', 'convention-guard', 'rules'))
-        os.rmdir(os.path.join(repo, '.claude', 'convention-guard'))
-        legacy = rulelib.load(repo, ROOT, config.DEFAULTS, {'php'})
-        check('an unmigrated 0.x layout is an error',
-              any('migrate.py' in t for lv, t in legacy.notes if lv == 'error'), legacy.notes)
 
 
 def case_stack_parse_errors():

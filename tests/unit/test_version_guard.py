@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""On Python 3.8 the plugin has to say so, and still not break the agent.
+"""On Python 3.9 the plugin has to say so, and still not break the agent.
 
-3.0 raised the floor to 3.9 (NFR-04.1). Someone on 3.8 who upgrades would
-otherwise meet a SyntaxError from whichever module happens to be imported
+4.0 raised the floor to 3.10 (the structure engine has no wheels below it).
+Someone on 3.9 -- the macOS Command Line Tools python3 -- would otherwise
+meet a SyntaxError from whichever module happens to be imported
 first, which says nothing about what to do. The guard runs before any of our
 own modules are read, and it stays quiet on a supported interpreter.
 """
@@ -22,7 +23,7 @@ GUARD = os.path.join(ROOT, 'scripts', 'lib', '__init__.py')
 PRE39_SYNTAX = (getattr(ast, 'Match', None), getattr(ast, 'TypeAlias', None))
 
 
-def run(script, argv0=None, version=(3, 8, 0)):
+def run(script, argv0=None, version=(3, 9, 6)):
     """The entry point, with sys.version_info faked to `version`."""
     stub = (
         'import sys, collections\n'
@@ -51,12 +52,12 @@ def main():
           not any(kind and kind in used for kind in PRE39_SYNTAX), sorted(map(str, used)))
 
     cli = run('scan.py')
-    check('CLI 는 원인을 말한다', 'Python 3.9' in (cli.stdout + cli.stderr),
+    check('CLI 는 원인을 말한다', 'Python 3.10' in (cli.stdout + cli.stderr),
           cli.stdout + cli.stderr)
-    check('CLI 는 현재 버전을 말한다', '3.8' in (cli.stdout + cli.stderr),
+    check('CLI 는 현재 버전을 말한다', '현재 3.9' in (cli.stdout + cli.stderr),
           cli.stdout + cli.stderr)
     check('CLI 는 무엇을 하면 되는지 말한다',
-          'migration-3.0' in (cli.stdout + cli.stderr), cli.stdout + cli.stderr)
+          '3.10 이상을 가리키게' in (cli.stdout + cli.stderr), cli.stdout + cli.stderr)
 
     for script in ('check.py', 'collect.py'):
         hook = run(script)
@@ -67,11 +68,11 @@ def main():
         except ValueError:
             payload = None
         check('%s 는 조용히 건너뛰지 않는다' % script,
-              isinstance(payload, dict) and 'Python 3.9' in payload.get('systemMessage', ''),
+              isinstance(payload, dict) and 'Python 3.10' in payload.get('systemMessage', ''),
               hook.stdout)
 
-    ok = run('scan.py', version=(3, 9, 0))
-    check('3.9 에서는 가드가 끼어들지 않는다', 'Python 3.9 이상' not in (ok.stdout + ok.stderr),
+    ok = run('scan.py', version=(3, 10, 0))
+    check('3.10 에서는 가드가 끼어들지 않는다', 'Python 3.10 이상' not in (ok.stdout + ok.stderr),
           (ok.stdout + ok.stderr)[:400])
 
     return finish('Python 버전 가드')

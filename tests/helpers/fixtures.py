@@ -130,50 +130,6 @@ def next_repo(path):
     return path
 
 
-GO_LEGACY = {
-    'go.mod': 'module example.com/x\n\ngo 1.22\n',
-    'pkg/store/legacy.go': ('package store\n'
-                            '\n'
-                            'func Legacy() {\n'
-                            '\tpanic("legacy")\n'
-                            '}\n'),
-}
-
-GO_CHANGE = {
-    'pkg/store/store.go': (
-        'package store\n'
-        '\n'
-        'import (\n'
-        '\t"context"\n'
-        '\t"encoding/json"\n'
-        '\t"fmt"\n'
-        ')\n'
-        '\n'
-        'type Store struct{}\n'
-        '\n'
-        'func (s *Store) Fetch(\n'
-        '\tid string,\n'
-        '\tctx context.Context,\n'
-        ') error {\n'
-        '\tvar v map[string]any\n'
-        '\t_ = json.Unmarshal([]byte(id), &v)\n'
-        '\t// TODO 캐시\n'
-        '\tif err := ctx.Err(); err != nil {\n'
-        '\t\treturn fmt.Errorf("fetch: %v", err)\n'
-        '\t}\n'
-        '\tpanic("unreachable")\n'
-        '}\n'),
-    'main.go': 'package main\n\nfunc main() {\n\tpanic("boot")\n}\n',
-}
-
-
-def go_repo(path):
-    make_repo(path, GO_LEGACY)
-    for rel, body in GO_CHANGE.items():
-        write(path, rel, body)
-    return path
-
-
 NEST_LEGACY = {
     'package.json': '{"dependencies": {"@nestjs/core": "10.0.0"}}',
     'tsconfig.json': '{}\n',
@@ -202,4 +158,4 @@ def nest_repo(path):
     return path
 
 
-BUILDERS = {'laravel': laravel_repo, 'next': next_repo, 'go': go_repo, 'nest': nest_repo}
+BUILDERS = {'laravel': laravel_repo, 'next': next_repo, 'nest': nest_repo}

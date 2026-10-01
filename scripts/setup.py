@@ -30,7 +30,7 @@ from lib.paths import git_toplevel, project_dir  # noqa: E402
 BEGIN = '<!-- convention-guard:begin 자동 생성 — 규칙을 고친 뒤 setup.py emit 으로 재생성하세요 -->'
 END = '<!-- convention-guard:end -->'
 MARKER = 'convention-guard:begin'
-HEADINGS = {'common': '공통', 'php': 'PHP', 'js': 'JavaScript / TypeScript', 'go': 'Go',
+HEADINGS = {'common': '공통', 'php': 'PHP', 'js': 'JavaScript / TypeScript',
             'local': '이 레포 전용', 'user': '개인'}
 AGENTS_IMPORT = '@AGENTS.md'
 LINT_GROUP = 'lint'
@@ -266,7 +266,7 @@ EXCLUDE_HINTS = ['legacy', 'app/Legacy', 'generated', 'gen', 'dist', 'build', 's
                  'bootstrap/cache', 'public/build', '.next', 'coverage']
 FORMATTER_MARKERS = ['pint.json', '.php-cs-fixer.php', '.php-cs-fixer.dist.php', 'biome.json',
                      '.prettierrc', '.eslintrc', '.eslintrc.js', '.eslintrc.json',
-                     'eslint.config.js', 'eslint.config.mjs', '.golangci.yml', '.golangci.yaml']
+                     'eslint.config.js', 'eslint.config.mjs']
 
 
 def draft_config(root):
@@ -292,7 +292,7 @@ def draft_config(root):
     if formatters:
         out.append('# 포맷터 설정  : %s (포맷 규칙 %d개가 물러남)' % (', '.join(formatters),
                                                                   len(superseded)))
-    elif any(t in stacks.tags for t in ('php', 'js', 'go')):
+    elif any(t in stacks.tags for t in ('php', 'js')):
         out.append('# 포맷터 설정  : 없음 — examples/formatters 의 설정을 먼저 들이는 편이 낫습니다')
     out += ['',
             '# 도입 첫 2~3주는 report 로 기록만 쌓고, log_report.py 로 확인한 뒤 fix 로 올리세요.',
@@ -323,10 +323,6 @@ def draft_config(root):
 
 def init(args):
     root = git_toplevel(project_dir(args.cwd))
-    if rulelib.legacy_layout(root):
-        fmt.eprint('error', '%s 가 있습니다 — 새로 만들지 말고 scripts/migrate.py 로 옮기세요'
-                   % rulelib.LEGACY_DIRNAME)
-        return 2
     target = os.path.join(rulelib.repo_dir(root), 'config.yaml')
     text = draft_config(root)
     if args.stdout:

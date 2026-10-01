@@ -707,8 +707,7 @@ def _open(ctx, scan):
     hits = _findings(ctx, scan)
 
     def is_repeat(cands):
-        return any(c.key in unresolved or unresolved.intersection(c.legacy_keys)
-                   for c in cands)
+        return any(c.key in unresolved for c in cands)
 
     hits.sort(key=lambda h: (_rank(h[0]), not is_repeat(h[1]), -len(h[1])))
     all_errors = [(r, c) for r, c in hits if r['severity'] == 'error']

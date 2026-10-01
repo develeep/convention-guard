@@ -14,122 +14,66 @@ semantic_review) and the context the answer used (the primary region and the
 related files/imports the pack carried). So an unchanged function judged under
 an unchanged rule is never re-reviewed, and an edit to the function, to the
 Model it queries, or to the rule's instruction sends it back to the reviewer.
-It lives in the plugin data dir -- not the repo --
+It lives in the store (store.py) -- not the repo --
 because a verdict is a model's opinion, not a team decision; a team decision
 is a dismissal in dismissed.yaml.
 
 The reviewer runs as a subagent whose shell does not inherit the plugin's
-environment, so a batch file carries the absolute paths it needs (repo, data
-dir, log) and review.py writes verdicts next to the batch and into the cache
-named there.
+environment, so a batch is named by one self-contained reference,
+`<database path>#<batch id>`, and carries the repo and log paths it needs;
+review.py records verdicts against the batch and into the cache in that
+same database.
 """
 
 import json
 import os
 import time
-from contextlib import contextmanager
 
-from . import candidate, context as contextlib, gitdiff
+from . import candidate, context as contextlib, gitdiff, store as storelib
 from .candidate import FALSE_POSITIVE, VALID, VERDICTS, VIOLATION  # noqa: F401
 from .log import log_path
-from .paths import atomic_write, data_dir, safe_name
 
-# 2: an item carries `lines`, every candidate its question covers (R7).
-# Version 1 batches written before an upgrade are still read.
-BATCH_VERSION = 2
-READABLE_VERSIONS = (1, 2)
+BATCH_VERSION = 4
 
 
 # ---------------------------------------------------------------- verdict cache
 
-def cache_path(base=None):
-    return os.path.join(base or data_dir(), 'verdicts.json')
+def _cutoff(ttl_days):
+    return time.time() - float(ttl_days) * 86400 if ttl_days else 0.0
 
 
-def load_cache(path, ttl_days=None):
-    try:
-        with open(path, 'r', encoding='utf-8') as fh:
-            data = json.load(fh)
-    except (OSError, ValueError):
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-    if ttl_days:
-        cutoff = time.time() - float(ttl_days) * 86400
-        for repo in list(data):
-            entries = data[repo] if isinstance(data[repo], dict) else {}
-            data[repo] = {k: v for k, v in entries.items()
-                          if isinstance(v, dict) and v.get('at', 0) >= cutoff}
-    return data
+def load_cache(root, ttl_days=None, db=None):
+    """{review_key: {verdict, reason, at, rule_id}} for one repo, unexpired."""
+    rows = storelib.connect(db).execute(
+        'SELECT review_key, verdict, reason, rule_id, at FROM verdict WHERE root = ? AND at >= ?',
+        (root, _cutoff(ttl_days)))
+    return {key: {'verdict': verdict, 'reason': reason or '', 'rule_id': rule_id, 'at': at}
+            for key, verdict, reason, rule_id, at in rows}
 
 
 def lookup(root, review_key, ttl_days, cache=None):
-    cache = cache if cache is not None else load_cache(cache_path(), ttl_days)
-    entry = (cache.get(root) or {}).get(review_key)
+    cache = cache if cache is not None else load_cache(root, ttl_days)
+    entry = cache.get(review_key)
     return entry if isinstance(entry, dict) and entry.get('verdict') in VERDICTS else None
 
 
-LOCK_WAIT = 5.0         # seconds a writer waits for another one
-LOCK_STALE = 30.0       # a lock older than this was left by a killed process
+def store(root, verdicts, ttl_days=None, db=None):
+    """Merge {review_key: {verdict, reason}} into the cache, in one transaction.
 
-
-@contextmanager
-def _locked(path):
-    """Hold `<path>.lock` (O_EXCL -- the standard library, on every platform)
-    for one read-modify-write. A lock that outlives LOCK_STALE is taken over;
-    one that will not come free in LOCK_WAIT is written through anyway, since
-    losing the verdict would be worse than a rare overlap."""
-    lock, held = path + '.lock', False
-    deadline = time.time() + LOCK_WAIT
-    while not held:
-        try:
-            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-            held = True
-        except FileExistsError:
-            try:
-                if time.time() - os.path.getmtime(lock) > LOCK_STALE:
-                    os.remove(lock)
-                    continue
-            except OSError:
-                continue
-            if time.time() > deadline:
-                break
-            time.sleep(0.05)
-        except OSError:
-            break
-    try:
-        yield
-    finally:
-        if held:
-            try:
-                os.remove(lock)
-            except OSError:
-                pass
-
-
-def store(path, root, verdicts, ttl_days=None):
-    """Merge {review_key: {verdict, reason}} into the cache file at `path`.
-
-    This repo's expired verdicts are dropped on the way, so the file does not
+    This repo's expired verdicts are dropped on the way, so the table does not
     grow for ever; other repos are pruned by their own TTL when they write (R23j).
     """
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with _locked(path):
-        _store(path, root, verdicts, ttl_days)
-
-
-def _store(path, root, verdicts, ttl_days):
-    data = load_cache(path)
+    conn = storelib.connect(db)
     now = time.time()
-    bucket = data.setdefault(root, {})
-    if ttl_days:
-        cutoff = now - float(ttl_days) * 86400
-        bucket = data[root] = {k: v for k, v in bucket.items()
-                               if isinstance(v, dict) and v.get('at', 0) >= cutoff}
-    for key, value in verdicts.items():
-        bucket[key] = {'verdict': value['verdict'], 'reason': value.get('reason', ''),
-                       'at': now, 'rule_id': value.get('rule_id')}
-    atomic_write(path, json.dumps(data, ensure_ascii=False))
+    with storelib.transaction(conn):
+        if ttl_days:
+            conn.execute('DELETE FROM verdict WHERE root = ? AND at < ?',
+                         (root, _cutoff(ttl_days)))
+        conn.executemany(
+            'INSERT OR REPLACE INTO verdict (root, review_key, verdict, reason, rule_id, at) '
+            'VALUES (?, ?, ?, ?, ?, ?)',
+            [(root, key, value['verdict'], value.get('reason', ''), value.get('rule_id'), now)
+             for key, value in verdicts.items()])
 
 
 # ---------------------------------------------------------------- annotate
@@ -185,7 +129,7 @@ def triage(result, cfg):
     out = Triage()
     root = result.scope.root
     ttl = cfg['semantic_review']['verdict_ttl_days']
-    cache = load_cache(cache_path(), ttl)
+    cache = load_cache(root, ttl)
     for rule, cand, pack in annotate(result):
         verdict = lookup(root, cand.review_key, ttl, cache)
         if verdict is None:
@@ -199,14 +143,8 @@ def triage(result, cfg):
 
 # ---------------------------------------------------------------- batches
 
-def reviews_dir():
-    path = os.path.join(data_dir(), 'reviews')
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
 def build_batch(root, session, pending, cfg, label=''):
-    """Write a batch for the reviewer. Returns (path, items, deferred)."""
+    """Store a batch for the reviewer. Returns (reference, items, deferred)."""
     limit = int(cfg['semantic_review']['max_candidates'])
     budget = int(cfg['semantic_review']['context_budget_lines'])
     items, deferred, used, rules = [], [], 0, {}
@@ -234,50 +172,70 @@ def build_batch(root, session, pending, cfg, label=''):
                       'context': pack.to_dict()})
     if not items:
         return None, [], deferred
-    # Multiple review pages can be created within one second. Include process
-    # and nanosecond identity so a later page never overwrites an earlier one.
-    stamp = '%s-%d-%d' % (time.strftime('%Y%m%d-%H%M%S'), os.getpid(), time.time_ns())
-    name = '%s-%s%s.json' % (safe_name(session or 'manual'), stamp,
-                             ('-' + safe_name(label)) if label else '')
-    path = os.path.join(reviews_dir(), name)
-    batch = {'version': BATCH_VERSION, 'repo': root, 'session': session,
-             'created': time.time(), 'data_dir': data_dir(), 'log': log_path(),
+    db = storelib.path()
+    batch = {'version': BATCH_VERSION, 'repo': root, 'session': session, 'label': label,
+             'created': time.time(), 'db': db, 'log': log_path(),
              'verdict_ttl_days': cfg['semantic_review']['verdict_ttl_days'],
              'rules': rules, 'items': items}
-    atomic_write(path, json.dumps(batch, ensure_ascii=False, indent=1))
-    return path, items, deferred
+    conn = storelib.connect(db)
+    with storelib.transaction(conn):
+        cur = conn.execute('INSERT INTO review_batch (session, root, created, body) '
+                           'VALUES (?, ?, ?, ?)',
+                           (session, root, batch['created'], json.dumps(batch, ensure_ascii=False)))
+    return reference(db, cur.lastrowid), items, deferred
 
 
-def read_batch(path):
-    with open(path, 'r', encoding='utf-8') as fh:
-        batch = json.load(fh)
-    if not isinstance(batch, dict) or batch.get('version') not in READABLE_VERSIONS:
-        raise ValueError('판정 배치 파일이 아닙니다: %s' % path)
+def reference(db, ident):
+    """What names a batch everywhere -- a block message, a reviewer's command."""
+    return '%s#%d' % (os.path.abspath(db).replace(os.sep, '/'), int(ident))
+
+
+def parse_reference(ref):
+    """'<db>#<id>' -> (db path, id). ValueError for anything else."""
+    db, sep, ident = str(ref or '').rpartition('#')
+    if not (sep and db and ident.isdigit()):
+        raise ValueError('판정 배치 참조는 <저장소 경로>#<번호> 입니다: %s' % ref)
+    return db, int(ident)
+
+
+def read_batch(ref):
+    db, ident = parse_reference(ref)
+    if not os.path.isfile(db):
+        raise ValueError('상태 저장소가 없습니다: %s' % db)
+    row = storelib.connect(db).execute('SELECT body FROM review_batch WHERE id = ?',
+                                       (ident,)).fetchone()
+    if row is None:
+        raise ValueError('판정 배치가 없습니다 (지났거나 정리됨): %s' % ref)
+    batch = json.loads(row[0])
+    if not isinstance(batch, dict) or batch.get('version') != BATCH_VERSION:
+        raise ValueError('판정 배치가 아닙니다: %s' % ref)
     return batch
 
 
-def verdicts_path(batch_path):
-    return batch_path[:-len('.json')] + '.verdicts.json' if batch_path.endswith('.json') \
-        else batch_path + '.verdicts.json'
+def write_verdicts(ref, verdicts):
+    """Record what the reviewer said for a batch: {review_key: {...}}."""
+    db, ident = parse_reference(ref)
+    conn = storelib.connect(db)
+    with storelib.transaction(conn):
+        conn.execute('INSERT OR REPLACE INTO review_verdicts (batch_id, recorded, body) '
+                     'VALUES (?, ?, ?)',
+                     (ident, time.time(), json.dumps(verdicts, ensure_ascii=False)))
 
 
-def read_verdicts(batch_path):
+def read_verdicts(ref):
     """{review_key: {...}} recorded for a batch, or None if the reviewer never ran."""
     try:
-        with open(verdicts_path(batch_path), 'r', encoding='utf-8') as fh:
-            data = json.load(fh)
-    except (OSError, ValueError):
+        db, ident = parse_reference(ref)
+    except ValueError:
+        return None
+    if not os.path.isfile(db):
+        return None
+    row = storelib.connect(db).execute('SELECT body FROM review_verdicts WHERE batch_id = ?',
+                                       (ident,)).fetchone()
+    if row is None:
+        return None
+    try:
+        data = json.loads(row[0])
+    except ValueError:
         return None
     return data if isinstance(data, dict) else None
-
-
-def gc_batches(max_age_days=7):
-    cutoff = time.time() - max_age_days * 86400
-    base = os.path.join(data_dir(), 'reviews')
-    try:
-        for name in os.listdir(base):
-            full = os.path.join(base, name)
-            if os.path.getmtime(full) < cutoff:
-                os.remove(full)
-    except OSError:
-        pass

@@ -59,8 +59,6 @@ CONTEXT_PROVIDERS = ('snippet', 'current_function', 'imports', 'changed_hunks',
 
 TOP_KEYS = {'id', 'title', 'severity', 'applies_to', 'superseded_by', 'detect',
             'semantic_review', 'message', 'prevent', 'fix', 'tests', 'override', 'disabled'}
-LEGACY_KEYS = {'triggers', 'context_injection', 'review_prompt', 'context_line',
-               'in_context'}
 
 # A reviewer needs the candidate's surroundings, not the file. 150 lines holds
 # a long controller method plus its imports; past that the pack stops being
@@ -175,10 +173,6 @@ def normalize(raw, path, source):
     """raw YAML mapping -> compiled rule dict. Raises RuleError."""
     if not isinstance(raw, dict):
         raise RuleError('최상위가 매핑이 아닙니다')
-    legacy = sorted(LEGACY_KEYS & set(raw))
-    if legacy:
-        raise RuleError('0.x 규칙 형식입니다 (%s) — scripts/migrate.py 로 변환하세요'
-                        % ', '.join(legacy))
     unknown = sorted(set(raw) - TOP_KEYS)
     if unknown:
         raise RuleError('알 수 없는 키: %s' % ', '.join(unknown))

@@ -5,6 +5,9 @@
     python3 review.py record BATCH < verdicts.json
     python3 review.py summary BATCH              # 기록된 판정 요약
 
+BATCH is the reference the Stop hook or scan.py --review printed,
+`<database path>#<batch id>` -- one argument that works from any shell.
+
 `record` reads a JSON array from stdin, one entry per candidate id in the batch:
 
     [{"id": 1, "verdict": "VIOLATION", "reason": "orders 가 eager load 없이 반복됨"},
@@ -36,8 +39,8 @@ ORDER = (VIOLATION, VALID, FALSE_POSITIVE)
 HAND_BACK = '메인 에이전트에게 돌려줄 것'
 
 
-def record_command(path):
-    return fmt.command('review.py', 'record', '"%s"' % path.replace(os.sep, '/'))
+def record_command(ref):
+    return fmt.command('review.py', 'record', '"%s"' % ref)
 
 
 def where(item):
@@ -83,7 +86,7 @@ def show(batch, path):
 def show_json(batch, path):
     return fmt.envelope('review-show', {'candidates': len(batch['items']),
                                         'rules': len(batch['rules'])},
-                        {'path': path.replace(os.sep, '/'), 'batch': batch},
+                        {'batch_ref': path, 'batch': batch},
                         steps=[fmt.Step('판정을 모두 적어 한 번에 기록', record_command(path))])
 
 
@@ -130,10 +133,9 @@ def record(batch, path, answers):
         item = items[ident]
         verdicts[item['review_key']] = dict(answer, rule_id=item['rule_id'], file=item['file'],
                                             line=item['line'], key=item['key'], id=ident)
-    with open(semantic.verdicts_path(path), 'w', encoding='utf-8') as fh:
-        json.dump(verdicts, fh, ensure_ascii=False, indent=1)
-    semantic.store(semantic.cache_path(batch['data_dir']), batch['repo'], verdicts,
-                   ttl_days=batch.get('verdict_ttl_days'))
+    semantic.write_verdicts(path, verdicts)
+    semantic.store(batch['repo'], verdicts, ttl_days=batch.get('verdict_ttl_days'),
+                   db=batch['db'])
     try:
         with open(batch['log'], 'a', encoding='utf-8') as fh:
             for review_key, v in verdicts.items():
@@ -183,15 +185,16 @@ def summary(batch, verdicts, command='summary', style=fmt.PLAIN):
 def main():
     parser = argparse.ArgumentParser(description='convention-guard 의미 판정 배치 도구')
     parser.add_argument('command', choices=['show', 'record', 'summary'])
-    parser.add_argument('batch', help='배치 파일 경로 (Stop 훅이나 scan.py --review 가 알려준 경로)')
+    parser.add_argument('batch', help='배치 참조 <저장소 경로>#<번호> (Stop 훅이나 scan.py --review 가 '
+                                      '알려준 그대로)')
     parser.add_argument('--json', action='store_true', help='show: 배치를 JSON 봉투로 출력')
     parser.add_argument('--no-color', action='store_true', help='record, summary: 색을 끔')
     args = parser.parse_args()
 
-    path = os.path.abspath(args.batch)
+    path = args.batch
     try:
         batch = semantic.read_batch(path)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, semantic.storelib.StoreError) as exc:
         fmt.eprint('error', '배치를 읽을 수 없습니다: %s' % exc)
         return 2
 
@@ -215,7 +218,7 @@ def main():
 
     verdicts = semantic.read_verdicts(path)
     if verdicts is None:
-        fmt.eprint('error', '아직 기록된 판정이 없습니다: %s' % semantic.verdicts_path(path))
+        fmt.eprint('error', '아직 기록된 판정이 없습니다: %s' % path)
         return 2
     print(summary(batch, verdicts, args.command,
                   fmt.Style.for_stream(no_color=args.no_color)))

@@ -47,23 +47,6 @@ DEFAULTS = {
     'once_per_session': True,
 }
 
-# 0.x keys and where they went. A repo still carrying them is told to migrate
-# instead of silently running with defaults it did not choose.
-LEGACY_KEYS = {
-    'block_level': 'mode',
-    'max_rules': 'limits.max_error_rules',
-    'max_warns': 'limits.max_warn_rules',
-    'max_hits_per_rule': 'limits.max_locations_per_rule',
-    'max_consecutive_blocks': 'limits.max_consecutive_blocks',
-    'run_linters': 'linters.enabled',
-    'lint_timeout': 'linters.timeout',
-    'base_ref': 'scope.base_ref',
-    'max_semantic_rules': 'semantic_review.max_candidates',
-    'max_semantic_reviews_per_session': '(삭제됨 — 후보 지문으로 중복 판정을 막습니다)',
-    'max_blocks_per_session': 'limits.max_consecutive_blocks',
-}
-
-
 class Config(dict):
     """The merged settings, plus where they came from."""
 
@@ -138,14 +121,6 @@ def _validate(data, label, notes):
     """Drop what cannot be used and say why."""
     clean = {}
     for key, value in data.items():
-        if key in LEGACY_KEYS:
-            notes.append(('error', '%s: %s 는 0.x 설정입니다 → %s (scripts/migrate.py)'
-                          % (label, key, LEGACY_KEYS[key])))
-            continue
-        if key == 'semantic_review' and not isinstance(value, dict):
-            notes.append(('error', '%s: semantic_review 는 이제 매핑입니다 → '
-                                   'semantic_review.enabled (scripts/migrate.py)' % label))
-            continue
         if key not in DEFAULTS:
             notes.append(('warn', '%s: 알 수 없는 설정 %s (무시)' % (label, key)))
             continue

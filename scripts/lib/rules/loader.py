@@ -19,12 +19,11 @@ from . import schema
 from .select import SEVERITIES
 
 REPO_DIRNAME = '.claude/convention-guard'
-LEGACY_DIRNAME = '.claude/convention-rules'
 
 # convention-guard's own config and generated context are never content to
 # check: an uncommitted config reads as a "new file", and its plain-language
 # comments would trip the very rules they explain.
-SELF_PATHS = ['%s/**' % REPO_DIRNAME, '%s/**' % LEGACY_DIRNAME, '.claude/rules/**']
+SELF_PATHS = ['%s/**' % REPO_DIRNAME, '.claude/rules/**']
 
 
 def repo_dir(root):
@@ -37,12 +36,6 @@ def local_rules_dir(root):
 
 def user_rules_dir():
     return os.path.expanduser(os.path.join('~', '.claude', 'convention-guard', 'rules'))
-
-
-def legacy_layout(root):
-    """A 0.x repo layout that has not been migrated yet."""
-    return (os.path.isdir(os.path.join(root, *LEGACY_DIRNAME.split('/')))
-            and not os.path.isdir(repo_dir(root)))
 
 
 def iter_rule_files(base):
@@ -123,9 +116,6 @@ class RuleSet:
 
 def load(root, plugin_root, cfg, tags):
     result = RuleSet()
-    if legacy_layout(root):
-        result.notes.append(('error', '%s 는 0.x 레이아웃입니다 — scripts/migrate.py 로 '
-                                      '%s 로 옮기세요' % (LEGACY_DIRNAME, REPO_DIRNAME)))
 
     raws, order = {}, []
 

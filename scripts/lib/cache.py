@@ -1,19 +1,19 @@
-"""A small persistent cache keyed by file signature.
+"""A small persistent cache keyed by file signature, in the store.
 
 The Stop hook is a fresh process every turn, so memoization alone never
 survives to the next turn. Parsed rule, preset and stack files change far less
-often than the hook runs, so their parsed form is kept in the data dir keyed by
+often than the hook runs, so their parsed form is kept keyed by
 (path, mtime, size) -- a changed file simply misses.
 
-Everything here is best-effort: a cache that cannot be read or written only
-costs the parse it would have saved.
+A bucket is read once per process and written back in one transaction at
+exit. Everything here is best-effort: a cache that cannot be read or written
+only costs the parse it would have saved.
 """
 
 import atexit
 import json
-import os
 
-from .paths import atomic_write, data_dir
+from . import store
 
 MISS = object()
 
@@ -22,48 +22,63 @@ MISS = object()
 MAX_ENTRIES = 1000
 
 _loaded = {}
-_dirty = set()
-
-
-def _path(bucket):
-    return os.path.join(data_dir(), 'cache-%s.json' % bucket)
+_dirty = {}
 
 
 def _bucket(bucket):
     if bucket not in _loaded:
         data = {}
         try:
-            with open(_path(bucket), 'r', encoding='utf-8') as fh:
-                data = json.load(fh)
-        except (OSError, ValueError):
+            rows = store.connect().execute('SELECT key, sig, value FROM parse_cache WHERE bucket = ?',
+                                           (bucket,))
+            for key, sig, value in rows:
+                try:
+                    data[key] = (json.loads(sig), json.loads(value))
+                except ValueError:
+                    continue
+        except Exception:       # noqa: BLE001 -- a cache miss, nothing more
             data = {}
-        _loaded[bucket] = data if isinstance(data, dict) else {}
+        _loaded[bucket] = data
     return _loaded[bucket]
 
 
 def get(bucket, key, signature):
     entry = _bucket(bucket).get(key)
-    if isinstance(entry, list) and len(entry) == 2 and entry[0] == list(signature):
+    if entry is not None and entry[0] == list(signature):
         return entry[1]
     return MISS
 
 
 def put(bucket, key, signature, value):
-    data = _bucket(bucket)
-    data[key] = [list(signature), value]
-    if len(data) > MAX_ENTRIES:
-        for stale in list(data)[:len(data) - MAX_ENTRIES]:
-            del data[stale]
+    _bucket(bucket)[key] = (list(signature), value)
     if not _dirty:
         atexit.register(flush)
-    _dirty.add(bucket)
+    _dirty.setdefault(bucket, set()).add(key)
 
 
 def flush():
-    for bucket in list(_dirty):
-        try:
-            text = json.dumps(_loaded[bucket], ensure_ascii=False, default=str)
-        except (TypeError, ValueError):
-            continue
-        atomic_write(_path(bucket), text)
-        _dirty.discard(bucket)
+    if not _dirty:
+        return
+    try:
+        conn = store.connect()
+        with store.transaction(conn):
+            for bucket, keys in _dirty.items():
+                rows = []
+                for key in keys:
+                    sig, value = _loaded[bucket][key]
+                    try:
+                        rows.append((bucket, key, json.dumps(sig),
+                                     json.dumps(value, ensure_ascii=False, default=str)))
+                    except (TypeError, ValueError):
+                        continue
+                conn.executemany('INSERT OR REPLACE INTO parse_cache (bucket, key, sig, value) '
+                                 'VALUES (?, ?, ?, ?)', rows)
+                count = conn.execute('SELECT COUNT(*) FROM parse_cache WHERE bucket = ?',
+                                     (bucket,)).fetchone()[0]
+                if count > MAX_ENTRIES:
+                    conn.execute('DELETE FROM parse_cache WHERE bucket = ? AND key NOT IN '
+                                 '(SELECT key FROM parse_cache WHERE bucket = ? '
+                                 'ORDER BY rowid DESC LIMIT ?)', (bucket, bucket, MAX_ENTRIES))
+    except Exception:           # noqa: BLE001 -- best-effort, see the module doc
+        pass
+    _dirty.clear()

@@ -17,8 +17,7 @@ Detect -> Fix -> Verify cannot become a loop.
 
 Identity is the candidate key (rule:file:code hash), so a line moving because
 code was added above it is still the same candidate, and a rewritten line is
-a different one. An entry may also carry `aliases`, the keys 3.2 gave the
-same candidate, so a cycle opened before an upgrade still recognises it (R11).
+a different one.
 """
 
 import time
@@ -39,11 +38,8 @@ def new_cycle(prompt_id, opened, seen):
 
 
 def entry(rule, cand):
-    out = {'rule_id': rule['id'], 'title': rule['title'], 'severity': rule['severity'],
-           'file': cand.file, 'line': cand.line, 'snippet': cand.snippet}
-    if cand.legacy_keys:
-        out['aliases'] = list(cand.legacy_keys)
-    return out
+    return {'rule_id': rule['id'], 'title': rule['title'], 'severity': rule['severity'],
+            'file': cand.file, 'line': cand.line, 'snippet': cand.snippet}
 
 
 def lint_key(fail):
@@ -81,11 +77,9 @@ def classify(cycle, current, is_dismissed, unconfirmed=()):
     the re-scan found. is_dismissed(key) -> bool. unconfirmed: lint keys whose
     linter did not finish -- gone from `current` is not fixed for them (R17)."""
     out = Outcome()
-    alias = {old: key for key, meta in current.items() for old in meta.get('aliases', ())}
     for key, meta in cycle['opened'].items():
-        now = key if key in current else alias.get(key)
-        if now is not None:
-            out.still[now] = current[now]
+        if key in current:
+            out.still[key] = current[key]
         elif key in unconfirmed:
             out.still[key] = dict(meta, unconfirmed=True)
         elif not key.startswith('lint:') and is_dismissed(key):
@@ -94,7 +88,7 @@ def classify(cycle, current, is_dismissed, unconfirmed=()):
             out.fixed[key] = meta
     seen = set(cycle.get('seen') or ()) | set(cycle['opened'])
     for key, meta in current.items():
-        if key not in seen and not seen.intersection(meta.get('aliases', ())):
+        if key not in seen:
             out.new[key] = meta
     _pair_moves(out)
     return out

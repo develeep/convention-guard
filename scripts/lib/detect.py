@@ -19,7 +19,7 @@ the right granularity for "this file needs no pair", not an oversight.
 """
 
 from . import rules as rulelib, structure
-from .candidate import Candidate, clip, legacy_snippets
+from .candidate import Candidate, clip
 from .structure import conditions as structure_conditions
 from .structure.model import REJECT, UNKNOWN, Span
 
@@ -196,14 +196,13 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
             _note(unchecked, relpath, 'internal_error:Detect')
             return UNKNOWN
 
-    def add(relpath, lineno, snippet, spans=None, source=None, code=None, legacy=()):
+    def add(relpath, lineno, snippet, spans=None, source=None, code=None):
         """Returns True once the cap is reached. `spans` are the matches the
-        candidate stands for; it is kept unless every one is REJECT. `code` and
-        `legacy` go to Candidate: what the key covers, what 3.2 covered."""
-        cand = Candidate(rule['id'], relpath, lineno, snippet, code=code, legacy=legacy)
-        if any(is_dismissed(rule['id'], relpath, digest)
-               for digest in (cand.code_hash,) + cand.legacy_hashes):
-            return False    # a 3.2 record still holds (R11)
+        candidate stands for; it is kept unless every one is REJECT. `code` is
+        what the key covers."""
+        cand = Candidate(rule['id'], relpath, lineno, snippet, code=code)
+        if is_dismissed(rule['id'], relpath, cand.code_hash):
+            return False
         if wants and spans is not None and source is not None:
             if all(judge(relpath, lineno, span, source) == REJECT for span in spans):
                 return False    # filtered, so it does not fill the cap either
@@ -239,8 +238,7 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
                 if not rule['compiled_when'].search(text):
                     continue
                 spans = _line_spans(rule['compiled_when'], text, lineno) if wants else None
-                if add(relpath, lineno, clip(text), spans, source, code=text,
-                       legacy=legacy_snippets(text, lineno)):
+                if add(relpath, lineno, clip(text), spans, source, code=text):
                     return found
 
         elif kind == 'absent':
@@ -278,7 +276,7 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
                 spans = [Span(match.start(), match.end())] if wants else None
                 code = body[lo:hi]
                 if add(relpath, start, clip(code.replace('\n', ' ⏎ ')), spans, source,
-                       code=code, legacy=(clip(match.group(0).replace('\n', ' ⏎ ')),)):
+                       code=code):
                     return found
 
         elif kind == 'requires':
@@ -297,8 +295,7 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
                     # requirement above only by `must_not_in` (R6, was DR-18)
                     spans = _line_spans(rule['compiled_when'], text, lineno) \
                         if wants else None
-                    if add(relpath, lineno, clip(text), spans, source, code=text,
-                           legacy=legacy_snippets(text, lineno)):
+                    if add(relpath, lineno, clip(text), spans, source, code=text):
                         return found
                     if len(found) > before:
                         break   # one candidate per file -- but a dismissed line

@@ -23,7 +23,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import (LARAVEL_COMPOSER, Session, check, finish, isolated_env,  # noqa: E402
-                     make_repo, run_script, tempdir)
+                     make_repo, run_script, store_rows, tempdir)
 
 CTRL = 'app/Http/Controllers/OrderController.php'
 HEAD = ('<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Http\\Controllers;\n\n'
@@ -63,6 +63,15 @@ def repo_files(config='mode: fix\nsemantic_review:\n  enabled: true\n'):
             '.claude/convention-guard/config.yaml': config}
 
 
+def batch_body(data, batch):
+    """The batch a reference names, read straight from the store."""
+    if not batch or '#' not in batch:
+        return None
+    rows = store_rows(data, 'SELECT body FROM review_batch WHERE id = ?',
+                      (int(batch.rsplit('#', 1)[1]),))
+    return json.loads(rows[0][0]) if rows else None
+
+
 def batch_of(result):
     match = re.search(r'review\.py" show "([^"]+)"', result['reason'])
     return match.group(1) if match else None
@@ -77,9 +86,12 @@ def record(session, batch, verdict, reason='근거'):
 
 
 def reviews(session):
-    base = os.path.join(session.data, 'reviews')
-    return sorted(n for n in os.listdir(base) if n.endswith('.json')
-                  and not n.endswith('.verdicts.json')) if os.path.isdir(base) else []
+    return [i for (i,) in store_rows(session.data, 'SELECT id FROM review_batch ORDER BY id')]
+
+
+def recorded(data, batch):
+    ident = int(batch.rsplit('#', 1)[1])
+    return store_rows(data, 'SELECT body FROM review_verdicts WHERE batch_id = ?', (ident,))
 
 
 # ---------------------------------------------------------------- cases
@@ -96,7 +108,7 @@ def case_violation_fix_rejudge(repo, data):
     first = s.turn(CTRL, controller(), 'p1')
     check('an unreviewed candidate blocks', first['decision'] == 'block', first)
     batch = batch_of(first)
-    check('the reason hands over one review command', batch and os.path.isfile(batch),
+    check('the reason hands over one review command', batch_body(data, batch) is not None,
           first['reason'])
     check('the reason names the reviewer agent', 'convention-reviewer' in first['reason'])
 
@@ -169,7 +181,7 @@ def case_record_validation(repo, data):
                           env=s.env, cwd=repo)
         check('record refuses %s' % label, proc.returncode == 2 and needle in proc.stderr,
               proc.stderr)
-    check('nothing was written', not os.path.exists(batch[:-5] + '.verdicts.json'))
+    check('nothing was written', recorded(data, batch) == [])
 
 
 def case_report_mode(repo, data):
@@ -216,7 +228,7 @@ def case_scan_review(repo, data):
                                   '--fail-on', 'warn'], env=env, cwd=repo)
     report = json.loads(proc.stdout)
     batch = (report.get('review') or {}).get('batch')
-    check('scan --review writes a batch', batch and os.path.isfile(batch), report)
+    check('scan --review writes a batch', batch_body(data, batch) is not None, report)
     check('an unjudged candidate is not a finding', proc.returncode == 0, proc.returncode)
 
     record(s, batch, 'VIOLATION', '로드 안 됨')
@@ -239,9 +251,7 @@ def case_scan_review_without_candidates(repo, data):
     report = json.loads(proc.stdout)
     check('the change has no semantic candidate', report['scope']['semantic'] == 0, report['scope'])
     check('so --review does nothing', report['review'] is None, report)
-    base = os.path.join(data, 'reviews')
-    check('no batch is written', not os.path.isdir(base) or os.listdir(base) == [],
-          base)
+    check('no batch is written', store_rows(data, 'SELECT id FROM review_batch') == [])
 
     proc = run_script('scan.py', ['--cwd', repo, '--no-lint', '--review', '--no-color'],
                       env=env, cwd=repo)
@@ -275,10 +285,9 @@ def case_verdicts_stay_distinct(repo, data):
     logged = sorted(e['verdict'] for e in s.events('verdict'))
     check('each verdict is logged under its own name',
           logged == ['FALSE_POSITIVE', 'VALID', 'VIOLATION'], logged)
-    cached = json.load(open(os.path.join(data, 'verdicts.json'), encoding='utf-8'))
+    cached = store_rows(data, 'SELECT verdict FROM verdict WHERE root = ?', (repo,))
     check('and cached under its own name',
-          sorted(v['verdict'] for v in cached[repo].values())
-          == ['FALSE_POSITIVE', 'VALID', 'VIOLATION'], cached)
+          sorted(v for (v,) in cached) == ['FALSE_POSITIVE', 'VALID', 'VIOLATION'], cached)
 
     report = json.loads(run_script('log_report.py', ['--json'], env=s.env, cwd=repo).stdout)
     rule = next(r for r in report['rules'] if r['rule_id'] == 'core/laravel-n-plus-one')
@@ -299,10 +308,10 @@ def case_one_question_shows_every_candidate(repo, data):
     s = Session(repo, data, 'two-loops')
     first = s.turn(CTRL, HEAD + body + '}\n', 'p1')
     batch = batch_of(first)
-    check('a batch is written', batch and os.path.isfile(batch), first['reason'][:300])
+    check('a batch is written', batch_body(data, batch) is not None, first['reason'][:300])
     if not batch:
         return
-    items = json.load(open(batch, encoding='utf-8'))['items']
+    items = batch_body(data, batch)['items']
     check('one question for the function', len(items) == 1, items)
     lines = [entry['line'] for entry in items[0].get('lines') or []]
     check('carrying both candidate lines', len(lines) == 2 and lines == sorted(lines), items[0])
@@ -314,15 +323,6 @@ def case_one_question_shows_every_candidate(repo, data):
     check('the cycle tracks the first candidate, as the batch does',
           item['line'] == lines[0], (item, lines))
 
-    old = json.load(open(batch, encoding='utf-8'))
-    old['version'] = 1
-    for entry in old['items']:
-        entry.pop('lines', None)
-    with open(batch, 'w', encoding='utf-8') as fh:
-        json.dump(old, fh, ensure_ascii=False)
-    legacy = run_script('review.py', ['show', batch], env=s.env, cwd=repo)
-    check('a version 1 batch from before an upgrade is still read', legacy.returncode == 0,
-          legacy.stderr)
 
 
 CASES = [case_no_candidate_no_ai, case_violation_fix_rejudge, case_valid_is_cached,
