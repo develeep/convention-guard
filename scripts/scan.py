@@ -24,7 +24,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import (autofix, config as configlib, fmt, gitdiff, hooks, pipeline,  # noqa: E402
+from lib import (autofix, config as configlib, fmt, gitdiff, pipeline,  # noqa: E402
                  report, semantic)
 from lib.paths import git_toplevel, project_dir  # noqa: E402
 from lib.scope import ChangeScope, ScopeError  # noqa: E402
@@ -42,7 +42,7 @@ def build_scope(root, args, cfg):
         return ChangeScope.git_range(root, args.range)
     if args.staged:
         return ChangeScope.staged(root)
-    configured = args.base_ref if args.base_ref is not None else cfg['scope']['base_ref']
+    configured = args.base_ref
     base_ref = gitdiff.resolve_base_ref(root, configured)
     if configured and configured != 'auto' and not base_ref:
         raise ScopeError('base ref 를 찾을 수 없습니다: %s' % configured)

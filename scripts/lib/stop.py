@@ -1,6 +1,7 @@
 """The Stop hook's shell: fetch, decide, store, say.
 
     payload -> Request, config, state                      (read)
+            -> the edit ledger settled for this Stop       (ledger.at_stop)
             -> scan (+ auto-fix) and the verdict cache     (only if decide.needs_scan)
             -> decide.decide(state, observation, cfg)       (pure, lib/decide.py)
             -> review batch, state, firing log              (write)
@@ -14,11 +15,11 @@ transitions are tested without a repo (tests/unit/test_decide.py).
 
 import time
 
-from . import (autofix, config as configlib, decide, dismiss as dismisslib, fmt, gitdiff, lint,
-               log, pipeline, report, semantic, state as statelib, store)
+from . import (autofix, config as configlib, decide, dismiss as dismisslib, fmt, ledger, lint,
+               log, observe, pipeline, report, semantic, state as statelib, store)
 from .candidate import parse_key
-from .paths import git_toplevel, hook_project_dir
-from .scope import ChangeScope, ScopeError
+from .paths import hook_project_dir
+from .scope import ChangeScope
 
 # Locations per rule the re-scan collects. Far above what a block shows, so a
 # flagged candidate is not read as fixed merely because others crowd it out.
@@ -111,39 +112,27 @@ def view_of(scan):
 class Shell:
     def __init__(self, payload):
         self.payload = payload
-        self.root = git_toplevel(hook_project_dir(payload))
+        self.repo = observe.toplevel(hook_project_dir(payload))      # None outside git
+        self.root = self.repo or hook_project_dir(payload)
         self.session = payload.get('session_id')
         self.cfg = configlib.load(self.root)
         self.autofixed = []
         self.scan = None
+        self.ledger = ledger.StopLedger()
 
     def event(self, record):
         log.event(dict(record, session=self.session, repo=self.root))
 
     def run_scan(self):
-        """Everything touched this session, or None when there is nothing to
-        inspect (no edits, not a repo, all reverted)."""
-        touched = statelib.read_touched(self.session)
-        if not touched:
+        """What the agent wrote this session, checked -- or None when there is
+        nothing it answers for."""
+        owned = self.ledger.owned()
+        if self.repo is None or not owned:
             return None
-        configured = self.cfg['scope']['base_ref']
-        configured_ref = gitdiff.resolve_base_ref(self.root, configured)
-        if configured and configured != 'auto' and not configured_ref:
-            return decide.ScanFailure('base ref 를 찾을 수 없습니다: %s' % configured)
-        session_ref = statelib.read_base(self.session, self.root)
-        current_head = gitdiff.current_head(self.root)
-        if configured_ref == current_head:
-            configured_ref = None
-        if session_ref == current_head:
-            session_ref = None       # HEAD diff already covers the same commit
-        base_ref = list(dict.fromkeys(ref for ref in (configured_ref, session_ref) if ref))
-        _, foreign = statelib.read_foreign(self.session, self.root)
-        try:
-            scope = ChangeScope.from_touched(self.root, touched, base_ref or None, foreign)
-        except ScopeError as exc:
-            return decide.ScanFailure(str(exc))
-        if not scope and not (scope.too_large or scope.unknown):
-            return None         # a file we could not read still has to be named (R20, R23b)
+        skip = observe.ignored(self.root, [entry.path for entry in owned])
+        scope = ChangeScope.from_ledger(self.root, owned, skip)
+        if not scope and not scope.too_large:
+            return None         # a file we could not read still has to be named (R20)
         result = pipeline.run(scope, self.cfg, cap=VERIFY_CAP, lint_budget=LINT_BUDGET)
         if self.cfg['mode'] == 'auto-fix' and not result.errors and not self.autofixed:
             applied = autofix.apply(self.root, autofix.plan(self.root, result.hits))
@@ -151,8 +140,11 @@ class Shell:
                 for fix in applied:
                     self.event(dict(fix.to_dict(), event='autofix'))
                 self.autofixed = applied
-                # the scope caches file text and diffs; the files just changed
-                scope = ChangeScope.from_touched(scope.root, touched, scope.base_ref, foreign)
+                # the fix is made on the agent's behalf: its lines are the agent's
+                entries = ledger.refresh(self.session, self.root,
+                                         sorted({fix.file for fix in applied}))
+                scope = ChangeScope.from_ledger(self.root, [e for e in entries if e.owned()],
+                                                skip)
                 result = pipeline.run(scope, self.cfg, cap=VERIFY_CAP, lint_budget=LINT_BUDGET)
         triage = None
         if self.cfg['semantic_review']['enabled'] and not result.errors and result.semantic_hits:
@@ -183,6 +175,7 @@ def on_stop(payload):
     errors = [text for level, text in shell.cfg.notes if level == 'error']
     config_error_text = errors[0] if errors else None
     state = statelib.load(shell.session)
+    shell.ledger = ledger.at_stop(shell.session, shell.repo)
 
     scan = shell.run_scan() if decide.needs_scan(state, request, shell.cfg,
                                                  config_error_text) else None
@@ -204,8 +197,7 @@ def on_stop(payload):
     for record in decision.events:
         shell.event(record)
     out = render(decision.action)
-    return with_notes(with_autofix_note(out, shell.autofixed), shell.scan,
-                      statelib.take_bash_misses(shell.session) if shell.session else 0)
+    return with_notes(with_autofix_note(out, shell.autofixed), shell.scan, shell.ledger.issues)
 
 
 # ---------------------------------------------------------------- notices
@@ -223,16 +215,14 @@ def with_autofix_note(out, autofixed):
     return notice(_join_messages(out.get('systemMessage') if out else None, note, 'pass'))
 
 
-def with_notes(out, scan, bash_misses=0):
+def with_notes(out, scan, issues=()):
     """Structure conditions that could not be evaluated, files too big to read,
-    files git cannot see and uncollected Bash calls get said out loud."""
+    and every gap in what the collect hooks saw get said out loud."""
     result = getattr(scan, 'result', None)
     notes = [] if result is None else [
         n for n in (report.unchecked_note(result.unchecked, short=True),
-                    report.too_large_note(result.too_large, short=True),
-                    report.unknown_note(result.unknown)) if n]
-    if bash_misses:
-        notes.append('Bash 변경 미수집 %d회 (실행 전 기록이 없어 바뀐 파일을 모름)' % bash_misses)
+                    report.too_large_note(result.too_large, short=True)) if n]
+    notes += report.gap_notes(issues)
     if not notes:
         return out
     note = ' · '.join(notes)

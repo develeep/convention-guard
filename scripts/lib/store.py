@@ -25,7 +25,7 @@ import time
 
 from .paths import data_dir
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 FILENAME = 'convention-guard.db'
 # How long a writer waits for another one. The collect hook has 10s in all.
 BUSY_MS = 5000
@@ -35,15 +35,18 @@ TABLES = {
     # session -> last write, what the session GC goes by
     'session_seen': 'session TEXT PRIMARY KEY, updated REAL NOT NULL',
     'session_state': 'session TEXT PRIMARY KEY, state TEXT NOT NULL',
-    'session_base': 'session TEXT PRIMARY KEY, root TEXT NOT NULL, ref TEXT NOT NULL',
-    'touched': ('id INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, '
-                'path TEXT NOT NULL'),
-    'foreign_lines': ('id INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, '
-                      'root TEXT NOT NULL, kind TEXT NOT NULL, path TEXT NOT NULL, '
-                      'lines TEXT NOT NULL'),
-    'bash_snapshot': ('session TEXT NOT NULL, tool_use_id TEXT NOT NULL, body TEXT NOT NULL, '
-                      'PRIMARY KEY (session, tool_use_id)'),
-    'bash_miss': 'session TEXT PRIMARY KEY, count INTEGER NOT NULL',
+    # the edit ledger (ledger.py)
+    'ledger_session': 'session TEXT NOT NULL, root TEXT NOT NULL, tree TEXT, '
+                      'PRIMARY KEY (session, root)',
+    'ledger_file': ('session TEXT NOT NULL, root TEXT NOT NULL, path TEXT NOT NULL, '
+                    'exists_ INTEGER NOT NULL, content BLOB, origins TEXT NOT NULL, sig TEXT, '
+                    'flag TEXT, first_absent INTEGER NOT NULL, created INTEGER NOT NULL, '
+                    'touched INTEGER NOT NULL, PRIMARY KEY (session, root, path)'),
+    'ledger_event': ('session TEXT NOT NULL, tool_use_id TEXT NOT NULL, root TEXT NOT NULL, '
+                     'tool TEXT, kind TEXT NOT NULL, started REAL, head TEXT, paths TEXT, '
+                     'PRIMARY KEY (session, tool_use_id)'),
+    'observe_issue': ('id INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, root TEXT, '
+                      'kind TEXT NOT NULL, path TEXT, detail TEXT, at REAL NOT NULL'),
     'verdict': ('root TEXT NOT NULL, review_key TEXT NOT NULL, verdict TEXT NOT NULL, '
                 'reason TEXT, rule_id TEXT, at REAL NOT NULL, PRIMARY KEY (root, review_key)'),
     'review_batch': ('id TEXT PRIMARY KEY, session TEXT, root TEXT NOT NULL, '
@@ -53,11 +56,10 @@ TABLES = {
                     'value TEXT NOT NULL, PRIMARY KEY (bucket, key)'),
 }
 INDEXES = (
-    'CREATE INDEX touched_by_session ON touched(session)',
-    'CREATE INDEX foreign_by_session ON foreign_lines(session, root)',
+    'CREATE INDEX issue_by_session ON observe_issue(session)',
 )
-SESSION_TABLES = ('session_state', 'session_base', 'touched', 'foreign_lines', 'bash_snapshot',
-                  'bash_miss', 'session_seen')
+SESSION_TABLES = ('session_state', 'ledger_session', 'ledger_file', 'ledger_event',
+                  'observe_issue', 'session_seen')
 
 # What 3.x kept in the data dir. 4.0 reads none of it; the first 4.0 run
 # clears it so nothing stale is left for a person to wonder about.

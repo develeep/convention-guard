@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Pre/PostToolUse hook adapter: record what the agent touched and what it did not write.
+"""Pre/PostToolUse(+Failure) hook adapter: the edit ledger (lib/ledger.py).
 
-Pre remembers the lines a file already had before the agent changed it; Post
-records the file. Zero context. Together they are what makes the Stop check
-precise -- `git diff` alone also picks up the human's own edits.
+Pre remembers how the files looked before the call, Post attributes what
+changed to the agent. Prints nothing, injects nothing, exits 0 -- and when it
+fails it says so where the Stop hook will read it.
 """
 
 import json
@@ -12,7 +12,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import hooks  # noqa: E402
+from lib import ledger  # noqa: E402
 
 
 def main():
@@ -21,11 +21,9 @@ def main():
     except Exception:
         return 0            # not a hook payload; nothing to record
     try:
-        if isinstance(payload, dict) and payload.get('hook_event_name') == 'PreToolUse':
-            hooks.on_pre_tool_use(payload)
-        else:
-            hooks.on_post_tool_use(payload)
+        ledger.collect(payload)
     except Exception as exc:  # a recording hook must never interrupt the agent
+        ledger.record_failure(payload, 'internal_error:%s' % type(exc).__name__)
         print('[convention-guard] %s' % exc, file=sys.stderr)
     return 0
 

@@ -187,10 +187,11 @@ class Session:
         write(self.repo, rel, body)
         return self.touch(rel, tool)
 
-    def bash_hook(self, event, tool_use_id='bash-1'):
+    def bash_hook(self, event, tool_use_id='bash-1', tool='Bash'):
+        """A Bash (or MCP) hook: PreToolUse, PostToolUse or PostToolUseFailure."""
         return self._run('collect.py', {'session_id': self.name, 'cwd': self.repo,
                                         'hook_event_name': event, 'tool_use_id': tool_use_id,
-                                        'tool_name': 'Bash',
+                                        'tool_name': tool,
                                         'tool_input': {'command': 'test command'}})
 
     def stop(self, prompt_id, message='done.', stop_hook_active=False):
@@ -207,8 +208,8 @@ class Session:
                 'raw': out}
 
     def turn(self, rel, body, prompt_id, **kwargs):
-        write(self.repo, rel, body)
-        self.touch(rel)
+        """One edit (Pre, the write, Post) and the Stop that ends the turn."""
+        self.edit(rel, body)
         return self.stop(prompt_id, **kwargs)
 
     def state(self):

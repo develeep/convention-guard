@@ -125,7 +125,7 @@ def case_broken_file_is_loud():
         check('scan cannot inspect with a broken dismissed.yaml', scan.returncode == 2,
               scan.stderr)
         session = Session(repo, data, 'broken')
-        result = session.turn(A, read(repo, A), 'p1')
+        result = session.turn(A, read(repo, A) + '// edited\n', 'p1')
         check('the hook skips and says why', result['decision'] is None
               and 'dismissed.yaml' in result['summary'], result)
         refused = dismiss(repo, data, '--key', 'core/php-no-debug-output:%s:abcdef1234' % A,

@@ -231,13 +231,10 @@ def case_question_turn(repo, data):
 
 
 def case_commit_before_first_stop(repo, data):
-    write(repo, '.claude/convention-guard/config.yaml',
-          'mode: fix\nscope:\n  base_ref: HEAD\nonce_per_session: false\n')
-    commit(repo, 'configure explicit base')
     s = Session(repo, data, 'commit-first')
-    # collect the edit, then commit before the Stop hook gets its first chance
-    write(repo, A, body())
-    s.touch(A)
+    # the edit, then a commit before the Stop hook gets its first chance:
+    # the ledger follows content, so committing changes nothing it knows
+    s.edit(A, body())
     commit(repo, 'agent commit')
     result = s.stop('p1')
     check('a change committed before Stop is still inspected',
@@ -300,21 +297,20 @@ def case_empty_repo_commit(_repo, data):
         write(fresh, 'composer.json', LARAVEL_COMPOSER)
         write(fresh, '.claude/convention-guard/config.yaml', 'mode: fix\n')
         s = Session(fresh, data, 'empty')
-        write(fresh, A, body())
-        s.touch(A)
+        s.edit(A, body())
         commit(fresh, 'first')
         result = s.stop('p1')
         check('the committed violation still blocks', result['decision'] == 'block', result)
 
 
-def case_unknown_file_is_said(repo, data):
-    """R23b -- a touched file git cannot see (a nested repo) is named."""
+def case_nested_repo_file_is_checked(repo, data):
+    """A file inside the work tree that another (nested) repository owns: git
+    cannot see it from here, but the ledger watched the agent write it."""
     os.makedirs(os.path.join(repo, 'vendor-src'))
     git(os.path.join(repo, 'vendor-src'), 'init', '-q')
-    s = Session(repo, data, 'unknown')
+    s = Session(repo, data, 'nested')
     result = s.turn('vendor-src/x.php', body(), 'p1')
-    check('the hook says it could not check it',
-          '검사되지 않음 1개 파일 (vendor-src/x.php)' in (result.get('summary') or ''), result)
+    check('what the agent wrote there is checked', result['decision'] == 'block', result)
 
 
 # ---------------------------------------------------------------- who wrote it (R12)
@@ -427,8 +423,8 @@ def case_base_outlives_a_week(repo, data):
     seen = store_rows(data, 'SELECT updated FROM session_seen WHERE session = ?', ('week',))
     check('touching the session refreshes it', seen and seen[0][0] > old + 86400, seen)
     s.stop('p1')
-    check('so the 7-day GC keeps its base',
-          store_rows(data, 'SELECT ref FROM session_base WHERE session = ?', ('week',)) != [])
+    check('so the 7-day GC keeps its ledger',
+          store_rows(data, 'SELECT path FROM ledger_file WHERE session = ?', ('week',)) != [])
 
 
 def case_bash_without_pre_is_said(repo, data):
@@ -437,26 +433,28 @@ def case_bash_without_pre_is_said(repo, data):
     write(repo, A, body())
     s.bash_hook('PostToolUse')
     out = s.stop('p1')
-    check('the Stop says a Bash change was not collected',
-          'Bash 변경 미수집 1회' in (out.get('summary') or ''), out)
+    check('the Stop says a call was seen only after it ran',
+          '관찰 누락 1개 파일 — 실행 전 기록 없음 (app/Svc/A.php' in (out.get('summary') or ''),
+          out)
+    check('and checks what changed as the agent\'s', out['decision'] == 'block', out)
     again = s.stop('p2')
-    check('once', 'Bash 변경 미수집' not in (again.get('summary') or ''), again)
+    check('once', '관찰 누락' not in (again.get('summary') or ''), again)
 
 
-def case_configured_edit_tool(repo, data):
-    """R23e -- an MCP editing tool named in the config is collected like Edit."""
-    write(repo, '.claude/convention-guard/config.yaml',
-          'mode: fix\ncollect:\n  edit_tools: [mcp__fs__write_file]\n')
+def case_any_mcp_tool_is_watched(repo, data):
+    """D5 -- an MCP tool that writes files is watched like Bash, whatever its
+    name; one that writes nothing costs nothing."""
     s = Session(repo, data, 'mcp')
-    s.pre(A, tool='mcp__fs__write_file')
+    s.bash_hook('PreToolUse', tool='mcp__fs__write_file')
     write(repo, A, body())
-    s.touch(A, tool='mcp__fs__write_file')
+    s.bash_hook('PostToolUse', tool='mcp__fs__write_file')
     out = s.stop('p1')
     check('its write is checked', out['decision'] == 'block', out)
-    s2 = Session(repo, data, 'mcp-other')
-    write(repo, 'app/Svc/B.php', body(cls='B'))
-    s2.touch('app/Svc/B.php', tool='mcp__fs__read_file')
-    check('a tool not named is not', s2.stop('p1')['decision'] is None)
+    s2 = Session(repo, data, 'mcp-read')
+    write(repo, 'app/Svc/B.php', body(cls='B'))      # a person's work, before the call
+    s2.bash_hook('PreToolUse', tool='mcp__fs__read_file')
+    s2.bash_hook('PostToolUse', tool='mcp__fs__read_file')
+    check('a tool that changes nothing is not', s2.stop('p1')['decision'] is None)
 
 
 # ---------------------------------------------------------------- display budget (R3)
@@ -538,7 +536,7 @@ CASES = [
     (case_deletion_only_turn, ''),
     (case_too_large_is_said, ''),
     (case_empty_repo_commit, ''),
-    (case_unknown_file_is_said, ''),
+    (case_nested_repo_file_is_checked, ''),
     (case_human_lines_are_not_the_agents, 'once_per_session: false\n'),
     (case_same_line_twice_is_counted, ''),
     (case_bash_keeps_human_lines_out, ''),
@@ -547,7 +545,7 @@ CASES = [
     (case_other_terminal_commit, ''),
     (case_base_outlives_a_week, ''),
     (case_bash_without_pre_is_said, ''),
-    (case_configured_edit_tool, ''),
+    (case_any_mcp_tool_is_watched, ''),
     (case_hidden_finding_is_not_a_pass, 'limits:\n  max_locations_per_rule: 1\n'),
     (case_hidden_rules_are_counted, 'limits:\n  max_error_rules: 1\n'),
     (case_verify_cap_is_not_new, 'once_per_session: false\n'),

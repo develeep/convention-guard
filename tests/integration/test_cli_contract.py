@@ -111,22 +111,6 @@ def case_collect_survives_garbage(tmp):
               'Traceback' not in proc.stderr, proc.stderr)
 
 
-def case_touched_queue_keeps_large_sessions(tmp):
-    old = os.environ.get('CLAUDE_PLUGIN_DATA')
-    os.environ['CLAUDE_PLUGIN_DATA'] = os.path.join(tmp, 'data')
-    try:
-        paths = ['src/f%d.py' % i for i in range(550)]
-        statelib.append_touched('large', paths)
-        check('the touched queue retains every distinct session file',
-              statelib.read_touched('large') == paths,
-              len(statelib.read_touched('large')))
-    finally:
-        if old is None:
-            os.environ.pop('CLAUDE_PLUGIN_DATA', None)
-        else:
-            os.environ['CLAUDE_PLUGIN_DATA'] = old
-
-
 def case_bash_changes_are_collected_precisely(tmp):
     repo, data = laravel(tmp)
     write(repo, '.claude/convention-guard/config.yaml', 'mode: fix\n')
@@ -179,22 +163,15 @@ def case_broken_config_is_not_silence(tmp):
 
 def case_hook_scope_errors_are_visible(tmp):
     repo, data = laravel(tmp)
-    write(repo, '.claude/convention-guard/config.yaml',
-          'scope:\n  base_ref: refs/heads/does-not-exist\n')
-    commit(repo, 'invalid base')
-    out = Session(repo, data, 'bad-base').turn(
-        'app/Svc/A.php', HDR + 'class A { public function f() { dd(1); } }\n', 'p1')
-    check('an invalid hook base_ref is reported instead of silently falling back',
-          'base ref' in out['summary'], out)
-
-    git(repo, 'branch', '-M', 'trunk')
+    # 4.0 has no hook base ref (design D6): a config that still names one is
+    # told so, and the hook checks what the agent wrote as always
     write(repo, '.claude/convention-guard/config.yaml',
           'mode: fix\nscope:\n  base_ref: auto\n')
-    commit(repo, 'auto base without conventional branch')
-    auto = Session(repo, os.path.join(tmp, 'auto-data'), 'auto-base').turn(
-        'app/Svc/A.php', HDR + 'class A { public function f() { dd(2); } }\n', 'p1')
-    check('an unresolved auto base falls back to the session baseline',
-          auto['decision'] == 'block', auto)
+    commit(repo, 'a 3.x key')
+    out = Session(repo, data, 'old-key').turn(
+        'app/Svc/A.php', HDR + 'class A { public function f() { dd(1); } }\n', 'p1')
+    check('a leftover scope.base_ref does not change what is checked',
+          out['decision'] == 'block', out)
 
     outside = os.path.join(tmp, 'not-a-repo')
     os.makedirs(outside)
@@ -221,7 +198,7 @@ def case_detect_stack_reports(tmp):
 if __name__ == '__main__':
     sys.exit(run_cases([case_scan_exit_codes, case_severity_filter_does_not_hide_exit_code,
                         case_all_includes_rules_without_globs, case_dismiss_is_exact,
-                        case_collect_survives_garbage, case_touched_queue_keeps_large_sessions,
+                        case_collect_survives_garbage,
                         case_bash_changes_are_collected_precisely, case_cap_holds,
                         case_broken_config_is_not_silence, case_hook_scope_errors_are_visible,
                         case_detect_stack_reports],

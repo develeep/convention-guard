@@ -212,8 +212,6 @@ def case_unreadable_files(tmp):
     check('neither is scanned', blob not in scope.paths() and big not in scope.paths(),
           scope.paths())
     check('the big one is named', scope.too_large == (big,), scope.too_large)
-    touched = ChangeScope.from_touched(tmp, [blob, big])
-    check('from the hook too', touched.too_large == (big,), touched.too_large)
 
     proc = run_script('scan.py', ['--cwd', tmp, '--no-lint', '--json', '--fail-on', 'never'],
                       env=isolated_env(os.path.join(tmp, '..', 'data')), cwd=tmp)
@@ -249,7 +247,7 @@ def case_moves(tmp):
     write(tmp, 'app/Old.php', LEGACY)
     commit(tmp, 'legacy')
     git(tmp, 'mv', 'app/Old.php', 'app/Moved.php')
-    for scope in (ChangeScope.from_touched(tmp, ['app/Moved.php']), ChangeScope.working_tree(tmp)):
+    for scope in (ChangeScope.working_tree(tmp),):
         check('git mv adds no lines (%s)' % scope.label, lines_of(scope, 'app/Moved.php') == [],
               scope.lines('app/Moved.php'))
         check('and is not a new file (%s)' % scope.label, not scope.is_new('app/Moved.php'))
@@ -258,12 +256,12 @@ def case_moves(tmp):
           and not staged.is_new('app/Moved.php'), staged.lines('app/Moved.php'))
     write(tmp, 'app/Moved.php', LEGACY.replace('    }\n}', '    }\n    public $y;\n}'))
     check('a moved file keeps only its edit',
-          lines_of(ChangeScope.from_touched(tmp, ['app/Moved.php']), 'app/Moved.php') == [8])
+          lines_of(ChangeScope.working_tree(tmp), 'app/Moved.php') == [8])
     git(tmp, 'mv', 'app/Moved.php', 'app/Old.php')
     write(tmp, 'app/Old.php', LEGACY)
 
     os.rename(os.path.join(tmp, 'app/Old.php'), os.path.join(tmp, 'app/Plain.php'))
-    for scope in (ChangeScope.from_touched(tmp, ['app/Plain.php']), ChangeScope.working_tree(tmp)):
+    for scope in (ChangeScope.working_tree(tmp),):
         check('a plain mv adds no lines (%s)' % scope.label,
               lines_of(scope, 'app/Plain.php') == [], scope.lines('app/Plain.php'))
         check('and is not new either (%s)' % scope.label, not scope.is_new('app/Plain.php'))
@@ -276,26 +274,8 @@ def case_committed_new_file(tmp):
     rel = 'app/Svc/Fresh.php'
     write(tmp, rel, '<?php\nclass Fresh {}\n')
     commit(tmp, 'fresh')
-    hook = ChangeScope.from_touched(tmp, [rel], [base])
-    check('the hook sees it as new', hook.is_new(rel), hook.new_files)
     ranged = ChangeScope.git_range(tmp, '%s..HEAD' % base)
     check('as --range does', ranged.is_new(rel), ranged.new_files)
-
-
-def case_empty_repo_base(tmp):
-    """R14 -- a session that began before the first commit still has a base."""
-    os.makedirs(tmp, exist_ok=True)
-    git(tmp, 'init', '-q')
-    git(tmp, 'config', 'user.email', 't@t')
-    git(tmp, 'config', 'user.name', 't')
-    base = gitdiff.session_base(tmp)
-    check('the base is the empty tree', bool(base) and gitdiff.current_head(tmp) is None, base)
-    rel = 'app/A.php'
-    write(tmp, rel, '<?php\ndd(1);\n')
-    commit(tmp, 'first')
-    scope = ChangeScope.from_touched(tmp, [rel], [base])
-    check('after the first commit the file is still this change',
-          lines_of(scope, rel) == [1, 2] and scope.is_new(rel), (scope.lines(rel), scope.new_files))
 
 
 def case_gates_read_what_they_gate(tmp):
@@ -368,12 +348,6 @@ def case_path_robustness(tmp):
           gitdiff.read_lines(tmp, 'cr.txt') == [(1, 'a\rb'), (2, 'c'), (3, 'd')],
           gitdiff.read_lines(tmp, 'cr.txt'))
 
-    nested = os.path.join(tmp, 'sub')
-    os.makedirs(nested)
-    git(nested, 'init', '-q')
-    write(tmp, 'sub/x.php', '<?php\ndd(1);\n')
-    scope = ChangeScope.from_touched(tmp, ['sub/x.php', quoted, 'composer.json'])
-    check('a file git does not know is named', scope.unknown == ('sub/x.php',), scope.unknown)
 
 
 if __name__ == '__main__':
@@ -381,6 +355,6 @@ if __name__ == '__main__':
                         case_paired_stack_gate, case_batched_matches_per_file,
                         case_bom_first_line, case_deletion_only,
                         case_diff_algorithm_is_fixed, case_unreadable_files, case_moves,
-                        case_committed_new_file, case_empty_repo_base,
+                        case_committed_new_file,
                         case_gates_read_what_they_gate, case_path_robustness],
                        '변경 앵커 회귀 테스트'))

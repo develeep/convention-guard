@@ -103,30 +103,6 @@ def current_head(root):
     return out.strip() if code == 0 and out.strip() else None
 
 
-def changed_paths(root, base_ref=None):
-    """Tracked and untracked paths changed from a known baseline."""
-    paths = set(untracked(root))
-    ref = base_ref or ('HEAD' if ref_exists(root, 'HEAD') else None)
-    if ref:
-        paths.update(git_lines(root, ['diff', ref, '--name-only']))
-    return sorted(path for path in paths if path)
-
-
-def file_fingerprint(root, relpath):
-    path = os.path.join(root, relpath)
-    try:
-        digest = hashlib.sha1()
-        with open(path, 'rb') as fh:
-            while True:
-                chunk = fh.read(65536)
-                if not chunk:
-                    break
-                digest.update(chunk)
-        return digest.hexdigest()
-    except OSError:
-        return None
-
-
 def untracked(root):
     code, out, _ = git(root, ['ls-files', '--others', '--exclude-standard'])
     return {unquote(line) for line in out.splitlines()} if code == 0 else set()
@@ -147,16 +123,6 @@ def staged_added(root):
     if code != 0:      # no HEAD yet: everything in the index is new
         code, out, _ = git(root, ['diff', '--cached', '--name-only', '--diff-filter=A'])
     return set(out.splitlines()) if code == 0 else set()
-
-
-def session_base(root):
-    """HEAD, or before the first commit the empty tree: a session that began
-    in an empty repo still has something to diff against once it commits (R14)."""
-    head = current_head(root)
-    if head or not is_repo(root):
-        return head
-    code, out, _ = git(root, ['hash-object', '-t', 'tree', '--stdin'], stdin='')
-    return out.strip() if code == 0 and out.strip() else None
 
 
 def name_status(root, args, strict=False):
@@ -431,7 +397,7 @@ def arrived_lines(root, old, new, before, relpaths):
 
 
 def added_lines(root, relpaths, base_ref=None, seams=None, oversized=None, new=None,
-                with_untracked=False, unknown=None):
+                with_untracked=False):
     """{relpath: [(lineno, text), ...]} for added lines only.
 
     A file git does not know yet is read whole. For the rest the working-tree
@@ -441,9 +407,7 @@ def added_lines(root, relpaths, base_ref=None, seams=None, oversized=None, new=N
     (see parse_diff) a file that only lost lines is kept, with no lines.
     `oversized`, when given, collects the files left out for their size, and
     `new` the files this change created, against HEAD and every base (R14).
-    with_untracked adds every untracked file to `relpaths`. `unknown` collects
-    the files git cannot see at all -- inside a nested repo or worktree --
-    which are named rather than passed (R23b).
+    with_untracked adds every untracked file to `relpaths`.
     """
     result = {}
     fresh = untracked(root)
@@ -494,13 +458,6 @@ def added_lines(root, relpaths, base_ref=None, seams=None, oversized=None, new=N
             if lines:
                 result[rel] = lines
     result = {rel: lines for rel, lines in result.items() if lines or rel in (seams or ())}
-    if unknown is not None:
-        quiet = [rel for rel in diffable if rel not in result and os.path.isfile(
-            os.path.join(root, rel))]
-        if quiet:           # usually none: a touched file that is unchanged
-            code, out, _ = git(root, ['ls-files', '--'] + quiet)
-            known = {unquote(line) for line in out.splitlines()} if code == 0 else set(quiet)
-            unknown.update(rel for rel in quiet if rel not in known)
     return result
 
 

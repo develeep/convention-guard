@@ -326,12 +326,35 @@ def too_large_note(paths, limit=None, short=False):
             % (len(paths), listed, MAX_BYTES // 1000))
 
 
-def unknown_note(paths):
-    """'검사되지 않음 1개 파일 (sub/x.php)': touched, but in a place git cannot
-    see from this repo (a nested repo or worktree), so nothing checked it (R23b)."""
-    if not paths:
-        return None
-    return '검사되지 않음 %d개 파일 (%s)' % (len(paths), _listed(paths, None))
+GAPS = (
+    ('post_missing', '관찰 누락 %d개 파일 — 실행 후 기록 없음 (%s, 에이전트 변경으로 보고 검사)'),
+    ('pre_missing', '관찰 누락 %d개 파일 — 실행 전 기록 없음 (%s, 그 사이 다른 변경과 구분 못 함)'),
+    ('tree_failed', '작업 트리 관찰 실패 %d회 (%s — 바뀐 파일을 모름)'),
+    ('unknown_change', '출처 미확인 변경 %d개 파일 — 에이전트 도구 밖에서 바뀜, 검사 안 함 (%s)'),
+    ('outside_root', '검사되지 않음 %d개 파일 (레포 밖: %s)'),
+    ('not_a_repo', 'git 레포가 아니라 검사하지 않음 %d곳 (%s)'),
+    ('collect_error', '수집 훅 오류 %d회 (%s)'),
+)
+
+
+def gap_notes(issues, limit=3):
+    """One note per kind of observation gap the ledger recorded (ledger.py).
+
+    What the collect hooks did not see cannot be passed silently: a Stop that
+    says nothing would read exactly like a clean check (design §2).
+    """
+    by_kind = {}
+    for kind, path, detail in issues:
+        by_kind.setdefault(kind, []).append(path or detail or '?')
+    notes = []
+    for kind, text in GAPS:
+        found = by_kind.get(kind)
+        if not found:
+            continue
+        counted = found if kind in ('tree_failed', 'collect_error') else list(dict.fromkeys(found))
+        shown = list(dict.fromkeys(counted))
+        notes.append(text % (len(counted), _listed(shown, limit)))
+    return notes
 
 
 def _listed(paths, limit):

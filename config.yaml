@@ -10,18 +10,12 @@ disable: []                  # 끌 규칙 id — 이유를 주석으로 남기�
 severity: {}                 # 규칙별 강도 조정. 예) core/php-line-too-long: warn
 exclude: []                  # 검사하지 않을 경로 글롭. 예) "legacy/**"
 
-scope:
-  base_ref: ''               # 'auto' = 기본 브랜치 merge-base 까지 합쳐 검사 (세션 중 커밋한 변경 포함)
-
 limits:
   max_error_rules: 4         # 한 번에 보여줄 error 규칙 수
   max_warn_rules: 3          # 차단할 때 함께 보낼 warn 규칙 수
   max_locations_per_rule: 3  # 규칙당 보여줄 위치 수
   max_consecutive_blocks: 3  # 한 요청 안의 연속 차단 상한 (무한 루프 방지). 새 요청이나 깨끗한 턴에서 초기화
   max_verify_attempts: 1     # 수정 후 재검증에서 남은/새 위반으로 다시 차단하는 횟수
-
-collect:
-  edit_tools: []             # 파일을 쓰는 MCP 도구 이름도 수집. 예) [mcp__filesystem__write_file]
 
 linters:
   enabled: true              # 스택별 린터 위임 (변경된 줄에 걸린 것만 차단)

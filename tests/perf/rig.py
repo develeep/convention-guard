@@ -156,17 +156,30 @@ def remove_worktree(dest):
 
 
 def run_hook(repo, touched, data_dir, plugin_root=None, session='perf'):
-    """One Stop-hook turn over `touched`, the way Claude Code drives it."""
+    """One Stop-hook turn over `touched`, the way Claude Code drives it: each
+    file goes through Pre, the write, Post -- the edit ledger only owns what
+    changed between the two."""
     env = isolated_env(data_dir, CLAUDE_PROJECT_DIR=repo)
     if plugin_root:
         env['CLAUDE_PLUGIN_ROOT'] = plugin_root
     script = os.path.join(plugin_root or ROOT, 'scripts')
-    for relpath in touched:
+    for index, relpath in enumerate(touched):
+        path = os.path.join(repo, relpath)
+        with open(path, 'rb') as handle:
+            final = handle.read()
+        before = subprocess.run(['git', 'show', 'HEAD:%s' % relpath], cwd=repo,
+                                capture_output=True).stdout
+        with open(path, 'wb') as handle:
+            handle.write(before)
+        payload = {'session_id': session, 'cwd': repo, 'tool_name': 'Edit',
+                   'tool_use_id': 'perf-%d' % index, 'tool_input': {'file_path': relpath}}
         run_script(os.path.join(script, 'collect.py'),
-                   stdin=json.dumps({'session_id': session, 'cwd': repo,
-                                     'hook_event_name': 'PostToolUse',
-                                     'tool_name': 'Edit',
-                                     'tool_input': {'file_path': relpath}}),
+                   stdin=json.dumps(dict(payload, hook_event_name='PreToolUse')),
+                   env=env, cwd=repo)
+        with open(path, 'wb') as handle:
+            handle.write(final)
+        run_script(os.path.join(script, 'collect.py'),
+                   stdin=json.dumps(dict(payload, hook_event_name='PostToolUse')),
                    env=env, cwd=repo)
     return env, os.path.join(script, 'check.py'), session
 

@@ -58,8 +58,7 @@ def current_candidates(root, cfg, rule_id, relpath=None):
     dismiss -- the change scope cannot see them, and the `--key` form the docs
     point at is only ever printed by the hook, never by scan.py.
     """
-    base = gitdiff.resolve_base_ref(root, cfg['scope']['base_ref'])
-    rule, found = _candidates(ChangeScope.working_tree(root, base), cfg, rule_id)
+    rule, found = _candidates(ChangeScope.working_tree(root), cfg, rule_id)
     if found or not relpath:
         return rule, found
     try:

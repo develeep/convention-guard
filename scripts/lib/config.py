@@ -26,7 +26,6 @@ DEFAULTS = {
     'disable': [],
     'severity': {},
     'exclude': [],
-    'scope': {'base_ref': ''},
     'limits': {
         'max_error_rules': 4,
         'max_warn_rules': 3,
@@ -35,7 +34,6 @@ DEFAULTS = {
         'max_verify_attempts': 1,
     },
     'linters': {'enabled': True, 'timeout': 90},
-    'collect': {'edit_tools': []},
     'semantic_review': {
         'enabled': False,
         'max_candidates': 5,

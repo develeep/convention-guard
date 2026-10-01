@@ -3,7 +3,7 @@
 
 These four files are the whole contract with Claude Code, and none of them is
 exercised by any other suite: a typo in a hook command path, a matcher that
-drifts from the tool set hooks.py watches, or a version bumped in one manifest
+drifts from the tool set ledger.py watches, or a version bumped in one manifest
 and not the other all ship silently and only surface on a user's machine.
 
 Fields are checked against the hook schema Claude Code actually accepts:
@@ -19,7 +19,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import ROOT, check, finish  # noqa: E402
-from lib import hooks as hooklib, stop as stoplib  # noqa: E402
+from lib import ledger, stop as stoplib  # noqa: E402
 
 HOOK_KEYS = {'type', 'command', 'timeout', 'statusMessage'}
 SCRIPT_RE = re.compile(r'\$\{CLAUDE_PLUGIN_ROOT\}/([\w/.-]+\.py)')
@@ -35,8 +35,9 @@ def case_hooks():
     print('hooks/hooks.json:')
     config = load('hooks', 'hooks.json')
     events = config.get('hooks') or {}
-    check('declares Bash snapshot, PostToolUse and Stop hooks',
-          set(events) == {'PreToolUse', 'PostToolUse', 'Stop'}, sorted(events))
+    check('declares the ledger hooks and Stop',
+          set(events) == {'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop'},
+          sorted(events))
 
     stop_timeout = None
     for event, groups in sorted(events.items()):
@@ -57,17 +58,14 @@ def case_hooks():
                 if event == 'Stop':
                     stop_timeout = timeout
 
-    # the matcher is what decides whether collect.py is ever called; hooks.py
-    # ignores anything outside WATCHED_TOOLS, so a tool in one and not the
-    # other is either a hook that fires for nothing or an edit never recorded
-    # plus MCP tools, which only count when the config names them (R23e)
-    wanted = hooklib.WATCHED_TOOLS | {hooklib.MCP_MATCHER}
-    matcher = events['PostToolUse'][0].get('matcher') or ''
-    check('PostToolUse matcher equals hooks.WATCHED_TOOLS + MCP',
-          set(matcher.split('|')) == wanted, (matcher, sorted(wanted)))
-    pre_matcher = events['PreToolUse'][0].get('matcher') or ''
-    check('PreToolUse baselines every watched tool before it can change files',
-          set(pre_matcher.split('|')) == wanted, pre_matcher)
+    # the matcher is what decides whether collect.py is ever called: a tool in
+    # it and not in the ledger fires for nothing, one in the ledger and not in
+    # it is an edit never recorded. Every MCP tool is watched (design D5).
+    wanted = set(ledger.FILE_TOOLS) | {'Bash', 'mcp__.*'}
+    for event in ('PreToolUse', 'PostToolUse', 'PostToolUseFailure'):
+        matcher = events[event][0].get('matcher') or ''
+        check('%s matcher equals what the ledger watches' % event,
+              set(matcher.split('|')) == wanted, (matcher, sorted(wanted)))
 
     # LINT_BUDGET only protects the turn while it stays under what the hook is
     # given; raising the budget past the timeout brings back the silent kill

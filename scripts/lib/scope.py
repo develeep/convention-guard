@@ -5,7 +5,7 @@ the Stop hook from the files the agent touched, scan.py from a git selector.
 The scope is the only thing that differs between them, so a manual run and a
 hook run of the same change cannot disagree.
 
-    ChangeScope.from_touched(root, touched, base_ref)   Stop hook
+    ChangeScope.from_ledger(root, entries)              Stop hook
     ChangeScope.working_tree(root, base_ref)            scan.py (default)
     ChangeScope.staged(root)                            scan.py --staged
     ChangeScope.git_range(root, spec)                   scan.py --range A..B
@@ -16,7 +16,6 @@ hook run of the same change cannot disagree.
 import os
 
 from . import gitdiff
-from .candidate import fingerprint
 
 
 class ScopeError(Exception):
@@ -25,7 +24,7 @@ class ScopeError(Exception):
 
 class ChangeScope:
     def __init__(self, root, changed, new_files, label, base_ref=None, seams=None,
-                 too_large=(), blob=None, unknown=()):
+                 too_large=(), blob=None):
         self.root = root
         # where the bodies come from: None the working tree, ':' the index,
         # 'REV:' a revision -- a gate reads the code it gates (R15)
@@ -45,8 +44,6 @@ class ChangeScope:
             self.changed = {rel: lines for rel, lines in changed.items() if rel in self._text}
         # left out for their size: the caller names them (R20)
         self.too_large = tuple(sorted(set(too_large) | big))
-        # touched files git cannot see (a nested repo): named, never passed (R23b)
-        self.unknown = tuple(sorted(unknown))
         # where lines were only removed (gitdiff.parse_diff): a file that just
         # lost lines is in `changed` with none added (R19)
         self.seams = {rel: frozenset(found) for rel, found in (seams or {}).items()
@@ -97,25 +94,25 @@ class ChangeScope:
     # -- constructors
 
     @classmethod
-    def from_touched(cls, root, touched, base_ref=None, foreign=None):
-        """The lines the agent added. `foreign` ({relpath: {line key: count}},
-        see state.read_foreign) holds the lines that were already there when
-        it first touched a file, or that other people's commits brought in;
-        those are taken out. The file itself is still read whole for context (R12).
-        """
-        _require_repo(root)
-        foreign = foreign or {}
-        seams, oversized, new, unknown = {}, set(), set(), set()
-        changed = {}
-        for rel, lines in gitdiff.added_lines(root, touched, base_ref, seams, oversized, new,
-                                              unknown=unknown).items():
-            mine = without_lines(lines, foreign.get(rel))
-            if mine or rel in seams:
-                changed[rel] = mine
-        # a file that had someone else's lines before the agent came is not its new file
-        new = {rel for rel in new & set(changed) if not foreign.get(rel)}
-        return cls(root, changed, new, '이번 작업', base_ref, seams, oversized,
-                   unknown=unknown)
+    def from_ledger(cls, root, entries, ignored=()):
+        """The lines the agent wrote, as the edit ledger recorded them
+        (ledger.py): its `a` lines, the seams where it only removed code, the
+        files it created. The file itself is still read whole for context."""
+        changed, seams, new, big = {}, {}, set(), set()
+        for entry in entries:
+            if entry.path in ignored or not entry.owned():
+                continue
+            if entry.flag == 'too_large':
+                big.add(entry.path)
+                continue
+            if entry.lines is None:
+                continue                    # binary or unreadable: nobody's code
+            changed[entry.path] = entry.agent_lines()
+            if entry.seams():
+                seams[entry.path] = entry.seams()
+            if entry.created:
+                new.add(entry.path)
+        return cls(root, changed, new, '이번 작업', seams=seams, too_large=big)
 
     @classmethod
     def working_tree(cls, root, base_ref=None):
@@ -185,40 +182,6 @@ class ChangeScope:
         changed = _whole(root, rels)
         return cls(root, changed, set(changed), '전수조사 (%d개 파일)' % len(changed),
                    too_large=_oversized(root, rels))
-
-
-def line_key(text):
-    """What identifies a line across edits that move it: its text, whitespace aside."""
-    return fingerprint(text)
-
-
-def line_counts(lines):
-    """[(lineno, text)] -> {line key: count}."""
-    counts = {}
-    for _lineno, text in lines:
-        key = line_key(text)
-        counts[key] = counts.get(key, 0) + 1
-    return counts
-
-
-def without_lines(lines, counts):
-    """`lines` minus as many lines per key as `counts` holds.
-
-    Counted, not a set: the agent writing a second `return null;` next to a
-    human's must still be checked. Which of two identical lines is dropped
-    is the earlier one -- the text, and so the finding, is the same.
-    """
-    if not counts:
-        return list(lines)
-    left = dict(counts)
-    out = []
-    for lineno, text in lines:
-        key = line_key(text)
-        if left.get(key, 0) > 0:
-            left[key] -= 1
-        else:
-            out.append((lineno, text))
-    return out
 
 
 def _require_repo(root):

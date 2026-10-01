@@ -125,8 +125,9 @@ def case_parallel_hooks(tmp):
         err = proc.stderr.read()
         if proc.wait() != 0 or err:
             errors.append(err)
-    got = {rel for (rel,) in store_rows(data, "SELECT path FROM touched WHERE session = 'par'")}
-    check('16 collect hooks at once lose no path', got == set(paths) and not errors,
+    got = {rel for (rel, origins) in store_rows(
+        data, "SELECT path, origins FROM ledger_file WHERE session = 'par'") if 'a' in origins}
+    check('16 collect hooks at once lose no file', got == set(paths) and not errors,
           (sorted(set(paths) - got), errors))
 
 

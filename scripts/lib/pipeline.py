@@ -36,7 +36,6 @@ class Result:
         self.lint_unfinished = frozenset(lint_unfinished)
         # files left out for their size, named rather than passed (R20)
         self.too_large = tuple(scope.too_large)
-        self.unknown = tuple(scope.unknown)     # touched files git cannot see (R23b)
 
     @property
     def errors(self):
