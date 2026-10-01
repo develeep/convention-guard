@@ -25,7 +25,7 @@ import time
 
 from .paths import data_dir
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 FILENAME = 'convention-guard.db'
 # How long a writer waits for another one. The collect hook has 10s in all.
 BUSY_MS = 5000
@@ -46,9 +46,9 @@ TABLES = {
     'bash_miss': 'session TEXT PRIMARY KEY, count INTEGER NOT NULL',
     'verdict': ('root TEXT NOT NULL, review_key TEXT NOT NULL, verdict TEXT NOT NULL, '
                 'reason TEXT, rule_id TEXT, at REAL NOT NULL, PRIMARY KEY (root, review_key)'),
-    'review_batch': ('id INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT, root TEXT NOT NULL, '
+    'review_batch': ('id TEXT PRIMARY KEY, session TEXT, root TEXT NOT NULL, '
                      'created REAL NOT NULL, body TEXT NOT NULL'),
-    'review_verdicts': 'batch_id INTEGER PRIMARY KEY, recorded REAL NOT NULL, body TEXT NOT NULL',
+    'review_verdicts': 'batch_id TEXT PRIMARY KEY, recorded REAL NOT NULL, body TEXT NOT NULL',
     'parse_cache': ('bucket TEXT NOT NULL, key TEXT NOT NULL, sig TEXT NOT NULL, '
                     'value TEXT NOT NULL, PRIMARY KEY (bucket, key)'),
 }

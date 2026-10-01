@@ -117,10 +117,10 @@ def case_lint_budget(tmp):
 
     check('the note says what kind it is (R23i)',
           getattr(notes[0][1], 'kind', None) == lint.UNCHECKED, notes)
-    from lib import hooks
+    from lib import stop
     result = type('R', (), {'notes': [('warn', 'a: 다른 경고'),
                                       ('warn', lint.Note('b: 문구가 달라도', lint.UNCHECKED))]})()
-    ordered = hooks._scan_warnings(type('S', (), {'result': result})())
+    ordered = stop.scan_warnings(type('S', (), {'result': result})())
     check('an unchecked linter goes first by kind, not by wording',
           ordered[0].startswith('b:'), ordered)
 

@@ -209,8 +209,8 @@ def main(argv=None):
     else:
         style = fmt.Style.for_stream(sys.stdout, args.no_color)
         # an audit can touch the whole repository, so the list folds here
-        unchecked = [n for n in (hooks.unchecked_note(result.unchecked, limit=UNCHECKED_LIMIT),
-                                 hooks.too_large_note(result.too_large, limit=UNCHECKED_LIMIT))
+        unchecked = [n for n in (report.unchecked_note(result.unchecked, limit=UNCHECKED_LIMIT),
+                                 report.too_large_note(result.too_large, limit=UNCHECKED_LIMIT))
                      if n]
         print(style.finish(report.render_text(data, steps, style,
                                               fix_diff=autofix.diff(applied) if args.fix else '',

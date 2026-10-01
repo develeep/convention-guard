@@ -68,7 +68,7 @@ def batch_body(data, batch):
     if not batch or '#' not in batch:
         return None
     rows = store_rows(data, 'SELECT body FROM review_batch WHERE id = ?',
-                      (int(batch.rsplit('#', 1)[1]),))
+                      (batch.rsplit('#', 1)[1],))
     return json.loads(rows[0][0]) if rows else None
 
 
@@ -90,7 +90,7 @@ def reviews(session):
 
 
 def recorded(data, batch):
-    ident = int(batch.rsplit('#', 1)[1])
+    ident = batch.rsplit('#', 1)[1]
     return store_rows(data, 'SELECT body FROM review_verdicts WHERE batch_id = ?', (ident,))
 
 

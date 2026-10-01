@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import check, finish, fixtures, tempdir  # noqa: E402
-from lib import detect, hooks, structure  # noqa: E402
+from lib import detect, report, stop, structure  # noqa: E402
 from lib.rules import fixtures as rulefixtures, schema  # noqa: E402
 
 PHP = '<?php\n'
@@ -297,12 +297,12 @@ def case_unchecked_collector():
 def case_notice():
     print('case_notice:')
     check('nothing to say when everything parsed',
-          hooks.unchecked_note(detect.Unchecked()) is None)
+          report.unchecked_note(detect.Unchecked()) is None)
 
     unchecked = detect.Unchecked()
     unchecked.record('b.php', 'unterminated_string:4')
     unchecked.record('a.php', 'no_scope:blade')
-    note = hooks.unchecked_note(unchecked)
+    note = report.unchecked_note(unchecked)
     check('the note names the files, sorted', 'a.php, b.php' in note, note)
     check('it counts them', '2개 파일' in note, note)
     check('it says the candidates came through', '후보' in note, note)
@@ -312,7 +312,7 @@ def case_notice():
     many = detect.Unchecked()
     for i in range(25):
         many.record('f%02d.php' % i, 'r')
-    folded = hooks.unchecked_note(many, limit=20)
+    folded = report.unchecked_note(many, limit=20)
     check('the audit path folds a long list', '외 5개' in folded, folded)
 
 
@@ -371,9 +371,8 @@ class _FakeScan:
                                        'unknown': ()})()
 
 
-class _FakeCtx:
-    def __init__(self, unchecked):
-        self.last_scan = _FakeScan(unchecked) if unchecked is not None else None
+def _scan(unchecked):
+    return _FakeScan(unchecked) if unchecked is not None else None
 
 
 def case_notice_is_attached():
@@ -381,28 +380,28 @@ def case_notice_is_attached():
     print('case_notice_is_attached:')
     unchecked = detect.Unchecked()
     unchecked.record('a.php', 'unterminated_string:2')
-    ctx = _FakeCtx(unchecked)
+    scan = _scan(unchecked)
 
-    out = hooks._with_unchecked_note(ctx, None)
+    out = stop.with_notes(None, scan)
     check('a silent turn gains a systemMessage',
           out and '구조 미확인' in out['systemMessage'], str(out))
 
     blocked = {'decision': 'block', 'reason': 'r', 'systemMessage': '기존'}
-    out = hooks._with_unchecked_note(ctx, dict(blocked))
+    out = stop.with_notes(dict(blocked), scan)
     check('a blocking turn keeps its decision and reason',
           out['decision'] == 'block' and out['reason'] == 'r')
     check('and its existing message is kept alongside',
           out['systemMessage'].startswith('기존 · '), out['systemMessage'])
 
     passing = {'systemMessage': '요약'}
-    out = hooks._with_unchecked_note(ctx, dict(passing))
+    out = stop.with_notes(dict(passing), scan)
     check('a passing turn joins the two messages',
           '요약 · ' in out['systemMessage'], out['systemMessage'])
 
     check('nothing is added when everything parsed',
-          hooks._with_unchecked_note(_FakeCtx(detect.Unchecked()), None) is None)
+          stop.with_notes(None, _scan(detect.Unchecked())) is None)
     check('nor when there was no scan at all',
-          hooks._with_unchecked_note(_FakeCtx(None), None) is None)
+          stop.with_notes(None, _scan(None)) is None)
 
 
 def case_layer_failure_is_survivable():

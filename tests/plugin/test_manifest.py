@@ -19,7 +19,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import ROOT, check, finish  # noqa: E402
-from lib import hooks as hooklib  # noqa: E402
+from lib import hooks as hooklib, stop as stoplib  # noqa: E402
 
 HOOK_KEYS = {'type', 'command', 'timeout', 'statusMessage'}
 SCRIPT_RE = re.compile(r'\$\{CLAUDE_PLUGIN_ROOT\}/([\w/.-]+\.py)')
@@ -71,9 +71,9 @@ def case_hooks():
 
     # LINT_BUDGET only protects the turn while it stays under what the hook is
     # given; raising the budget past the timeout brings back the silent kill
-    check('Stop hook outlives hooks.LINT_BUDGET',
-          stop_timeout is not None and hooklib.LINT_BUDGET < stop_timeout,
-          (hooklib.LINT_BUDGET, stop_timeout))
+    check('Stop hook outlives stop.LINT_BUDGET',
+          stop_timeout is not None and stoplib.LINT_BUDGET < stop_timeout,
+          (stoplib.LINT_BUDGET, stop_timeout))
 
 
 def case_manifests():

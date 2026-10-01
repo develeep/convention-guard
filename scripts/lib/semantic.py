@@ -28,12 +28,13 @@ same database.
 import json
 import os
 import time
+import uuid
 
 from . import candidate, context as contextlib, gitdiff, store as storelib
+from .batch import BATCH_VERSION, parse_reference, plan_batch, reference  # noqa: F401
 from .candidate import FALSE_POSITIVE, VALID, VERDICTS, VIOLATION  # noqa: F401
 from .log import log_path
 
-BATCH_VERSION = 4
 
 
 # ---------------------------------------------------------------- verdict cache
@@ -144,58 +145,28 @@ def triage(result, cfg):
 # ---------------------------------------------------------------- batches
 
 def build_batch(root, session, pending, cfg, label=''):
-    """Store a batch for the reviewer. Returns (reference, items, deferred)."""
-    limit = int(cfg['semantic_review']['max_candidates'])
-    budget = int(cfg['semantic_review']['context_budget_lines'])
-    items, deferred, used, rules = [], [], 0, {}
-    # same rule, same file, same context hash: two console.logs in one function
-    # are one question and the cached verdict covers both -- so the question
-    # shows the reviewer every one of them, not just the first (R7)
-    questions, covers = [], {}
-    for rule, cand, pack in pending:
-        if cand.review_key not in covers:
-            covers[cand.review_key] = []
-            questions.append((rule, cand, pack))
-        covers[cand.review_key].append({'line': cand.line, 'snippet': cand.snippet})
-    for rule, cand, pack in questions:
-        if len(items) >= limit or (items and used + pack.lines > budget):
-            deferred.append((rule, cand, pack))
-            continue
-        used += pack.lines
-        rules[rule['id']] = {'title': rule['title'], 'severity': rule['severity'],
-                             'instruction': rule['review']['instruction'],
-                             'message': rule.get('message') or ''}
-        items.append({'id': len(items) + 1, 'rule_id': rule['id'], 'review_key': cand.review_key,
-                      'key': cand.key, 'file': cand.file, 'line': cand.line,
-                      'snippet': cand.snippet,
-                      'lines': sorted(covers[cand.review_key], key=lambda c: c['line']),
-                      'context': pack.to_dict()})
-    if not items:
-        return None, [], deferred
+    """Plan and store a batch now. Returns (reference, items, deferred)."""
     db = storelib.path()
-    batch = {'version': BATCH_VERSION, 'repo': root, 'session': session, 'label': label,
-             'created': time.time(), 'db': db, 'log': log_path(),
-             'verdict_ttl_days': cfg['semantic_review']['verdict_ttl_days'],
-             'rules': rules, 'items': items}
+    ref, body, items, deferred = plan_batch(root, session, pending, cfg, label=label, db=db,
+                                            log=log_path(), ident=new_batch_id(),
+                                            now=time.time())
+    if ref:
+        save_batch(ref, body)
+    return ref, items, deferred
+
+
+def new_batch_id():
+    return uuid.uuid4().hex[:16]
+
+
+def save_batch(ref, body):
+    db, ident = parse_reference(ref)
     conn = storelib.connect(db)
     with storelib.transaction(conn):
-        cur = conn.execute('INSERT INTO review_batch (session, root, created, body) '
-                           'VALUES (?, ?, ?, ?)',
-                           (session, root, batch['created'], json.dumps(batch, ensure_ascii=False)))
-    return reference(db, cur.lastrowid), items, deferred
-
-
-def reference(db, ident):
-    """What names a batch everywhere -- a block message, a reviewer's command."""
-    return '%s#%d' % (os.path.abspath(db).replace(os.sep, '/'), int(ident))
-
-
-def parse_reference(ref):
-    """'<db>#<id>' -> (db path, id). ValueError for anything else."""
-    db, sep, ident = str(ref or '').rpartition('#')
-    if not (sep and db and ident.isdigit()):
-        raise ValueError('판정 배치 참조는 <저장소 경로>#<번호> 입니다: %s' % ref)
-    return db, int(ident)
+        conn.execute('INSERT OR REPLACE INTO review_batch (id, session, root, created, body) '
+                     'VALUES (?, ?, ?, ?, ?)',
+                     (ident, body.get('session'), body['repo'], body['created'],
+                      json.dumps(body, ensure_ascii=False)))
 
 
 def read_batch(ref):

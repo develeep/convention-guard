@@ -5,6 +5,7 @@ fmt.py (docs/output-format.md)."""
 import os
 
 from . import fmt
+from .gitdiff import MAX_BYTES
 
 # Hook output past 10k characters is spilled to a file and replaced by a
 # preview, which would hide the actual findings.
@@ -288,3 +289,52 @@ def render_text(data, steps, style=fmt.PLAIN, fix_diff='', unchecked=None,
     extra = ['린터 실패 %d' % summary['lint_failures']] if summary['lint_failures'] else []
     groups.append([fmt.summary(counts, extra, style)])
     return fmt.blocks(*groups)
+
+
+# ---------------------------------------------------------------- notices
+
+def unchecked_note(unchecked, limit=None, short=False):
+    """'구조 미확인 2개 파일 — a.php, b.php (...)', or None when there is none.
+    short: the systemMessage form, '구조 미확인 2개 파일 (a.php, b.php)'.
+
+    A file whose structure could not be read had its conditions skipped, so
+    its candidates came through unfiltered. Saying nothing would let that read
+    as a clean pass (NFR-02.2, US-06).
+    """
+    if not unchecked:
+        return None
+    shown, folded = unchecked.summary(limit)
+    listed = ', '.join(shown) + (' 외 %d개' % folded if folded else '')
+    if short:
+        return '구조 미확인 %d개 파일 (%s)' % (len(unchecked), listed)
+    return ('구조 미확인 %d개 파일 — %s (구조 조건을 적용하지 못해 후보를 그대로 올렸습니다)'
+            % (len(unchecked), listed))
+
+
+def too_large_note(paths, limit=None, short=False):
+    """'큰 파일 미검사 1개 파일 — big.php (…)', or None when there is none.
+
+    A file past the size cap was not read at all, so no rule saw it. That is
+    not a pass and must not read like one (R20).
+    """
+    if not paths:
+        return None
+    listed = _listed(paths, limit)
+    if short:
+        return '큰 파일 미검사 %d개 파일 (%s)' % (len(paths), listed)
+    return ('큰 파일 미검사 %d개 파일 — %s (%dKB 를 넘어 규칙을 적용하지 않았습니다)'
+            % (len(paths), listed, MAX_BYTES // 1000))
+
+
+def unknown_note(paths):
+    """'검사되지 않음 1개 파일 (sub/x.php)': touched, but in a place git cannot
+    see from this repo (a nested repo or worktree), so nothing checked it (R23b)."""
+    if not paths:
+        return None
+    return '검사되지 않음 %d개 파일 (%s)' % (len(paths), _listed(paths, None))
+
+
+def _listed(paths, limit):
+    shown = list(paths[:limit]) if limit else list(paths)
+    folded = len(paths) - len(shown)
+    return ', '.join(shown) + (' 외 %d개' % folded if folded else '')

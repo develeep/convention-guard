@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stop hook adapter. The policy lives in lib/hooks.py.
+"""Stop hook adapter. The decision lives in lib/decide.py, its I/O in lib/stop.py.
 
 Reads the hook payload from stdin and prints the decision JSON (or nothing).
 It never exits non-zero and never lets its own bug break the agent's turn.
@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import hooks, state  # noqa: E402
+from lib import state, stop  # noqa: E402
 
 
 def main():
@@ -21,7 +21,7 @@ def main():
         return 0
     try:
         state.gc_old_sessions()
-        out = hooks.on_stop(payload)
+        out = stop.on_stop(payload)
     except Exception as exc:  # never break the agent on our own bug -- but say so:
         # a silent skip looks exactly like a clean check, so a broken config or
         # a bug here would switch the plugin off for the whole session unnoticed
