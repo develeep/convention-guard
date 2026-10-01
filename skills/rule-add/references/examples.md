@@ -19,8 +19,8 @@ applies_to:
   files: ["app/**/*.php"]
   exclude: ["app/Services/NotificationService.php"]
 detect:
-  # 앞의 (?!...) 는 주석 줄을 거릅니다
-  when_line_added: '^(?!\s*(?://|#|\*)).*(Http::post\s*\(\s*["'']https://hooks\.slack\.com|new\s+SlackClient)'
+  when_line_added: '(Http::post\s*\(\s*["'']https://hooks\.slack\.com|new\s+SlackClient)'
+  not_in: [comment]
 message: |
   Slack 호출은 NotificationService 를 통해서만 합니다. 재시도와 rate limit 처리가 거기에 있습니다.
 tests:
@@ -31,7 +31,7 @@ tests:
     - '// Http::post("https://hooks.slack.com/...") 는 쓰지 말 것'
 ```
 
-주석 줄에 같은 코드가 적힐 수 있으면 위처럼 `^(?!\s*(?://|#|\*)).*` 로 시작합니다.
+주석에 같은 코드가 적힐 수 있으면 위처럼 `not_in: [comment]` 를 붙입니다. 구조 계층이 주석을 판정하므로 줄 끝 주석과 여러 줄 블록 주석도 걸러집니다.
 
 ## 조건 + 파일 전체
 
@@ -107,7 +107,9 @@ applies_to:
   stacks: [js]
   files: ["**/*.{ts,tsx,js,jsx}"]
 detect:
-  file_regex: 'catch\s*(\([^)]*\))?\s*\{\s*\}'
+  # 빈 여부는 정규식이 아니라 구조가 판정합니다 — 주석은 내용으로 봅니다
+  file_regex: 'catch\s*(\([^)]*\))?\s*\{'
+  block_empty: true
 message: |
   에러를 삼키지 마세요. 로거로 남기거나, 의도적이면 이유를 주석으로 남기세요.
 tests:
