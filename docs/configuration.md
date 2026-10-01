@@ -30,13 +30,14 @@
 | `stacks` | `[]` | 감지가 빗나갈 때만 강제 지정 |
 | `disable` | `[]` | 끌 규칙 id |
 | `severity` | `{}` | 규칙별 강도. `core/php-line-too-long: warn` |
-| `exclude` | `[]` | 검사하지 않을 경로 글롭 |
+| `exclude` | `[]` | 검사하지 않을 경로 글롭. (400KB 넘는 파일과 앞 8KB 에 NUL 이 있는 바이너리는 설정과 관계없이 건너뛰고, 큰 파일은 "큰 파일 미검사"로 알립니다) 규칙과 같은 문법이고, 여기서는 `legacy/` 를 `legacy/**` 로, 앞의 `/` 를 레포 루트로 읽습니다 |
 | `scope.base_ref` | `''` | `auto` 면 기본 브랜치 merge-base 대비 변경도 합침 (세션 중 커밋한 변경 포함) |
 | `limits.max_error_rules` | 4 | 한 번에 보여줄 error 규칙 수 |
 | `limits.max_warn_rules` | 3 | 차단할 때 함께 보낼 warn 규칙 수 |
 | `limits.max_locations_per_rule` | 3 | 규칙당 위치 수 |
-| `limits.max_consecutive_blocks` | 3 | 연속 차단 상한. 차단할 것이 없는 턴에서만 초기화 |
+| `limits.max_consecutive_blocks` | 3 | 한 요청 안의 연속 차단 상한. 새 요청이 시작되거나 차단할 것이 없는 턴에서 초기화 |
 | `limits.max_verify_attempts` | 1 | 검증에서 남은/새 위반으로 다시 차단하는 횟수 |
+| `collect.edit_tools` | `[]` | 파일을 쓰는 MCP 도구 이름(예: `mcp__filesystem__write_file`). 내장 Write/Edit/MultiEdit/NotebookEdit/Bash 는 항상 수집 |
 | `linters.enabled` | `true` | 스택별 린터 위임 |
 | `linters.timeout` | 90 | 린터 명령 하나당 초 |
 | `semantic_review.enabled` | `false` | 의미 판정 |
@@ -74,7 +75,7 @@ presets: [laravel, security]      # psr12 스타일 규칙은 빼고 싶을 때
 차단(1) → 수정 → 검증: 남음 → 차단(2, 마지막 검증) → 수정 → 검증: 남음 → 기록만 하고 종료
 ```
 
-`max_consecutive_blocks` 에 걸린 턴은 초기화하지 않습니다. 걸린 뒤에도 위반이 남아 있으면 계속 기록만 하다가, 차단할 것이 없는 턴에서 초기화됩니다.
+`max_consecutive_blocks` 는 한 요청 안의 루프 가드입니다. 걸린 뒤에도 같은 요청 안에서는 위반이 남아 있는 동안 기록만 합니다. 새 요청이 시작되면(continuation 이 아닌 Stop) 초기화되므로, 지난 요청에서 남긴 위반이 다음 요청의 새 위반까지 막지 않습니다. 요청을 넘어 다시 나오는 위반은 "지난 턴에도 지적했습니다"로 표시됩니다.
 
 ## 린터 위임
 

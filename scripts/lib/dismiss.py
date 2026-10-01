@@ -25,6 +25,7 @@ back every finding the team already declined.
 """
 
 import os
+import posixpath
 import re
 import time
 
@@ -89,13 +90,27 @@ def load(root):
         if not isinstance(entry, dict):
             continue
         rule_id = str(entry.get('rule') or '').strip()
-        relpath = str(entry.get('file') or '').strip().replace(os.sep, '/')
+        relpath = str(entry.get('file') or '').strip()
         if not rule_id or not relpath:
             continue
+        relpath = normalize(relpath)
         digest = entry.get('hash')
         keys.add((rule_id, relpath, str(digest).strip()) if digest else (rule_id, relpath))
         kept.append(entry)
     return Dismissals(frozenset(keys), kept, path=target)
+
+
+def normalize(relpath):
+    """The repo-relative form candidates use: `./a.php` and `a//b/../a.php`
+    name the file `a.php` does, and must match like it (R18)."""
+    return posixpath.normpath(str(relpath).strip().replace(os.sep, '/'))
+
+
+def covered(cands, relpath, digest):
+    """The candidates in `relpath` a dismissal with `digest` would hide --
+    more than one when the same code sits on several lines (R18)."""
+    return [c for c in cands if c.file == relpath
+            and (c.code_hash == digest or digest in c.legacy_hashes)]
 
 
 def predicate(dismissals):

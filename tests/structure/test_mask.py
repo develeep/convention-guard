@@ -219,9 +219,150 @@ def case_js_regex_literals():
     check('php has no regex literals: a slash is just a slash', res.ok, str(res.reason))
 
 
+def case_r9_regex_context():
+    """R9(b): `/` is division only after a value; everywhere else a regex."""
+    print('case_r9_regex_context:')
+    for label, src, literal in (
+            ('a regex after an arrow', 'const f = s => /"/.test(s);', '/"/'),
+            ('a regex after a binary operator', 'a + /"/.test(s);', '/"/'),
+            ('a regex after a control header', 'if (x) /"/.test(s);', '/"/'),
+            ('a regex after a while header', "while (x) /'/.test(y);", "/'/")):
+        text = src + '\n'
+        res = run(text, 'js')
+        check(label, res.ok and literal in pieces(text, res.strings),
+              '%s %s' % (res.reason, pieces(text, res.strings)))
+    for label, src in (('division after a postfix increment', "a++ / 2; s = 'x';"),
+                       ('division after a closing call', "(a + b) / 2; s = 'y';"),
+                       ('division after a string', "'a' / 2; s = 'z';")):
+        text = src + '\n'
+        res = run(text, 'js')
+        check(label + ' is not a regex', res.ok and all(
+            not p.startswith('/') for p in pieces(text, res.strings)),
+            '%s %s' % (res.reason, pieces(text, res.strings)))
+
+
+def case_r9_char_literals():
+    print('case_r9_char_literals:')
+    text = "fn f<'a>(x: &'a str) -> &'a str { x }\n"
+    res = run(text, 'rust')
+    check('a rust lifetime opens no string', res.ok and res.strings == (),
+          '%s %s' % (res.reason, pieces(text, res.strings)))
+    text = "let c = 'x'; let d = '\\n'; let q = '\\''; let e = '\\u{1F600}';\n"
+    res = run(text, 'rust')
+    got = pieces(text, res.strings)
+    check('rust char literals are still strings',
+          res.ok and got == ["'x'", "'\\n'", "'\\''", "'\\u{1F600}'"], '%s %s' % (res.reason, got))
+    text = "int n = 1'000'000; char c = 'a';\n"
+    res = run(text, 'c')
+    check('a c++ digit separator opens no string',
+          res.ok and pieces(text, res.strings) == ["'a'"],
+          '%s %s' % (res.reason, pieces(text, res.strings)))
+
+
+def case_r9_raw_strings():
+    print('case_r9_raw_strings:')
+    for label, language, text, literal in (
+            ('a c# verbatim string ends at its quote', 'csharp',
+             'var p = @"C:\\dir\\"; var q = 1;\n', '@"C:\\dir\\"'),
+            ('a c# verbatim string escapes a quote by doubling it', 'csharp',
+             'var s = @"say ""hi"" now"; var q = 1;\n', '@"say ""hi"" now"'),
+            ('a swift raw string', 'swift', 'let r = #"a "quoted" \\n"#\nlet q = 1\n',
+             '#"a "quoted" \\n"#'),
+            ('a c++ raw string', 'c', 'auto r = R"(a "b" c)"; int q;\n', 'R"(a "b" c)"')):
+        res = run(text, language)
+        check(label, res.ok and literal in pieces(text, res.strings),
+              '%s %s' % (res.reason, pieces(text, res.strings)))
+    text = '/* a /* b */ c */\nlet x = 1\n'
+    for language in ('swift', 'dart'):
+        res = run(text, language)
+        check('%s block comments nest' % language,
+              pieces(text, res.comments) == ['/* a /* b */ c */'], str(pieces(text, res.comments)))
+    text = "var s = 'hi ${user.name}!';\n"
+    res = run(text, 'dart')
+    check('dart interpolates code inside quotes',
+          pieces(text, res.strings) == ["'hi ${", "}!'"], str(pieces(text, res.strings)))
+
+
+def case_r9_heredoc_interpolation():
+    print('case_r9_heredoc_interpolation:')
+    text = PHP + '$h = <<<EOT\n  hello {$u->dd()} there\nEOT;\n$x = 1;\n'
+    res = run(text)
+    at = text.index('dd()')
+    check('code in a heredoc interpolation is code',
+          res.ok and not any(s.start <= at < s.end for s in res.strings),
+          '%s %s' % (res.reason, pieces(text, res.strings)))
+    check('the heredoc still ends at its identifier line',
+          res.ok and pieces(text, res.strings)[-1].endswith('EOT'), str(pieces(text, res.strings)))
+
+
+def case_r9_jsx():
+    """R9(c): JSX children are literal text (strings); `{...}` inside is code."""
+    print('case_r9_jsx:')
+    text = "const a = <p>Don't do this</p>;\nconst b = 'ok';\n"
+    res = run(text, 'js')
+    check('an apostrophe in jsx text opens no string', res.ok, str(res.reason))
+    check('the jsx text is recorded as a string',
+          any("Don't do this" in p for p in pieces(text, res.strings)), str(pieces(text, res.strings)))
+
+    text = ('function A({ user }) {\n  return (\n    <div className="it\'s">\n'
+            "      <span>{user.name}'s page</span>\n"
+            '      <img src={user.pic} />\n      <>frag</>\n'
+            '      {items.map(i => <li key={i}>{i}</li>)}\n'
+            '      <button onClick={() => go()}>Go</button>\n    </div>\n  );\n}\n')
+    res = run(text, 'js')
+    check('a component with nested jsx masks cleanly', res.ok, str(res.reason))
+    for needle in ('user.name', 'user.pic', 'items.map', 'go()'):
+        at = text.index(needle)
+        check('%s inside braces is code' % needle,
+              not any(s.start <= at < s.end for s in res.strings), str(pieces(text, res.strings)))
+    at = text.index("'s page")
+    check('text next to an expression is text',
+          any(s.start <= at < s.end for s in res.strings), str(pieces(text, res.strings)))
+
+    text = 'if (a < b && c > d) { go(); }\nconst s = "x";\n'
+    res = run(text, 'js')
+    check('a comparison is not jsx', res.ok and pieces(text, res.strings) == ['"x"'],
+          '%s %s' % (res.reason, pieces(text, res.strings)))
+
+    text = "const f = <T>(x: T) => x;\nconst s = 'ok';\n"
+    res = run(text, 'ts')
+    check('a .ts generic arrow is not jsx', res.ok and pieces(text, res.strings) == ["'ok'"],
+          '%s %s' % (res.reason, pieces(text, res.strings)))
+
+    res = run('const a = <div>\n  open\n', 'js')
+    check('an unclosed jsx element fails instead of hiding the file',
+          res.reason == 'unterminated_jsx:1', str(res.reason))
+
+
+def case_r9_jsx_text_bounds():
+    """R9 follow-up: jsx text is the prose only -- not the braces around an
+    expression, not the whitespace between tags -- so blanking what was found
+    leaves nothing to find (P-15)."""
+    print('case_r9_jsx_text_bounds:')
+    text = '<p>a{x}b</p>\n'
+    res = run(text, 'js')
+    check('the braces belong to the expression', pieces(text, res.strings) == ['a', 'b'],
+          str(pieces(text, res.strings)))
+    text = '<div>\n  <p>x</p>\n</div>\n'
+    res = run(text, 'js')
+    check('whitespace between tags is no string', pieces(text, res.strings) == ['x'],
+          str(pieces(text, res.strings)))
+    for text in ("<p>It's</p>\n", '<p>a{x}b</p>\n'):
+        res = run(text, 'js')
+        blanked = list(text)
+        for span in res.strings:
+            for i in range(span.start, span.end):
+                blanked[i] = ' ' if blanked[i] != '\n' else '\n'
+        again = run(''.join(blanked), 'js')
+        check('blanking %r leaves nothing to find' % text, again.strings == (),
+              str(pieces(''.join(blanked), again.strings)))
+
+
 def main():
     for case in (case_basics, case_php_specifics, case_interpolation,
-                 case_other_languages, case_blade, case_failures, case_js_regex_literals):
+                 case_other_languages, case_blade, case_failures, case_js_regex_literals,
+                 case_r9_regex_context, case_r9_char_literals, case_r9_raw_strings,
+                 case_r9_heredoc_interpolation, case_r9_jsx, case_r9_jsx_text_bounds):
         case()
     return finish('structure.native.mask')
 

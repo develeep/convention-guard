@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import (LARAVEL_COMPOSER, Session, check, finish, isolated_env,  # noqa: E402
                      make_repo, run_script, tempdir, write)
+from lib.candidate import clip, fingerprint  # noqa: E402
 
 HDR = '<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Svc;\n\n'
 A = 'app/Svc/A.php'
@@ -132,6 +133,130 @@ def case_broken_file_is_loud():
         check('dismiss.py refuses to append to it', refused.returncode == 2, refused.stderr)
 
 
+LONG = ('    $result = $this->repository->whereHas("orders", fn ($q) => $q->where("status", '
+        '"paid"))->with(["user", "items", "items.product"])')   # 120+ before the tail
+LONG_RULE = 'core/php-line-too-long'
+EMPTY_RULE = ('id: empty-block\ntitle: t\nseverity: warn\n'
+              'applies_to: {stacks: ["*"], files: ["**/*.php"]}\n'
+              "detect: {file_regex: '\\s*\\{\\s*\\}\\s*'}\nmessage: m\n")
+
+
+def locations(repo, data, rule_id):
+    """[(line, key, snippet)] scan.py reports for one rule."""
+    proc = run_script('scan.py', ['--cwd', repo, '--no-lint', '--json', '--fail-on', 'never'],
+                      env=isolated_env(data), cwd=repo)
+    return sorted((loc['line'], loc['key'], loc['snippet'])
+                  for f in json.loads(proc.stdout)['findings'] if f['rule_id'] == rule_id
+                  for loc in f['locations'])
+
+
+def case_whole_line_fingerprint():
+    """R11 -- the key is the whole line, not the 120 characters shown."""
+    print('case_whole_line_fingerprint:')
+    with tempdir() as tmp:
+        repo, data = laravel(tmp)
+        write(repo, A, HDR + 'class A {\n' + LONG + '->get();\n' + LONG + '->first();\n}\n')
+        found = locations(repo, data, LONG_RULE)
+        check('two lines alike for 120 characters get two keys',
+              len({key for _, key, _ in found}) == 2, found)
+
+        out = dismiss(repo, data, '--rule', LONG_RULE, '--file', A, '--line', '8',
+                      '--reason', '체이닝')
+        check('one of them is dismissed', out.returncode == 0, out.stdout + out.stderr)
+        check('only that one', [n for n, _, _ in locations(repo, data, LONG_RULE)] == [9])
+        write(repo, A, HDR + 'class A {\n' + LONG + '->evil();\n' + LONG + '->first();\n}\n')
+        check('changing its tail brings it back',
+              [n for n, _, _ in locations(repo, data, LONG_RULE)] == [8, 9])
+
+        # what 3.2 left in the file: the fingerprint of the clipped snippet
+        old = fingerprint(clip(LONG + '->first();'))
+        write(repo, DISMISSED, 'dismissed:\n  - rule: %s\n    file: %s\n    hash: "%s"\n'
+              '    reason: "3.2"\n' % (LONG_RULE, A, old))
+        # and keeps 3.2's meaning: it covers every line with those 120 characters,
+        # line 8 included -- only a record written from now on is exact
+        check('a 3.2 record still holds (dual matching)',
+              locations(repo, data, LONG_RULE) == [], locations(repo, data, LONG_RULE))
+
+
+def case_bom_line_one_record():
+    """R6/R11 -- 3.2 read a BOM into line 1, so its record carries the BOM."""
+    print('case_bom_line_one_record:')
+    with tempdir() as tmp:
+        repo, data = laravel(tmp)
+        with open(os.path.join(repo, 'app/Svc/C.php'), 'w', encoding='utf-8-sig') as fh:
+            fh.write('<?php dd(1);\n')
+        rule = 'core/php-no-debug-output'
+        lines = [n for n, _, _ in locations(repo, data, rule) if n == 1]
+        check('line 1 of a BOM file is a candidate', lines == [1], lines)
+        old = fingerprint(clip('﻿<?php dd(1);'))
+        dismiss(repo, data, '--key', '%s:app/Svc/C.php:%s' % (rule, old), '--reason', '3.2')
+        check('its 3.2 record still holds', all(n != 1 for n, _, _ in locations(repo, data, rule)))
+
+
+def case_identical_lines():
+    """R18 -- one dismissal covers every identical line in the file, so it has to be asked for."""
+    print('case_identical_lines:')
+    rule = 'core/php-no-debug-output'
+    with tempdir() as tmp:
+        repo, data = laravel(tmp)
+        method = '    public function %s($user)\n    {\n        dd($user);\n    }\n'
+        write(repo, A, HDR + 'class A {\n' + method % 'f' + method % 'g' + '}\n')
+        hits = locations(repo, data, rule)
+        check('two identical lines share a key',
+              len(hits) == 2 and len({k for _, k, _ in hits}) == 1, hits)
+
+        out = dismiss(repo, data, '--rule', rule, '--file', A, '--line', '10', '--reason', 'x')
+        check('--line refuses to hide both silently', out.returncode == 2
+              and '2곳' in out.stderr and '--all-identical' in out.stderr, out.stderr)
+        out = dismiss(repo, data, '--key', hits[0][1], '--reason', 'x', '--by', 'agent')
+        check('so does --key, the form the hook prints', out.returncode == 2
+              and '--all-identical' in out.stderr, out.stderr)
+        check('nothing was recorded', not os.path.exists(os.path.join(repo, DISMISSED)))
+
+        out = dismiss(repo, data, '--key', hits[0][1], '--reason', 'x', '--all-identical')
+        check('--all-identical records it', out.returncode == 0, out.stdout + out.stderr)
+        check('and says how many it hides', '2곳' in out.stdout, out.stdout)
+        check('both are gone', locations(repo, data, rule) == [])
+
+
+def case_path_is_normalised():
+    """R18 -- `./a.php` is the same file as `a.php`, in the record and on the CLI."""
+    print('case_path_is_normalised:')
+    rule = 'core/php-no-debug-output'
+    with tempdir() as tmp:
+        repo, data = laravel(tmp)
+        (line, key, _), = [h for h in locations(repo, data, rule) if h[0] == 8]
+        digest = key.rsplit(':', 1)[1]
+        write(repo, DISMISSED, 'dismissed:\n  - rule: %s\n    file: ./%s\n    hash: "%s"\n'
+              '    reason: x\n' % (rule, A, digest))
+        check('a hand-written ./ path applies', [h[0] for h in locations(repo, data, rule)]
+              == [9], locations(repo, data, rule))
+
+        out = dismiss(repo, data, '--rule', rule, '--file', './' + A, '--line', '9',
+                      '--reason', 'y')
+        check('the CLI accepts ./ too', out.returncode == 0, out.stdout + out.stderr)
+        check('and records the normal form', 'file: "%s"' % A in read(repo, DISMISSED)
+              or 'file: %s\n' % A in read(repo, DISMISSED), read(repo, DISMISSED))
+
+
+def case_file_match_trims_whitespace():
+    """R11 -- a file match's key and line ignore the whitespace around it."""
+    print('case_file_match_trims_whitespace:')
+    with tempdir() as tmp:
+        repo, data = laravel(tmp)
+        write(repo, '.claude/convention-guard/rules/empty-block.yaml', EMPTY_RULE)
+        code = 'class B {\n    public function f()\n    {\n    }\n%s    public function g() {}\n}\n'
+        write(repo, 'app/Svc/B.php', HDR + code % '\n')
+        one = [loc for loc in locations(repo, data, 'local/empty-block') if loc[0] < 12]
+        write(repo, 'app/Svc/B.php', HDR + code % '\n\n\n')
+        three = [loc for loc in locations(repo, data, 'local/empty-block') if loc[0] < 12]
+        check('the match is reported on its brace, not the line before', one[:1] and
+              one[0][0] == 9, one)
+        check('blank lines after it do not change the key',
+              one[:1] and three[:1] and one[0][1] == three[0][1], (one, three))
+        check('and the snippet has no trailing ⏎', one[:1] and one[0][2] == '{ ⏎     }', one)
+
+
 def event(**fields):
     fields.setdefault('schema', 2)
     fields.setdefault('ts', '2026-09-17T10:00:00+0900')
@@ -195,5 +320,10 @@ if __name__ == '__main__':
     case_integrity()
     case_audit_finding_can_be_dismissed()
     case_broken_file_is_loud()
+    case_whole_line_fingerprint()
+    case_bom_line_one_record()
+    case_identical_lines()
+    case_path_is_normalised()
+    case_file_match_trims_whitespace()
     case_report()
     sys.exit(finish('기각 무결성 / 건강도 리포트'))

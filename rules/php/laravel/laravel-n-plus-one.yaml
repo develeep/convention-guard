@@ -9,8 +9,8 @@ applies_to:
 detect:
   # 게이트일 뿐 판정이 아닙니다. 반복이 추가된 줄만 리뷰어에게 넘어갑니다.
   when_line_added: '\bforeach\s*\(|->each\s*\(|->map\s*\('
-  # 반복 안의 매치만 리뷰어에게 넘깁니다 (게이트 축소, US-03)
-  in_scope: loop
+  # 트리거가 이미 "반복의 시작"이라 in_scope: loop 는 두지 않습니다. in_scope 는
+  # 블록 본문만 안으로 보는데, 트리거는 헤더 줄에 있기 때문입니다 (R10)
   not_in: [comment, string]
 semantic_review:
   context:
@@ -36,6 +36,8 @@ tests:
   match:
     - '        foreach ($orders as $order) {'
     - '        $orders->each(function ($order) {'
+    # 중괄호 블록이 없는 한 줄 반복도 리뷰어에게 넘깁니다 (R10)
+    - '        $names = $users->map(fn ($u) => $u->profile->name);'
   no_match:
     - '        $total = array_sum($amounts);'
     # 3.0 구조 조건: 주석·문자열 안의 매치는 위반이 아닙니다

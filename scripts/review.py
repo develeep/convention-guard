@@ -58,8 +58,12 @@ def show(batch, path):
         out += ['## ' + fmt.finding_head(rule['severity'], rule_id, rule['title']), '',
                 '#### 판정 기준', rule['instruction'].strip(), '']
         for item in found:
-            out += ['### 후보 %d — %s' % (item['id'], where(item)),
-                    '    %s' % item['snippet'], '']
+            covered = item.get('lines') or []
+            out += ['### 후보 %d — %s' % (item['id'], where(item))]
+            if len(covered) > 1:
+                out += ['    %d: %s' % (c['line'], c['snippet']) for c in covered] + ['']
+            else:
+                out += ['    %s' % item['snippet'], '']
             for section in item['context']['sections']:
                 out += ['#### %s' % section['title'], section['text'], '']
     # ponytail: a fence, not the 4-space block: an indented `JSON` would not
@@ -71,6 +75,8 @@ def show(batch, path):
             'JSON', '```', '',
             '- verdict: VIOLATION (실제 위반) · VALID (위반 아님) · FALSE_POSITIVE (게이트가 잘못 잡음)',
             '- 확신이 없으면 VALID 입니다.']
+    if any(len(item.get('lines') or []) > 1 for item in items):
+        out.append('- 후보에 줄이 여러 개면 그중 하나라도 위반일 때 VIOLATION 이고, reason 에 그 줄을 적습니다.')
     return '\n'.join(out)
 
 
@@ -126,7 +132,8 @@ def record(batch, path, answers):
                                             line=item['line'], key=item['key'], id=ident)
     with open(semantic.verdicts_path(path), 'w', encoding='utf-8') as fh:
         json.dump(verdicts, fh, ensure_ascii=False, indent=1)
-    semantic.store(semantic.cache_path(batch['data_dir']), batch['repo'], verdicts)
+    semantic.store(semantic.cache_path(batch['data_dir']), batch['repo'], verdicts,
+                   ttl_days=batch.get('verdict_ttl_days'))
     try:
         with open(batch['log'], 'a', encoding='utf-8') as fh:
             for review_key, v in verdicts.items():

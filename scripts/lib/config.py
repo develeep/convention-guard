@@ -35,6 +35,7 @@ DEFAULTS = {
         'max_verify_attempts': 1,
     },
     'linters': {'enabled': True, 'timeout': 90},
+    'collect': {'edit_tools': []},
     'semantic_review': {
         'enabled': False,
         'max_candidates': 5,

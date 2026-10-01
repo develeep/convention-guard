@@ -12,6 +12,7 @@
     detect:                                 # exactly one anchor
       when_line_added: 'public\\s+function\\s+(store|update)\\s*\\('
       must_contain_in_file: 'FormRequest|->validated\\(\\)'
+      must_not_in: [comment, string]        # where the requirement does not count
     semantic_review:                        # optional: candidates go to a reviewer
       instruction: ...
       context: [current_function, imports]
@@ -39,10 +40,11 @@ import json
 import os
 import re
 
+from ..stack import parse_constraint
 from .select import SEVERITIES
 
 ANCHORS = ('when_line_added', 'when_file_added', 'when_changed', 'file_regex')
-CONDITIONS = ('must_contain_in_file', 'require_changed')
+CONDITIONS = ('must_contain_in_file', 'require_changed', 'must_not_in')
 # Structure conditions (3.0): filters that ask what the match sits inside.
 # `CONDITIONS` above was already taken by the anchor modifiers, hence the name.
 STRUCTURE = ('not_in', 'in_scope', 'block_empty')
@@ -88,6 +90,32 @@ def _as_list(value, field):
     raise RuleError('%s 는 문자열 또는 문자열 목록이어야 합니다' % field)
 
 
+def _version(value):
+    """applies_to.version, refused unless every clause reads (R23g)."""
+    if value in (None, ''):
+        return None
+    for constraint in (value.values() if isinstance(value, dict) else [value]):
+        try:
+            parse_constraint(constraint)
+        except ValueError:
+            raise RuleError('applies_to.version 을 읽을 수 없습니다: %s — ">=10", ">=10 <12", '
+                            '"10" 처럼 씁니다 (^, ~, || 는 지원하지 않음)' % constraint)
+    return value
+
+
+def _globs(value, field):
+    """A rule's globs, refused when they start or end with `/`: `vendor/`
+    reads as a directory to people and as nothing to a path matcher. Config
+    files get the lenient reading (select.glob_re); a rule says it one way (R22)."""
+    globs = _as_list(value, field)
+    for glob in globs:
+        bare = glob.replace('\\', '/')
+        if bare.startswith('/') or bare.endswith('/'):
+            raise RuleError("%s 의 글롭은 '/' 로 시작하거나 끝날 수 없습니다: %s — 디렉터리 아래 "
+                            "전부는 'vendor/**' 처럼 씁니다" % (field, glob))
+    return globs
+
+
 def _structure(rule, spec, anchor):
     """Validate the structure conditions on `detect` (DR-01~DR-08).
 
@@ -102,22 +130,26 @@ def _structure(rule, spec, anchor):
         raise RuleError('%s 에는 구조 조건을 붙일 수 없습니다 (%s)'
                         % (anchor, ', '.join(STRUCTURE)))
     for key, allowed in (('not_in', NOT_IN_VALUES), ('in_scope', IN_SCOPE_VALUES)):
-        value = spec.get(key)
-        if value in (None, [], ()):
-            continue
-        values = [value] if isinstance(value, str) else value
-        if not isinstance(values, (list, tuple)) or \
-                not all(isinstance(item, str) for item in values):
-            raise RuleError('%s 는 문자열이거나 문자열 목록이어야 합니다' % key)
-        for item in values:
-            if item not in allowed:
-                raise RuleError('%s 의 알 수 없는 값: %s%s (%s)'
-                                % (key, item, _did_you_mean(item, allowed),
-                                   ', '.join(allowed)))
+        _values(spec, key, allowed)
     if 'block_empty' in spec and not isinstance(spec['block_empty'], bool):
         raise RuleError('block_empty 는 true 또는 false 여야 합니다')
     if spec.get('block_empty') and rule['kind'] != 'file':
         raise RuleError('block_empty 는 file_regex 와만 씁니다')
+
+
+def _values(spec, key, allowed):
+    value = spec.get(key)
+    if value in (None, [], ()):
+        return
+    values = [value] if isinstance(value, str) else value
+    if not isinstance(values, (list, tuple)) or \
+            not all(isinstance(item, str) for item in values):
+        raise RuleError('%s 는 문자열이거나 문자열 목록이어야 합니다' % key)
+    for item in values:
+        if item not in allowed:
+            raise RuleError('%s 의 알 수 없는 값: %s%s (%s)'
+                            % (key, item, _did_you_mean(item, allowed),
+                               ', '.join(allowed)))
 
 
 def _did_you_mean(value, allowed):
@@ -170,9 +202,9 @@ def normalize(raw, path, source):
         'path': path,
         'disabled': bool(raw.get('disabled')),
         'stack': [str(s) for s in _as_list(applies.get('stacks'), 'applies_to.stacks')],
-        'files': _as_list(applies.get('files'), 'applies_to.files'),
-        'exclude': _as_list(applies.get('exclude'), 'applies_to.exclude'),
-        'version': applies.get('version'),
+        'files': _globs(applies.get('files'), 'applies_to.files'),
+        'exclude': _globs(applies.get('exclude'), 'applies_to.exclude'),
+        'version': _version(applies.get('version')),
         'superseded_by': _as_list(raw.get('superseded_by'), 'superseded_by'),
         'message': str(raw.get('message') or '').strip(),
         'prevent': str(raw.get('prevent') or '').strip(),
@@ -232,14 +264,23 @@ def _detect(rule, spec):
     elif anchor == 'when_changed':
         if not required or must:
             raise RuleError('when_changed 에는 require_changed 가 필요합니다')
+        if rule['files']:
+            # which side would it narrow? Either reading is a silent surprise (R23h)
+            raise RuleError('when_changed 규칙에는 applies_to.files 를 쓸 수 없습니다 — '
+                            '경로는 when_changed / require_changed 에 쓰세요')
         rule['kind'] = 'paired'
-        rule['when_changed'] = _as_list(spec[anchor], 'detect.when_changed')
-        rule['require_changed'] = _as_list(required, 'detect.require_changed')
+        rule['when_changed'] = _globs(spec[anchor], 'detect.when_changed')
+        rule['require_changed'] = _globs(required, 'detect.require_changed')
     else:
         if must or required:
             raise RuleError('file_regex 에는 조건을 붙일 수 없습니다')
         rule['kind'] = 'file'
         rule['compiled_file'] = _compile(spec[anchor], flags | re.S, 'detect.file_regex')
+    if 'must_not_in' in spec:
+        # where the requirement does not count; [comment] when unset (R6)
+        if not must:
+            raise RuleError('must_not_in 은 must_contain_in_file 과만 씁니다')
+        _values(spec, 'must_not_in', NOT_IN_VALUES)
     _structure(rule, spec, anchor)
     rule['detect'] = dict(spec)
 

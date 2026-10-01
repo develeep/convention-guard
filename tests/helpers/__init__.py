@@ -141,6 +141,18 @@ class Session:
                                         'tool_name': tool,
                                         'tool_input': {'file_path': rel}})
 
+    def pre(self, rel, tool='Edit'):
+        return self._run('collect.py', {'session_id': self.name, 'cwd': self.repo,
+                                        'hook_event_name': 'PreToolUse',
+                                        'tool_name': tool,
+                                        'tool_input': {'file_path': rel}})
+
+    def edit(self, rel, body, tool='Edit'):
+        """Pre, the write, Post -- a whole tool call as Claude Code runs it."""
+        self.pre(rel, tool)
+        write(self.repo, rel, body)
+        return self.touch(rel, tool)
+
     def bash_hook(self, event, tool_use_id='bash-1'):
         return self._run('collect.py', {'session_id': self.name, 'cwd': self.repo,
                                         'hook_event_name': event, 'tool_use_id': tool_use_id,

@@ -227,6 +227,9 @@ class _Scope:
     def changed_linenos(self, relpath):
         return {n for n, _ in self.lines(relpath)}
 
+    def seams_of(self, relpath):
+        return frozenset()
+
     def added_body(self, relpath):
         return self.files.get(relpath, '')
 

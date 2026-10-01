@@ -45,6 +45,13 @@ def case_parsers():
             '-  $x=1;\n+  $x = 1;\n')
     check('diff (minus side anchors to the current file)',
           parsed('diff', diff) == [('app/A.php', 14)], parsed('diff', diff))
+    # R17: a removed line whose content starts with `-- ` is not a file header,
+    # and a hunk that only inserts anchors to the line above the insertion
+    tricky = ('--- a/app/A.php\n+++ b/app/A.php\n@@ -3,2 +3,1 @@\n'
+              '--- old comment\n-$y=2;\n+$y = 2;\n@@ -9,1 +8,2 @@\n $z = 3;\n+\n')
+    check('diff keeps its file across a `--- ` content line',
+          parsed('diff', tricky) == [('app/A.php', 3), ('app/A.php', 4), ('app/A.php', 9)],
+          parsed('diff', tricky))
     check('no parse spec means no locations', lint.parse_output(root, {}, unix) == [])
     check('garbage output degrades to no locations', parsed('eslint-json', 'not json') == [])
 
@@ -110,6 +117,21 @@ def case_lint_budget(tmp):
     lint.run(tmp, [slow_entry(5)], ['src/a.py'], timeout=1, notes=notes)
     check('a per-linter timeout is reported too, not swallowed',
           len(notes) == 1 and '1초' in notes[0][1], notes)
+
+    check('the note says what kind it is (R23i)',
+          getattr(notes[0][1], 'kind', None) == lint.UNCHECKED, notes)
+    from lib import hooks
+    result = type('R', (), {'notes': [('warn', 'a: 다른 경고'),
+                                      ('warn', lint.Note('b: 문구가 달라도', lint.UNCHECKED))]})()
+    ordered = hooks._scan_warnings(type('S', (), {'result': result})())
+    check('an unchecked linter goes first by kind, not by wording',
+          ordered[0].startswith('b:'), ordered)
+
+    unfinished = set()
+    lint.run(tmp, [slow_entry(5), fake_entry(1)], ['src/a.py'], timeout=1,
+             unfinished=unfinished)
+    check('the linter that did not finish is named by its key (R17)',
+          unfinished == {lint.entry_key(slow_entry(5))}, unfinished)
 
 
 def case_lint_file_chunks(tmp):
@@ -240,6 +262,36 @@ def case_hook_blocks_only_changed_lines(tmp):
           ours['reason'])
 
 
+FLAKY_LINTER = ('import os, sys, time\n'
+                'if os.path.exists("slow.flag"):\n    time.sleep(3)\n    sys.exit(0)\n'
+                'print("src/a.py:20: problem")\nsys.exit(1)\n')
+
+
+def case_unfinished_linter_is_not_fixed(tmp):
+    """R17: a linter that times out on the re-check has not confirmed a fix."""
+    repo = os.path.join(tmp, 'repo')
+    body = ['line %d' % i for i in range(1, 31)]
+    make_repo(repo, {'marker.txt': 'fake stack\n', 'src/a.py': '\n'.join(body) + '\n'})
+    write(repo, '.claude/convention-guard/config.yaml', 'mode: fix\nlinters:\n  timeout: 1\n')
+    body[19] = 'line 20 changed'
+    write(repo, 'src/a.py', '\n'.join(body) + '\n')
+    plug = fake_plugin(tmp)
+    write(plug, 'stacks/fake.yaml',
+          'id: fake\ntags: [fake]\ndetect:\n  file: marker.txt\nlint:\n'
+          '  - cmd: [%s, "-c", %s, "{files}"]\n    files: ["**/*.py"]\n    parse: unix\n'
+          % (json.dumps(sys.executable), json.dumps(FLAKY_LINTER)))
+    session = Session(repo, os.path.join(tmp, 'data'), 'flaky', plugin_root=plug)
+    session.touch('src/a.py')
+    first = session.stop('p1')
+    check('the linter finding blocks', first['decision'] == 'block', first)
+    write(repo, 'slow.flag', '')
+    session.touch('src/a.py')
+    again = session.stop('p1', stop_hook_active=True)
+    check('a timed-out re-check is not a pass', '재검증 통과' not in again['summary']
+          and '린터 미확인 1' in again['summary'], again)
+    check('and does not block again', again['decision'] is None, again)
+
+
 def main():
     print('case_parsers:')
     case_parsers()
@@ -247,7 +299,8 @@ def main():
     case_dirs_placeholder()
     return run_cases([case_split, case_lint_budget, case_lint_file_chunks,
                       case_hook_reports_unchecked_linter,
-                      case_hook_blocks_only_changed_lines],
+                      case_hook_blocks_only_changed_lines,
+                      case_unfinished_linter_is_not_fixed],
                      '린터 앵커링')
 
 

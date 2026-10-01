@@ -22,6 +22,8 @@ message: |
 tests:
   match:
     - "import { useState } from 'react';\n\nexport function Counter() {\n  const [n, setN] = useState(0);\n}"
+    # 주석으로 막아 둔 선언은 선언이 아닙니다
+    - "/*\n'use client';\n*/\nimport { useState } from 'react';\n\nexport function Counter() {\n  const [n, setN] = useState(0);\n}"
   no_match:
     - "'use client';\n\nimport { useState } from 'react';\n\nexport function Counter() {\n  const [n, setN] = useState(0);\n}"
     - "export default async function Page() {\n  const data = await getData();\n}"

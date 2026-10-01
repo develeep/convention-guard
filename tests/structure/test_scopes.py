@@ -116,8 +116,9 @@ def case_callback_iteration():
     print('case_callback_iteration:')
     text = 'const out = xs.map(x => {\n    return x.load();\n});\n'
     root = tree(text, 'js')
-    check('an arrow callback iteration is a loop',
-          kinds(root) == ['loop'], str(kinds(root)))
+    # R2: the callback is a function as well, like a `function` callback always was
+    check('an arrow callback iteration is a loop wrapping a function',
+          kinds(root) == ['loop', 'function'], str(kinds(root)))
 
     text = 'xs.forEach(function (x) {\n    x.load();\n});\n'
     root = tree(text, 'js')
@@ -129,11 +130,12 @@ def case_callback_iteration():
           and fs_like.end_line == flatten(root)[0].end_line)
 
     text = PHP + '$users->each(function ($u) {\n    $u->posts;\n});\n'
-    check('a laravel collection callback is a loop',
-          kinds(tree(text)) == ['loop'], str(kinds(tree(text))))
+    check('a laravel collection callback is a loop wrapping a function',
+          kinds(tree(text)) == ['loop', 'function'], str(kinds(tree(text))))
 
     text = PHP + '$rows = array_map(function ($r) {\n    return $r->id;\n}, $rows);\n'
-    check('array_map counts too', kinds(tree(text)) == ['loop'], str(kinds(tree(text))))
+    check('array_map counts too',
+          kinds(tree(text)) == ['loop', 'function'], str(kinds(tree(text))))
 
     text = 'function handle() {\n    return 1;\n}\n'
     check('a plain function is still only a function',
@@ -162,8 +164,9 @@ def case_python():
             pass
 '''
     got = kinds(tree(text, 'py'))
-    check('python makes only class, function and catch nodes (CQ3=A)',
-          got == ['class', 'function', 'catch'], str(got))
+    # R1: loops too -- `in_scope: loop` used to reject every python file
+    check('python makes class, function, loop and catch nodes',
+          got == ['class', 'function', 'loop', 'catch'], str(got))
 
     node = flatten(tree(text, 'py'))[1]
     check('a python block ends at the dedent, trailing blanks included as in 1.x',
@@ -178,6 +181,149 @@ def case_python():
     spans = [(n.start_line, n.end_line) for n in flatten(tree(text, 'py'))]
     check('a def inside a triple-quoted string is ignored',
           spans == [(5, 7)], str(spans))
+
+
+def around(text, language, needle):
+    """Scope kinds around the line holding `needle`, outermost first, file excluded."""
+    root = tree(text, language)
+    lineno = text[:text.index(needle)].count('\n') + 1
+    path, node = [], root
+    while True:
+        for child in node.children:
+            if child.contains_line(lineno):
+                path.append(child.kind)
+                node = child
+                break
+        else:
+            return path
+
+
+def case_header_tokens():
+    """R1: the kind comes from the header's own tokens, not a keyword anywhere in it."""
+    print('case_header_tokens:')
+    text = 'package m\nfunc f() {\n\tfor i := 0; i < n; i++ {\n\t\tdb.Query(q)\n\t}\n}\n'
+    got = around(text, 'go', 'db.Query')
+    check('a go three-clause for is a loop', got == ['function', 'loop'], str(got))
+
+    text = 'package m\nfunc f() {\n\tif v, ok := m[k]; ok {\n\t\tuse(v)\n\t}\n}\n'
+    got = around(text, 'go', 'use(v)')
+    check('a go if with an init statement is a branch', got == ['function', 'branch'], str(got))
+
+    for prev in ('\tdone := make(chan struct{})\n', '\tdone := make(chan bool)\n'):
+        text = 'package m\nfunc f(xs []int) {\n%s\tfor _, x := range xs {\n\t\tgo1(x)\n\t}\n}\n' % prev
+        got = around(text, 'go', 'go1(x)')
+        check('a go loop after %r is still a loop' % prev.strip(),
+              got == ['function', 'loop'], str(got))
+
+    text = 'async function f() {\n  const u = await repo.find({\n    where: { id: await getId() },\n  });\n}\n'
+    got = around(text, 'js', 'await getId')
+    check('an object literal argument is not an iteration', 'loop' not in got, str(got))
+
+    text = 'function f() {\n  if (xs.some(x => x.ok)) {\n    go();\n  }\n}\n'
+    got = around(text, 'js', 'go()')
+    check('a closed iteration call in a condition is not a loop',
+          got == ['function', 'branch'], str(got))
+
+    text = 'function f(n) {\n  if (n.class === "a") {\n    go();\n  }\n}\n'
+    got = around(text, 'js', 'go()')
+    check('a member named class is not a class', got == ['function', 'branch'], str(got))
+
+    for method in ('catch', 'finally'):
+        text = 'function f() {\n  p.%s(function (e) {\n    go();\n  });\n}\n' % method
+        got = around(text, 'js', 'go()')
+        check('.%s(cb) is not a catch block' % method, 'catch' not in got, str(got))
+
+    for semi in ('', ';'):
+        text = ('function f(users) {\n  const ids = users.map(u => u.id)%s\n'
+                '  if (ids.length) {\n    go()\n  }\n}\n' % semi)
+        got = around(text, 'js', 'go()')
+        check('an if after a map call is a branch (semicolon=%r)' % semi,
+              got == ['function', 'branch'], str(got))
+
+    text = 'function f() {\n  xs.forEach((x) => {\n    save(x);\n  });\n}\n'
+    got = around(text, 'js', 'save(x)')
+    check('an arrow callback of an iteration method is still a loop',
+          got == ['function', 'loop', 'function'], str(got))
+
+    text = PHP + 'function f() {\n    foreach ([User::class, Post::class] as $m) {\n        $m::all();\n    }\n}\n'
+    got = around(text, 'php', '$m::all')
+    check('::class inside a foreach header is not a class',
+          got == ['function', 'loop'], str(got))
+
+    text = 'class A {\n  fun f() {\n    items.forEach {\n      repo.save(it)\n    }\n  }\n}\n'
+    got = around(text, 'kotlin', 'repo.save')
+    check('a kotlin trailing-lambda forEach is a loop',
+          got == ['class', 'function', 'loop'], str(got))
+
+    text = 'fun f() {\n    repeat(3) {\n        go()\n    }\n    xs.fold(0) { acc, x ->\n        acc + x\n    }\n}\n'
+    check('kotlin repeat(n) { is a loop', around(text, 'kotlin', 'go()') == ['function', 'loop'],
+          str(around(text, 'kotlin', 'go()')))
+    check('kotlin .fold(0) { is a loop', around(text, 'kotlin', 'acc + x') == ['function', 'loop'],
+          str(around(text, 'kotlin', 'acc + x')))
+
+    text = 'fun f() {\n    items\n        .forEach {\n            go(it)\n        }\n}\n'
+    got = around(text, 'kotlin', 'go(it)')
+    check('a kotlin chain continued on the next line is one statement',
+          got == ['function', 'loop'], str(got))
+
+    for text, needle in (('def f(xs):\n    for x in xs:\n        db.query(x)\n', 'db.query'),
+                         ('def f():\n    while True:\n        db.query(1)\n', 'db.query'),
+                         ('async def f(xs):\n    async for x in xs:\n        await db.query(x)\n',
+                          'await db'),
+                         ('def f(xs):\n    return [db.query(x)\n            for x in xs]\n',
+                          'db.query')):
+        got = around(text, 'py', needle)
+        check('python %r is a loop' % text.split('\n')[1].strip()[:12],
+              got == ['function', 'loop'], str(got))
+
+
+def case_functions():
+    """R2: methods, callbacks and lambdas are functions; control headers are not."""
+    print('case_functions:')
+    cases = (
+        ('a js class method', 'js',
+         'class A {\n  run(a) {\n    go();\n  }\n}\n', ['class', 'function']),
+        ('a js method with a multi-line signature', 'js',
+         'class A {\n  run(\n    a,\n  ) {\n    go();\n  }\n}\n', ['class', 'function']),
+        ('an arrow callback', 'js',
+         "app.get('/', async (req, res) => {\n  go();\n});\n", ['function']),
+        ('a class-field arrow', 'js',
+         'class A {\n  handle = async () => {\n    go();\n  }\n}\n', ['class', 'function']),
+        ('a call line before an if in semicolon-less js', 'js',
+         'function f() {\n  save(x)\n  if (y) {\n    go()\n  }\n}\n', ['function', 'branch']),
+        ('a php anonymous function', 'php',
+         PHP + '$f = function ($x) use ($y) {\n    go();\n};\n', ['function']),
+        ('a go deferred func literal', 'go',
+         'package m\nfunc f() {\n\tdefer func() {\n\t\tgo()\n\t}()\n}\n', ['function', 'function']),
+        ('a rust closure', 'rust',
+         'fn f() {\n    let g = |x| {\n        go(x)\n    };\n}\n', ['function', 'function']),
+        ('a java lambda', 'java',
+         'class A {\n  void f() {\n    run(() -> {\n      go();\n    });\n  }\n}\n',
+         ['class', 'function', 'function']),
+        ('a java switch arm is not a lambda', 'java',
+         'class A {\n  void f(int x) {\n    switch (x) {\n      case 1 -> {\n        go();\n'
+         '      }\n    }\n  }\n}\n', ['class', 'function', 'branch', 'branch']),
+        ('a java multi-line signature', 'java',
+         'class A {\n  public void f(\n      int a) {\n    go();\n  }\n}\n', ['class', 'function']),
+        ('a java throws clause on the next line', 'java',
+         'class A {\n  public void f()\n      throws IOException {\n    go();\n  }\n}\n',
+         ['class', 'function']),
+        ('a swift function with a return arrow', 'java',
+         'func f() -> Int {\n    return go()\n}\n', ['function']),
+        ('a c else-if is a branch, not a function', 'c',
+         'void f() {\n  if (a) {\n  } else if (b) {\n    go();\n  }\n}\n', ['function', 'branch']),
+    )
+    for name, language, text, expected in cases:
+        got = around(text, language, 'go(')
+        check(name, got == expected, str(got))
+
+
+def case_python_fallback():
+    """A file `ast` cannot read still gets its loops from the indentation."""
+    print('case_python_fallback:')
+    text = 'def f(xs):\n    for x in xs:\n        db.query(x)\n    print "py2"\n'
+    got = around(text, 'py', 'db.query')
+    check('a syntax error falls back to the indent rules', got == ['function', 'loop'], str(got))
 
 
 def case_guards():
@@ -210,8 +356,8 @@ def case_blade():
 
 def main():
     for case in (case_kinds, case_bounds, case_masking_is_respected,
-                 case_callback_iteration, case_python,
-                 case_guards, case_blade):
+                 case_callback_iteration, case_python, case_header_tokens, case_functions,
+                 case_python_fallback, case_guards, case_blade):
         case()
     return finish('structure.native.scopes')
 

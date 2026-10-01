@@ -185,6 +185,24 @@ class FileStructure:
             else:
                 return tuple(path)
 
+    def scopes_around(self, offset):
+        """The chain of scopes whose *body* holds `offset`, outermost first.
+
+        Unlike `scopes_at`, a block's header is outside it: the iterable in
+        `for (x of await load()) {` runs once, not per item, and so does a
+        statement after the closing brace on the same line.
+        """
+        path = [self.root]
+        node = self.root
+        while True:
+            for child in node.children:
+                if child.body is not None and child.body.contains(offset):
+                    path.append(child)
+                    node = child
+                    break
+            else:
+                return tuple(path)
+
     def innermost_function(self, lineno):
         return self.innermost(lineno, ('function',))
 

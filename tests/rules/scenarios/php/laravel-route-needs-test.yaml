@@ -39,3 +39,30 @@ cases:
 
         class Users {}
     expect: []
+
+  - name: 테스트 파일에서 줄만 지워도 테스트를 바꾼 것으로 봄
+    before:
+      routes/api.php: |
+        <?php
+
+        Route::get('/users', [UserController::class, 'index']);
+      tests/Feature/UserTest.php: |
+        <?php
+
+        class UserTest extends TestCase
+        {
+            public function test_old_endpoint() {}
+        }
+    after:
+      routes/api.php: |
+        <?php
+
+        Route::get('/users', [UserController::class, 'index']);
+        Route::post('/users', [UserController::class, 'store']);
+      tests/Feature/UserTest.php: |
+        <?php
+
+        class UserTest extends TestCase
+        {
+        }
+    expect: []

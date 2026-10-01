@@ -15,5 +15,7 @@ message: |
 tests:
   match:
     - "<?php\n\nnamespace App;\n\nclass Foo {}\n"
+    # 주석으로 막아 둔 선언은 선언이 아닙니다
+    - "<?php\n\n// declare(strict_types=1);\n\nnamespace App;\n"
   no_match:
     - "<?php\n\ndeclare(strict_types=1);\n\nnamespace App;\n"

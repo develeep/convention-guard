@@ -22,8 +22,7 @@ title: t
 severity: warn
 applies_to:
   stacks: [%(stack)s]
-  files: ["%(glob)s"]
-detect:
+%(files)sdetect:
 %(detect)s
 message: m
 tests:
@@ -34,7 +33,8 @@ MATCH_ONE = "  match:\n    - 'sleep(1);'\n"
 
 
 def rule(detect, glob='app/**/*.php', stack='php', tests=MATCH_ONE, rid='r'):
-    text = BODY % {'id': rid, 'stack': stack, 'glob': glob,
+    files = '  files: ["%s"]\n' % glob if glob else ''   # paired rules take none (R23h)
+    text = BODY % {'id': rid, 'stack': stack, 'files': files,
                    'detect': detect, 'tests': tests}
     return rulelib.normalize(miniyaml.load(text), 'local/%s.yaml' % rid, 'local')
 
@@ -46,7 +46,7 @@ def verdict(*args, **kwargs):
 def main():
     # -------------------------------------------------- anchors that cannot hold a condition
     v = verdict("  when_changed: ['app/**/*.php']\n  require_changed: ['tests/**']\n",
-                tests="  match:\n    - ['app/A.php']\n")
+                glob=None, tests="  match:\n    - ['app/A.php']\n")
     check('paired 앵커는 anchor_rejects', v.blocked == 'anchor_rejects', v.blocked)
 
     v = verdict("  when_file_added: true\n  must_contain_in_file: 'declare'\n")

@@ -108,6 +108,58 @@ def case_stale_line_and_crlf():
               after.replace('\r\n', ''), repr(after[:120]))
 
 
+def case_bom_first_line():
+    """R6 -- detection no longer sees the BOM; the fix must still find line 1."""
+    print('case_bom_first_line:')
+    with tempdir() as tmp:
+        path = repo(tmp)
+        body = '﻿<?php $n = ( int )$v;\n'
+        with open(os.path.join(path, 'app/Svc/B.php'), 'w', encoding='utf-8',
+                  newline='') as fh:
+            fh.write(body)
+        rules = [r for r in rulelib.load(path, ROOT, {'presets': 'auto'}, {'php'}).rules
+                 if r.get('fix')]
+        hits = detect.run(rules, ChangeScope.working_tree(path), detect.Stacks({'php'}), 10)
+        applied = autofix.apply(path, autofix.plan(path, hits))
+        check('line 1 of a BOM file is fixed', len(applied) == 1,
+              [f.to_dict() for f in applied])
+        check('and keeps its BOM', read(path, 'app/Svc/B.php') == '﻿<?php $n = (int)$v;\n',
+              repr(read(path, 'app/Svc/B.php')))
+
+
+def case_bytes_are_respected():
+    """R16 / CYC s7: a file auto-fix cannot read is left alone without killing
+    the Stop, and a fix keeps every line ending it did not touch."""
+    print('case_bytes_are_respected:')
+    with tempdir() as tmp:
+        path = repo(tmp)
+        s = Session(path, os.path.join(tmp, 'data'), 'bytes')
+        legacy = ('<?php\n// \uc124\uba85\n$n = ( int )$v;\n').encode('cp949')
+        with open(os.path.join(path, 'app/Svc/K.php'), 'wb') as fh:
+            fh.write(legacy)
+        s.touch('app/Svc/K.php')
+        out = s.stop('p1')
+        check('a non-UTF-8 file does not kill the Stop', '내부 오류' not in out['summary'], out)
+        with open(os.path.join(path, 'app/Svc/K.php'), 'rb') as fh:
+            check('and is never written', fh.read() == legacy)
+
+        mixed = (HDR + 'class M\n{\n    public function f($v)\n    {\n'
+                 '        $n = ( int )$v;\n        return $n;\n    }\n}\n')
+        mixed = mixed.replace('\n', '\r\n', 3).encode('utf-8')     # CRLF on the first 3 lines only
+        with open(os.path.join(path, 'app/Svc/M.php'), 'wb') as fh:
+            fh.write(mixed)
+        rules = [r for r in rulelib.load(path, ROOT, {'presets': 'auto'}, {'php'}).rules
+                 if r.get('fix')]
+        hits = detect.run(rules, ChangeScope.files(path, ['app/Svc/M.php']),
+                          detect.Stacks({'php'}), 10)
+        applied = autofix.apply(path, autofix.plan(path, hits))
+        with open(os.path.join(path, 'app/Svc/M.php'), 'rb') as fh:
+            after = fh.read()
+        check('the fix is applied', len(applied) == 1 and b'(int)$v' in after, applied)
+        check('and every other byte, line endings too, is as it was',
+              after == mixed.replace(b'( int )$v', b'(int)$v'), after[:80])
+
+
 def case_scan_fix():
     print('case_scan_fix:')
     with tempdir() as tmp:
@@ -138,5 +190,7 @@ if __name__ == '__main__':
     case_only_fixable_passes()
     case_fix_mode_does_not_edit()
     case_stale_line_and_crlf()
+    case_bom_first_line()
+    case_bytes_are_respected()
     case_scan_fix()
     sys.exit(finish('자동 수정'))

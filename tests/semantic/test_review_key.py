@@ -81,15 +81,16 @@ LOOP_LINE = CONTROLLER.split('\n').index('        foreach ($orders as $order) {'
 
 
 class FakeScope:
-    def __init__(self, files):
+    def __init__(self, files, added=None):
         self.root = '/repo'
         self.files = files
+        self.added = added or {}
 
     def text(self, rel):
         return self.files.get(rel, '')
 
     def lines(self, rel):
-        return ()
+        return self.added.get(rel, ())
 
 
 def patched(base, patch):
@@ -100,11 +101,11 @@ def patched(base, patch):
     return out
 
 
-def key_for(files=None, raw=None, line=LOOP_LINE, rel=CTRL):
+def key_for(files=None, raw=None, line=LOOP_LINE, rel=CTRL, added=None):
     """The cache key one candidate would be judged under, the way annotate() builds it."""
     files = files or FILES
     rule = schema.normalize(raw or RAW_RULE, 'rules/n-plus-one.yaml', 'core')
-    scope = FakeScope(files)
+    scope = FakeScope(files, added)
     cand = Candidate(rule['id'], rel, line, files[rel].split('\n')[line - 1].strip())
     pack = context.build(scope, cand, rule['review'], list_files=lambda: sorted(files))
     cand.context_hash = pack.context_hash
@@ -197,8 +198,83 @@ def case_cache_roundtrip():
                                                'foreach ($a as $b) {').code_hash))
 
 
+def case_related_context_is_whole():
+    """R8 -- what the hash says the verdict read must cover what it could read."""
+    print('case_related_context_is_whole:')
+    padding = ''.join('    // %d\n' % i for i in range(70))
+    long_model = ORDER_MODEL.replace('{\n}', '{\n' + padding + "    protected $with = ['items'];\n}")
+    files = dict(FILES, **{MODEL: long_model})
+    base = key_for(files)
+    check('$with sits past the 60 lines the pack shows',
+          long_model.split('\n').index("    protected $with = ['items'];") > 60)
+    # same line count: the cut marker ("… N줄 더") cannot give it away
+    check('emptying it still invalidates the verdict (SEM r2)',
+          key_for(dict(files, **{MODEL: long_model.replace("$with = ['items']", '$with = []')}))
+          != base)
+
+    elsewhere = {CTRL: [(n, '// added %d' % n) for n in range(30, 60)]}
+    tight = patched(RAW_RULE, {'semantic_review': dict(
+        RAW_RULE['semantic_review'], max_context_lines=40,
+        context=RAW_RULE['semantic_review']['context'] + ['changed_hunks'])})
+    check('lines added elsewhere in the file do not crowd out the related file (r2 b1)',
+          key_for(files, raw=tight, added=elsewhere) == key_for(files, raw=tight))
+
+    licensed = '<?php\n/* License: MIT */\n' + CONTROLLER[len('<?php\n'):]
+    check('a header comment that moves the imports down keeps the verdict (r3)',
+          key_for(dict(FILES, **{CTRL: licensed}), line=LOOP_LINE + 1) == key_for())
+
+
+def case_cache_writes():
+    """R23j -- writing the cache drops what has expired and loses nothing to a
+    reviewer writing at the same time."""
+    import json
+    import tempfile
+    import threading
+    import time
+    print('case_cache_writes:')
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, 'verdicts.json')
+        old = time.time() - 3 * 86400
+        with open(path, 'w', encoding='utf-8') as fh:
+            json.dump({'/repo': {'stale': {'verdict': VALID, 'at': old}},
+                       '/other': {'theirs': {'verdict': VALID, 'at': old}}}, fh)
+        semantic.store(path, '/repo', {'fresh': {'verdict': VALID, 'reason': 'r'}}, ttl_days=1)
+        data = json.load(open(path, encoding='utf-8'))
+        check('an expired verdict of this repo is dropped on write',
+              set(data['/repo']) == {'fresh'}, data)
+        check("another repo's entries wait for that repo's own TTL",
+              'theirs' in data['/other'], data)
+
+        original = semantic.load_cache
+
+        def slow_load(cache, ttl_days=None):
+            out = original(cache, ttl_days)
+            if threading.current_thread().name == 'first':
+                time.sleep(0.4)             # read, then stall before writing
+            return out
+
+        semantic.load_cache = slow_load
+        try:
+            first = threading.Thread(name='first', target=semantic.store,
+                                     args=(path, '/repo', {'a': {'verdict': VALID}}))
+            second = threading.Thread(name='second', target=semantic.store,
+                                      args=(path, '/repo', {'b': {'verdict': VALID}}))
+            first.start()
+            time.sleep(0.1)
+            second.start()
+            first.join()
+            second.join()
+        finally:
+            semantic.load_cache = original
+        data = json.load(open(path, encoding='utf-8'))
+        check('two reviewers writing at once both land', {'a', 'b'} <= set(data['/repo']),
+              sorted(data['/repo']))
+
+
 if __name__ == '__main__':
     case_rule_definition()
+    case_cache_writes()
+    case_related_context_is_whole()
     case_context()
     case_cache_roundtrip()
     sys.exit(finish('판정 캐시 키'))

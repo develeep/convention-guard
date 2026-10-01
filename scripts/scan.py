@@ -194,6 +194,7 @@ def main(argv=None):
         'dismissed': result.dismissals,
         'unchecked': [{'file': f, 'reason': result.unchecked.reason(f)}
                       for f in result.unchecked.files()],
+        'too_large': list(result.too_large),
     }
     pending = review['candidates'] + review['deferred'] if review else semantic_count
     summary = dict({'total': sum(counts.values())}, **counts,
@@ -208,7 +209,9 @@ def main(argv=None):
     else:
         style = fmt.Style.for_stream(sys.stdout, args.no_color)
         # an audit can touch the whole repository, so the list folds here
-        unchecked = hooks.unchecked_note(result.unchecked, limit=UNCHECKED_LIMIT)
+        unchecked = [n for n in (hooks.unchecked_note(result.unchecked, limit=UNCHECKED_LIMIT),
+                                 hooks.too_large_note(result.too_large, limit=UNCHECKED_LIMIT))
+                     if n]
         print(style.finish(report.render_text(data, steps, style,
                                               fix_diff=autofix.diff(applied) if args.fix else '',
                                               unchecked=unchecked)))

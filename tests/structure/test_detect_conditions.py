@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import check, finish, fixtures, tempdir  # noqa: E402
 from lib import detect, hooks, structure  # noqa: E402
-from lib.rules import schema  # noqa: E402
+from lib.rules import fixtures as rulefixtures, schema  # noqa: E402
 
 PHP = '<?php\n'
 
@@ -40,6 +40,9 @@ class FakeScope:
 
     def changed_linenos(self, relpath):
         return {n for n, _ in self.changed.get(relpath, ())}
+
+    def seams_of(self, relpath):
+        return frozenset()
 
     def added_body(self, relpath):
         return '\n'.join(t for _, t in self.changed.get(relpath, ()))
@@ -173,15 +176,103 @@ def case_cap():
           [c.line for c in found] == [7], str([c.line for c in found]))
 
 
-def case_requires_trigger_only():
-    print('case_requires_trigger_only:')
-    text = PHP + '// guard();\nrun();\n'
-    scope = FakeScope({'a.php': text})
-    spec = {'when_line_added': r'run\(', 'must_contain_in_file': r'guard\(',
-            'not_in': ['comment']}
+def case_every_match_on_the_line():
+    """R5 -- a rejected first match must not hide a real one on the same line."""
+    print('case_every_match_on_the_line:')
+    spec = {'when_line_added': r'dd\(', 'not_in': ['comment', 'string']}
+    scope = FakeScope({'a.php': PHP + '$label = "dd("; dd($user);\n'})
     found = scan(rule(**spec), scope)
-    check('the requirement is searched without the condition (Q10=A)',
-          found == [], 'a commented guard() still counts as present')
+    check('a string before the call does not hide it',
+          [c.line for c in found] == [2], str([c.line for c in found]))
+
+    js = {'when_line_added': r'console\.log\(', 'not_in': ['comment', 'string']}
+    scope = FakeScope({'a.js': 'const s = "console.log("; console.log(x);\n'})
+    found = scan(rule(**js), scope)
+    check('same in JS', [c.line for c in found] == [1], str([c.line for c in found]))
+
+    scope = FakeScope({'a.php': PHP + '$a = "dd("; // dd(1)\n'})
+    check('a line whose every match is rejected stays quiet',
+          scan(rule(**spec), scope) == [])
+
+    req = {'when_line_added': r'run\(', 'must_contain_in_file': r'guard\(',
+           'not_in': ['comment']}
+    scope = FakeScope({'a.php': PHP + '/* run( */ run();\n'})
+    found = scan(rule(**req), scope)
+    check('a requires trigger behind a commented one is found',
+          [c.line for c in found] == [2], str([c.line for c in found]))
+
+    def fixture(spec_):
+        # a fragment needs a language, or every condition is UNKNOWN and keeps it
+        return rulefixtures.matcher(dict(rule(**spec_), tests={'lang': 'php'}))
+
+    check('the fixture runner agrees on line rules',
+          fixture(spec)('$label = "dd("; dd($user);'))
+    check('and on requires rules', fixture(req)('/* run( */ run();'))
+    check('and still rejects a line of rejected matches',
+          not fixture(spec)('$a = "dd("; // dd(1)'))
+
+
+def case_requirement_outside_comments():
+    """R6 -- a requirement that only appears in a comment is not there."""
+    print('case_requirement_outside_comments:')
+    req = {'when_line_added': r'run\(', 'must_contain_in_file': r'guard\('}
+
+    def lines(text, **extra):
+        return [c.line for c in scan(rule(**dict(req, **extra)), FakeScope({'a.php': text}))]
+
+    commented = PHP + '// guard();\nrun();\n'
+    check('a commented requirement does not count, without any condition',
+          lines(commented) == [3], str(lines(commented)))
+    check('nor with a condition on the trigger',
+          lines(commented, not_in=['comment']) == [3])
+    check('a real one after a commented one does',
+          lines(PHP + '// guard();\nguard();\nrun();\n') == [])
+    check('must_not_in: [] counts comments again (license headers)',
+          lines(commented, must_not_in=[]) == [])
+
+    in_string = PHP + '$note = "guard() later";\nrun();\n'
+    check('a string still counts by default', lines(in_string) == [])
+    check('unless the rule opts strings out',
+          lines(in_string, must_not_in=['comment', 'string']) == [3])
+
+    absent = {'when_file_added': True, 'must_contain_in_file': r'declare\(strict_types=1\)'}
+    scope = FakeScope({'a.php': PHP + '// declare(strict_types=1);\nclass A {}\n'},
+                      new=['a.php'])
+    check('absent: a commented declaration is missing',
+          [c.line for c in scan(rule(**absent), scope)] == [1])
+
+    unchecked = detect.Unchecked()
+    scope = FakeScope({'a.php': PHP + '$a = "oops;\n// guard();\nrun();\n'})
+    found = scan(rule(**req), scope, unchecked=unchecked)
+    check('a file that will not parse keeps the plain answer',
+          found == [], str([c.line for c in found]))
+    check('and is reported as unchecked',
+          (unchecked.reason('a.php') or '').startswith('unterminated_string'),
+          str(unchecked.reason('a.php')))
+
+    scope = FakeScope({'a.php': PHP + 'run();\n'})
+    unchecked = detect.Unchecked()
+    scan(rule(**req), scope, unchecked=unchecked)
+    check('no requirement in the text, nothing analysed or recorded', not unchecked)
+
+    def fixture(spec_, sample):
+        return rulefixtures.matcher(dict(rule(**spec_), tests={'lang': 'php'}))(sample)
+
+    check('the fixture runner agrees on requires', fixture(req, '// guard();\nrun();'))
+    check('and on absent', fixture(absent, '// declare(strict_types=1);'))
+    check('and on opted-out strings',
+          fixture(dict(req, must_not_in=['string']), '$n = "guard()";\nrun();'))
+
+    for bad, why in (({'must_not_in': ['comments']}, 'unknown value'),
+                     ({'when_line_added': 'x', 'must_not_in': ['comment']},
+                      'no requirement to qualify')):
+        spec = dict(req, **bad) if 'when_line_added' not in bad else bad
+        try:
+            rule(**spec)
+            ok = False
+        except schema.RuleError:
+            ok = True
+        check('schema rejects must_not_in with %s' % why, ok)
 
 
 def case_unchecked_collector():
@@ -276,7 +367,8 @@ def case_unchecked_ratio():
 
 class _FakeScan:
     def __init__(self, unchecked):
-        self.result = type('R', (), {'unchecked': unchecked})()
+        self.result = type('R', (), {'unchecked': unchecked, 'too_large': (),
+                                       'unknown': ()})()
 
 
 class _FakeCtx:
@@ -348,7 +440,7 @@ def case_run_passes_the_collector():
 def main():
     for case in (case_gate, case_not_in_line, case_in_scope_and_block_empty,
                  case_unknown_is_recorded, case_stale_line, case_cap,
-                 case_requires_trigger_only, case_unchecked_collector,
+                 case_every_match_on_the_line, case_requirement_outside_comments, case_unchecked_collector,
                  case_notice, case_notice_is_attached,
                  case_layer_failure_is_survivable, case_run_passes_the_collector,
                  case_unchecked_ratio):

@@ -112,8 +112,29 @@ def _ver_tuple(value):
     return tuple(int(p) for p in parts) + (0,) * (3 - len(parts))
 
 
+_CLAUSE = re.compile(r'(>=|<=|>|<|==|=)?(\d+(?:\.\d+){0,2})\Z')
+_OPS = {'>=': lambda a, b: a >= b, '<=': lambda a, b: a <= b, '>': lambda a, b: a > b,
+        '<': lambda a, b: a < b, '==': lambda a, b: a == b, '=': lambda a, b: a == b}
+
+
+def parse_constraint(text):
+    """[(op, version tuple)] -- clauses split on spaces, every one must hold:
+    `>=10 <12`. Anything else raises ValueError: `^10` used to read as `==10`
+    and quietly switched a rule off (R23g)."""
+    clauses = re.sub(r'(>=|<=|==|>|<|=)\s+', r'\1', str(text).strip()).split()
+    if not clauses:
+        raise ValueError(text)
+    out = []
+    for clause in clauses:
+        match = _CLAUSE.match(clause)
+        if not match:
+            raise ValueError(clause)
+        out.append((match.group(1) or '==', _ver_tuple(match.group(2))))
+    return out
+
+
 def version_ok(constraint, detected_versions, stacks):
-    """constraint: ">=10", "<11", "10", or {stack: ">=10"}."""
+    """constraint: ">=10", ">=10 <12", "10", or {stack: ">=10"}."""
     if not constraint:
         return True
     if isinstance(constraint, dict):
@@ -125,12 +146,9 @@ def version_ok(constraint, detected_versions, stacks):
             break
     if have is None:
         return True  # unknown version never suppresses a rule
-    m = re.match(r'\s*(>=|<=|>|<|==|=)?\s*(.+)$', str(constraint))
-    if not m:
-        return True
-    op, want = m.group(1) or '==', m.group(2)
-    a, b = _ver_tuple(have), _ver_tuple(want)
-    return {
-        '>=': a >= b, '<=': a <= b, '>': a > b,
-        '<': a < b, '==': a == b, '=': a == b,
-    }[op]
+    try:
+        clauses = parse_constraint(constraint)
+    except ValueError:
+        return True  # the schema refuses these; never suppress on a misread
+    have = _ver_tuple(have)
+    return all(_OPS[op](have, want) for op, want in clauses)

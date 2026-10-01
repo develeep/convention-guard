@@ -57,9 +57,11 @@ def _warnings(warnings, limit=5, style=fmt.PLAIN):
     return out
 
 
-def _finding(rule, cands, notes=(), style=fmt.PLAIN, guidance=True):
+def _finding(rule, cands, notes=(), style=fmt.PLAIN, guidance=True, more=0):
     out = [fmt.finding_head(rule['severity'], rule['id'], rule['title'], style)]
     out += [fmt.location(c.file, cand_line(rule, c), c.snippet, style=style) for c in cands]
+    if more:
+        out.append(fmt.more(more, '곳'))
     if guidance and (rule.get('message') or '').strip():
         out += fmt.aux('안내', rule['message'], style=style)
     for note in notes:
@@ -92,8 +94,10 @@ def hook_header(word, parts, kind='error'):
 
 
 def hook_reason(lint_failures, lint_notes, errors, warns, repeats=frozenset(), review=None,
-                warnings=(), lint_count=None, info_count=0):
-    """errors/warns: [(rule, [Candidate])]. repeats: rule ids raised last turn."""
+                warnings=(), lint_count=None, info_count=0, more=None, hidden_rules=(0, 0)):
+    """errors/warns: [(rule, [Candidate])]. repeats: rule ids raised last turn.
+    more: {rule id: locations not shown}; hidden_rules: (error, warn) rules not shown."""
+    more = more or {}
     lint_count = len(lint_failures) if lint_count is None else lint_count
     head = hook_header('차단', [
         '린터 실패 %d' % lint_count if lint_failures else '',
@@ -106,16 +110,18 @@ def hook_reason(lint_failures, lint_notes, errors, warns, repeats=frozenset(), r
         groups.append([fmt.section('린터 실패', '확정 위반입니다. 먼저 고치세요')] + _lint_block(
             lint_failures, 20, '같은 파일의 기존 코드에 %d건 더 있지만 이번 변경이 아니라 차단하지 않았습니다'))
 
-    def render(title, desc, hits):
+    def render(title, desc, hits, hidden):
         for index, (rule, cands) in enumerate(hits):
             notes = ['지난 턴에도 지적했습니다'] if rule['id'] in repeats else []
             if rule.get('review'):
                 notes.append('리뷰어 판정 VIOLATION')
-            lines = _finding(rule, cands, notes)
+            lines = _finding(rule, cands, notes, more=more.get(rule['id'], 0))
             groups.append(([fmt.section(title, desc)] if not index else []) + lines)
+        if hits and hidden:
+            groups[-1] = groups[-1] + [fmt.more(hidden, '개 규칙')]
 
-    render('지적', '고치거나 기각하세요', errors)
-    render('참고', '차단하지 않습니다', warns)
+    render('지적', '고치거나 기각하세요', errors, hidden_rules[0])
+    render('참고', '차단하지 않습니다', warns, hidden_rules[1])
     step = None
     if review:
         lines, step = review_section(review)
@@ -274,8 +280,9 @@ def render_text(data, steps, style=fmt.PLAIN, fix_diff='', unchecked=None,
         desc = ('%d건 적용함 (아래 결과는 적용 후 남은 것)' if data['fixes_applied']
                 else '%d건 미리보기') % len(data['fixes'])
         groups.append([fmt.section('자동 수정', desc, style)] + fix_diff.split('\n'))
-    if unchecked:
-        groups.append(_warnings([unchecked], style=style))
+    warnings = [unchecked] if isinstance(unchecked, str) else list(unchecked or ())
+    if warnings:
+        groups.append(_warnings(warnings, style=style))
     groups.append(fmt.next_section(steps, style))
     counts = {s: summary[s] for s in fmt.SEVERITIES}
     extra = ['린터 실패 %d' % summary['lint_failures']] if summary['lint_failures'] else []

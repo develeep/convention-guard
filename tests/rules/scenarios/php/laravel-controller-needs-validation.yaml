@@ -47,6 +47,36 @@ cases:
         }
     expect: []
 
+  - name: 주석에만 FormRequest 가 있으면 걸림
+    after:
+      app/Http/Controllers/UserController.php: |
+        <?php
+
+        class UserController extends Controller
+        {
+            public function store(Request $request)
+            {
+                // TODO: FormRequest 로 교체할 것
+                return User::create($request->all());
+            }
+        }
+    expect: ["app/Http/Controllers/UserController.php:5"]
+
+  - name: 문자열에만 validated() 가 있으면 걸림
+    after:
+      app/Http/Controllers/UserController.php: |
+        <?php
+
+        class UserController extends Controller
+        {
+            public function store(Request $request)
+            {
+                $note = "->validated() 는 나중에";
+                return User::create($request->all());
+            }
+        }
+    expect: ["app/Http/Controllers/UserController.php:5"]
+
   - name: 검증 없는 기존 store 가 있는 파일에서 다른 메서드만 고치면 조용함
     before:
       app/Http/Controllers/UserController.php: |

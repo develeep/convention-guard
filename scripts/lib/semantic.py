@@ -27,13 +27,17 @@ named there.
 import json
 import os
 import time
+from contextlib import contextmanager
 
 from . import candidate, context as contextlib, gitdiff
 from .candidate import FALSE_POSITIVE, VALID, VERDICTS, VIOLATION  # noqa: F401
 from .log import log_path
 from .paths import atomic_write, data_dir, safe_name
 
-BATCH_VERSION = 1
+# 2: an item carries `lines`, every candidate its question covers (R7).
+# Version 1 batches written before an upgrade are still read.
+BATCH_VERSION = 2
+READABLE_VERSIONS = (1, 2)
 
 
 # ---------------------------------------------------------------- verdict cache
@@ -65,15 +69,66 @@ def lookup(root, review_key, ttl_days, cache=None):
     return entry if isinstance(entry, dict) and entry.get('verdict') in VERDICTS else None
 
 
-def store(path, root, verdicts):
-    """Merge {review_key: {verdict, reason}} into the cache file at `path`."""
+LOCK_WAIT = 5.0         # seconds a writer waits for another one
+LOCK_STALE = 30.0       # a lock older than this was left by a killed process
+
+
+@contextmanager
+def _locked(path):
+    """Hold `<path>.lock` (O_EXCL -- the standard library, on every platform)
+    for one read-modify-write. A lock that outlives LOCK_STALE is taken over;
+    one that will not come free in LOCK_WAIT is written through anyway, since
+    losing the verdict would be worse than a rare overlap."""
+    lock, held = path + '.lock', False
+    deadline = time.time() + LOCK_WAIT
+    while not held:
+        try:
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            held = True
+        except FileExistsError:
+            try:
+                if time.time() - os.path.getmtime(lock) > LOCK_STALE:
+                    os.remove(lock)
+                    continue
+            except OSError:
+                continue
+            if time.time() > deadline:
+                break
+            time.sleep(0.05)
+        except OSError:
+            break
+    try:
+        yield
+    finally:
+        if held:
+            try:
+                os.remove(lock)
+            except OSError:
+                pass
+
+
+def store(path, root, verdicts, ttl_days=None):
+    """Merge {review_key: {verdict, reason}} into the cache file at `path`.
+
+    This repo's expired verdicts are dropped on the way, so the file does not
+    grow for ever; other repos are pruned by their own TTL when they write (R23j).
+    """
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with _locked(path):
+        _store(path, root, verdicts, ttl_days)
+
+
+def _store(path, root, verdicts, ttl_days):
     data = load_cache(path)
-    bucket = data.setdefault(root, {})
     now = time.time()
+    bucket = data.setdefault(root, {})
+    if ttl_days:
+        cutoff = now - float(ttl_days) * 86400
+        bucket = data[root] = {k: v for k, v in bucket.items()
+                               if isinstance(v, dict) and v.get('at', 0) >= cutoff}
     for key, value in verdicts.items():
         bucket[key] = {'verdict': value['verdict'], 'reason': value.get('reason', ''),
                        'at': now, 'rule_id': value.get('rule_id')}
-    os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write(path, json.dumps(data, ensure_ascii=False))
 
 
@@ -155,13 +210,16 @@ def build_batch(root, session, pending, cfg, label=''):
     limit = int(cfg['semantic_review']['max_candidates'])
     budget = int(cfg['semantic_review']['context_budget_lines'])
     items, deferred, used, rules = [], [], 0, {}
-    asked = set()
+    # same rule, same file, same context hash: two console.logs in one function
+    # are one question and the cached verdict covers both -- so the question
+    # shows the reviewer every one of them, not just the first (R7)
+    questions, covers = [], {}
     for rule, cand, pack in pending:
-        if cand.review_key in asked:
-            # same rule, same file, same context hash: two console.logs in one
-            # function are one question, and the cached verdict covers both
-            continue
-        asked.add(cand.review_key)
+        if cand.review_key not in covers:
+            covers[cand.review_key] = []
+            questions.append((rule, cand, pack))
+        covers[cand.review_key].append({'line': cand.line, 'snippet': cand.snippet})
+    for rule, cand, pack in questions:
         if len(items) >= limit or (items and used + pack.lines > budget):
             deferred.append((rule, cand, pack))
             continue
@@ -171,7 +229,9 @@ def build_batch(root, session, pending, cfg, label=''):
                              'message': rule.get('message') or ''}
         items.append({'id': len(items) + 1, 'rule_id': rule['id'], 'review_key': cand.review_key,
                       'key': cand.key, 'file': cand.file, 'line': cand.line,
-                      'snippet': cand.snippet, 'context': pack.to_dict()})
+                      'snippet': cand.snippet,
+                      'lines': sorted(covers[cand.review_key], key=lambda c: c['line']),
+                      'context': pack.to_dict()})
     if not items:
         return None, [], deferred
     # Multiple review pages can be created within one second. Include process
@@ -182,6 +242,7 @@ def build_batch(root, session, pending, cfg, label=''):
     path = os.path.join(reviews_dir(), name)
     batch = {'version': BATCH_VERSION, 'repo': root, 'session': session,
              'created': time.time(), 'data_dir': data_dir(), 'log': log_path(),
+             'verdict_ttl_days': cfg['semantic_review']['verdict_ttl_days'],
              'rules': rules, 'items': items}
     atomic_write(path, json.dumps(batch, ensure_ascii=False, indent=1))
     return path, items, deferred
@@ -190,7 +251,7 @@ def build_batch(root, session, pending, cfg, label=''):
 def read_batch(path):
     with open(path, 'r', encoding='utf-8') as fh:
         batch = json.load(fh)
-    if not isinstance(batch, dict) or batch.get('version') != BATCH_VERSION:
+    if not isinstance(batch, dict) or batch.get('version') not in READABLE_VERSIONS:
         raise ValueError('판정 배치 파일이 아닙니다: %s' % path)
     return batch
 

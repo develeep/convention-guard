@@ -4,10 +4,10 @@ Each rule kind differs in what it looks at and in what anchors a finding to
 *this* change rather than to the repo's history:
 
   line      추가된 줄                 줄 자체가 앵커
-  file      파일 전체 (다줄 패턴)       매치 구간이 변경된 줄과 겹쳐야 함
+  file      파일 전체 (다줄 패턴)       매치 구간이 변경된 줄과 겹치거나 그 안이 지워져야 함
   requires  조건 + 파일 전체            조건이 '추가된 줄'에 있어야 함
   absent    새 파일 전체               파일이 새것이어야 함
-  paired    변경 집합                  변경 집합 자체가 앵커
+  paired    변경 집합 (줄만 지운 파일 포함)  변경 집합 자체가 앵커
 
 A rule with semantic_review uses the same detectors; its candidates are
 routed to a reviewer instead of straight to the agent (see pipeline.py).
@@ -19,7 +19,7 @@ the right granularity for "this file needs no pair", not an oversight.
 """
 
 from . import rules as rulelib, structure
-from .candidate import Candidate, clip
+from .candidate import Candidate, clip, legacy_snippets
 from .structure import conditions as structure_conditions
 from .structure.model import REJECT, UNKNOWN, Span
 
@@ -75,6 +75,60 @@ def _span_of(analysed, lineno, match):
     if analysed.text[offset:offset + len(matched)] != matched:
         return None, 'stale_line:%d' % lineno
     return Span(offset, offset + len(matched)), None
+
+
+def _trimmed(match):
+    """(start, end) of a match without the whitespace around it: the blank
+    lines a `\\s*` swallowed are not where the code is, and counting them
+    made the key and the changed-line window move with them (R11)."""
+    text = match.group(0)
+    if not text.strip():
+        return match.start(), match.end()
+    return (match.start() + len(text) - len(text.lstrip()),
+            match.end() - (len(text) - len(text.rstrip())))
+
+
+def _window(rule, relpath, body, match, start, end):
+    """The lines a change has to touch for this file match to be its doing.
+
+    The match itself, except for `block_empty`: what it judges is the block,
+    and emptying that block touches its body, not the header the pattern
+    matched (R19). A file the layer cannot read keeps the match's own lines;
+    the condition then reports it as unchecked.
+    """
+    if not (rule.get('detect') or {}).get('block_empty'):
+        return start, end
+    try:
+        analysed = structure.analyze(body, structure.language_of(relpath))
+        if not analysed.ok or not analysed.scope_supported:
+            return start, end
+        node = structure_conditions.judged_block(analysed, Span(match.start(), match.end()))
+    except Exception:       # noqa: BLE001 -- as in judge(): the hook outlives the layer
+        return start, end
+    if node is None:
+        return start, end
+    return min(start, node.start_line), max(end, node.end_line)
+
+
+def _line_spans(pattern, text, lineno):
+    """Every match on the line, lazily, as span makers for `_verdict`.
+
+    The candidate is the line, so one surviving match is enough -- and a
+    rejected first match (`"dd("` before `dd($user)`) must not hide a real one
+    after it. Lazy, so the usual line with one match is judged once (R5).
+    """
+    return (lambda fs, m=m: _span_of(fs, lineno, m) for m in pattern.finditer(text))
+
+
+def _has_requirement(rule, relpath, text, unchecked):
+    """Is `must_contain_in_file` in `text` where it counts? A requirement
+    that only sits in a comment is not there (R6) -- an unreadable file keeps
+    the plain match and is reported as unchecked."""
+    found, reason = structure_conditions.requirement_present(
+        rule, text, lambda: structure.analyze(text, structure.language_of(relpath)))
+    if reason:
+        _note(unchecked, relpath, reason)
+    return found
 
 
 def _verdict(rule, relpath, lineno, span, source, unchecked):
@@ -134,19 +188,25 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
     # 1.x path exactly, reading nothing (FR-02.3, NR-U2-13)
     wants = structure_conditions.has_conditions(rule)
 
-    def add(relpath, lineno, snippet, span=None, source=None):
-        """Returns True once the cap is reached."""
-        cand = Candidate(rule['id'], relpath, lineno, snippet)
-        if is_dismissed(rule['id'], relpath, cand.code_hash):
-            return False
-        if wants and span is not None and source is not None:
-            try:
-                verdict = _verdict(rule, relpath, lineno, span, source, unchecked)
-            except Exception:       # noqa: BLE001 -- the layer promises not to
-                verdict = UNKNOWN   # raise; if that promise breaks the hook lives
-                _note(unchecked, relpath, 'internal_error:Detect')
-            if verdict == REJECT:
-                return False        # filtered, so it does not fill the cap either
+    def judge(relpath, lineno, span, source):
+        try:
+            return _verdict(rule, relpath, lineno, span, source, unchecked)
+        except Exception:       # noqa: BLE001 -- the layer promises not to
+            # raise; if that promise breaks the hook lives
+            _note(unchecked, relpath, 'internal_error:Detect')
+            return UNKNOWN
+
+    def add(relpath, lineno, snippet, spans=None, source=None, code=None, legacy=()):
+        """Returns True once the cap is reached. `spans` are the matches the
+        candidate stands for; it is kept unless every one is REJECT. `code` and
+        `legacy` go to Candidate: what the key covers, what 3.2 covered."""
+        cand = Candidate(rule['id'], relpath, lineno, snippet, code=code, legacy=legacy)
+        if any(is_dismissed(rule['id'], relpath, digest)
+               for digest in (cand.code_hash,) + cand.legacy_hashes):
+            return False    # a 3.2 record still holds (R11)
+        if wants and spans is not None and source is not None:
+            if all(judge(relpath, lineno, span, source) == REJECT for span in spans):
+                return False    # filtered, so it does not fill the cap either
         found.append(cand)
         return len(found) >= cap
 
@@ -176,11 +236,11 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
         if kind == 'line':
             source = (lambda path=relpath: scope.text(path)) if wants else None
             for lineno, text in scope.lines(relpath):
-                match = rule['compiled_when'].search(text)
-                if not match:
+                if not rule['compiled_when'].search(text):
                     continue
-                span = (lambda fs, n=lineno, m=match: _span_of(fs, n, m)) if wants else None
-                if add(relpath, lineno, clip(text), span, source):
+                spans = _line_spans(rule['compiled_when'], text, lineno) if wants else None
+                if add(relpath, lineno, clip(text), spans, source, code=text,
+                       legacy=legacy_snippets(text, lineno)):
                     return found
 
         elif kind == 'absent':
@@ -188,7 +248,7 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
             # missing declaration is the repo's history, not this change
             if not scope.is_new(relpath):
                 continue
-            if not rule['compiled_must'].search(scope.added_body(relpath)):
+            if not _has_requirement(rule, relpath, scope.added_body(relpath), unchecked):
                 if add(relpath, 1, '(새 파일에 해당 선언이 없음)'):
                     return found
 
@@ -201,17 +261,24 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
             if not body:
                 continue
             touched_lines = scope.changed_linenos(relpath)
+            seams = scope.seams_of(relpath)
             is_new = scope.is_new(relpath)
             source = (lambda text=body: text) if wants else None
             for match in rule['compiled_file'].finditer(body):
-                start = body.count('\n', 0, match.start()) + 1
-                end = body.count('\n', 0, match.end()) + 1
-                if not is_new and not any(start <= n <= end for n in touched_lines):
-                    continue
+                lo, hi = _trimmed(match)
+                start = body.count('\n', 0, lo) + 1
+                end = body.count('\n', 0, hi) + 1
+                if not is_new:
+                    first, last = _window(rule, relpath, body, match, start, end)
+                    # an added line inside, or a removal between two lines inside
+                    if not (any(first <= n <= last for n in touched_lines)
+                            or any(first <= n < last for n in seams)):
+                        continue
                 # a file match is already in file coordinates -- nothing to convert
-                span = Span(match.start(), match.end()) if wants else None
-                if add(relpath, start, clip(match.group(0).replace('\n', ' ⏎ ')),
-                       span, source):
+                spans = [Span(match.start(), match.end())] if wants else None
+                code = body[lo:hi]
+                if add(relpath, start, clip(code.replace('\n', ' ⏎ ')), spans, source,
+                       code=code, legacy=(clip(match.group(0).replace('\n', ' ⏎ ')),)):
                     return found
 
         elif kind == 'requires':
@@ -220,18 +287,18 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
             # Without the file there is no "in file" to answer, and the added
             # lines alone would report every file as missing the requirement.
             body = scope.text(relpath)
-            if not body or rule['compiled_must'].search(body):
+            if not body or _has_requirement(rule, relpath, body, unchecked):
                 continue
             before = len(found)
             source = (lambda text=body: text) if wants else None
             for lineno, text in scope.lines(relpath):
-                match = rule['compiled_when'].search(text)
-                if match:
-                    # only the trigger is judged; the requirement search stays
-                    # plain regex over the whole file (Q10=A, DR-18)
-                    span = (lambda fs, n=lineno, m=match: _span_of(fs, n, m)) \
+                if rule['compiled_when'].search(text):
+                    # the trigger is judged by the rule's conditions; the
+                    # requirement above only by `must_not_in` (R6, was DR-18)
+                    spans = _line_spans(rule['compiled_when'], text, lineno) \
                         if wants else None
-                    if add(relpath, lineno, clip(text), span, source):
+                    if add(relpath, lineno, clip(text), spans, source, code=text,
+                           legacy=legacy_snippets(text, lineno)):
                         return found
                     if len(found) > before:
                         break   # one candidate per file -- but a dismissed line

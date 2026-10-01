@@ -16,12 +16,14 @@ Carried over from 0.x regressions:
   and does not spend the rule's once-per-session budget
 """
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from helpers import (LARAVEL_COMPOSER, Session, check, commit, finish, make_repo,  # noqa: E402
-                     run_script, tempdir, write)
+from helpers import (LARAVEL_COMPOSER, Session, check, commit, finish, git,  # noqa: E402
+                     make_repo, run_script, tempdir, write)
+from lib.candidate import clip, fingerprint  # noqa: E402
 
 HDR = '<?php\ndeclare(strict_types=1);\nnamespace App;\n'
 A = 'app/Svc/A.php'
@@ -177,17 +179,38 @@ def case_new_occurrence_is_not_a_repeat(repo, data):
 
 
 def case_consecutive_cap(repo, data):
+    """The cap is a loop guard inside one request (R4): continuations of the
+    same request stop blocking at the cap."""
     s = Session(repo, data, 'cap')
-    bodies = ['dd(1);', 'var_dump(2);', 'print_r(3);', 'dd(4);']
-    results = [s.turn(A, body(b), 'q%d' % i) for i, b in enumerate(bodies)]
+    results = [s.turn(A, body('dd(1);'), 'q0')]
+    for _ in range(3):
+        s.touch(A)
+        results.append(s.stop('q0', stop_hook_active=True))
     blocked = [r['decision'] == 'block' for r in results]
     check('blocks up to the consecutive cap', blocked == [True, True, True, False], blocked)
-    check('the held-back finding is still reported', '상한' in results[3]['summary'],
+    # the verify path words it as the end of verification, not as the cap
+    check('the held-back finding is still reported', '남음 1' in results[3]['summary'],
           results[3]['summary'])
     s.turn(A, body('return 1;'), 'q9')
     check('a clean turn resets the streak', s.state()['consecutive_blocks'] == 0, s.state())
     again = s.turn(A, body('dd(9);'), 'q10')
     check('the checker is alive later in the session', again['decision'] == 'block', again)
+
+
+def case_cap_does_not_cross_requests(repo, data):
+    """R4 / CYC s5: an error left alone in one request must not use up the
+    next request's blocks."""
+    s = Session(repo, data, 'cap-requests')
+    s.turn(A, body('dd(1);'), 'p1')
+    s.touch(A)
+    s.stop('p1', stop_hook_active=True)                 # ignored, streak 2
+    s.turn(A, body('dd(1);'), 'p2')                     # same error, new request
+    s.touch(A)
+    s.stop('p2', stop_hook_active=True)
+    fresh = s.turn('app/Svc/B.php', body('var_dump(2);', 'B'), 'p3')
+    check("a new request's new error blocks", fresh['decision'] == 'block', fresh)
+    check('the streak counts this request only', s.state()['consecutive_blocks'] == 1,
+          s.state().get('consecutive_blocks'))
 
 
 def case_report_mode(repo, data):
@@ -246,6 +269,273 @@ def case_no_prompt_ids(repo, data):
           extra['decision'] is None and s.state()['cycle'] is None, extra)
 
 
+def case_key_change_mid_cycle(repo, data):
+    """R11 -- a cycle opened under the 3.2 key (the clipped snippet's hash) is
+    verified by a version that hashes the whole line: same candidate, still."""
+    s = Session(repo, data, 'rekey')
+    code = 'dd(1); /* %s */' % ('x' * 130)
+    first = s.turn(A, body(code), 'p1')
+    check('the long line blocks', first['decision'] == 'block', first)
+    line = body(code).split('\n')[3]
+    new, old = fingerprint(' '.join(line.split())), fingerprint(clip(line))
+    path = os.path.join(data, 'session-rekey.json')
+    with open(path, encoding='utf-8') as fh:
+        text = fh.read()
+    check('the key is the whole line now', (':%s' % new) in text and new != old, new)
+    with open(path, 'w', encoding='utf-8') as fh:
+        fh.write(text.replace(':%s' % new, ':%s' % old))   # as 3.2 wrote it
+
+    s.touch(A)
+    again = s.stop('p1', stop_hook_active=True)
+    check('it is still there -- not fixed plus new', outcomes(s) == ['still'],
+          s.events('verify'))
+    check('and blocks as a remaining finding', '■ 남음' in (again.get('reason') or ''), again)
+
+
+def case_deletion_only_turn(repo, data):
+    """R19 -- a turn that only deletes lines is checked: emptying a legacy
+    catch is this change's doing."""
+    rel = 'app/Svc/C.php'
+    catch = (HDR + 'class C { public function f() {\n    try { go(); } catch (\\Throwable $e) {\n'
+             '%s    }\n} }\n')
+    write(repo, rel, catch % '        report($e);\n')
+    commit(repo, 'legacy catch')
+    s = Session(repo, data, 'deletion')
+    result = s.turn(rel, catch % '', 'p1')
+    check('the emptied catch is reported', 'warn 1' in (result.get('summary') or ''), result)
+
+
+def case_too_large_is_said(repo, data):
+    """R20 -- a file too big to check is named, never a silent pass."""
+    s = Session(repo, data, 'big')
+    result = s.turn('app/Svc/Big.php', body() + '// pad\n' * 60000, 'p1')
+    check('the hook says it skipped the file',
+          '큰 파일 미검사 1개 파일 (app/Svc/Big.php)' in (result.get('summary') or ''), result)
+
+
+def case_empty_repo_commit(_repo, data):
+    """R14 -- in a repo with no commits yet, committing mid-session must not
+    make the change vanish (COL R14)."""
+    with tempdir() as fresh:
+        git(fresh, 'init', '-q')
+        git(fresh, 'config', 'user.email', 't@t')
+        git(fresh, 'config', 'user.name', 't')
+        write(fresh, 'composer.json', LARAVEL_COMPOSER)
+        write(fresh, '.claude/convention-guard/config.yaml', 'mode: fix\n')
+        s = Session(fresh, data, 'empty')
+        write(fresh, A, body())
+        s.touch(A)
+        commit(fresh, 'first')
+        result = s.stop('p1')
+        check('the committed violation still blocks', result['decision'] == 'block', result)
+
+
+def case_unknown_file_is_said(repo, data):
+    """R23b -- a touched file git cannot see (a nested repo) is named."""
+    os.makedirs(os.path.join(repo, 'vendor-src'))
+    git(os.path.join(repo, 'vendor-src'), 'init', '-q')
+    s = Session(repo, data, 'unknown')
+    result = s.turn('vendor-src/x.php', body(), 'p1')
+    check('the hook says it could not check it',
+          '검사되지 않음 1개 파일 (vendor-src/x.php)' in (result.get('summary') or ''), result)
+
+
+# ---------------------------------------------------------------- who wrote it (R12)
+
+def method_file(*lines):
+    """A with one method whose body is `lines`, one statement per line."""
+    return HDR + 'class A {\n    public function f()\n    {\n' + ''.join(
+        '        %s\n' % line for line in lines) + '    }\n}\n'
+
+
+def case_human_lines_are_not_the_agents(repo, data):
+    # uncommitted work the human left before the session started
+    write(repo, A, method_file('dd($human);', 'return 1;'))
+    s = Session(repo, data, 'human-first')
+    s.edit(A, method_file('dd($human);', 'return 2;'))
+    quiet = s.stop('p1')
+    check("the human's line in a file the agent edited is not its violation",
+          quiet['decision'] is None, quiet)
+
+    s.edit(A, method_file('dd($human);', 'dd($agent);', 'return 2;'))
+    loud = s.stop('p2')
+    check("the agent's own line in that file still blocks",
+          loud['decision'] == 'block' and 'dd($agent)' in loud['reason'], loud)
+    check("and the human's line is not listed next to it",
+          'dd($human)' not in loud['reason'], loud['reason'])
+
+
+def case_same_line_twice_is_counted(repo, data):
+    write(repo, A, method_file('dd($x);', 'return 1;'))
+    s = Session(repo, data, 'counted')
+    s.edit(A, method_file('dd($x);', 'dd($x);', 'return 1;'))
+    out = s.stop('p1')
+    check('a copy of a human line the agent writes is still checked',
+          out['decision'] == 'block' and out['reason'].count('dd($x)') == 1, out)
+
+
+def case_bash_keeps_human_lines_out(repo, data):
+    write(repo, A, method_file('dd($human);', 'return 1;'))
+    s = Session(repo, data, 'bash-human')
+    s.bash_hook('PreToolUse')
+    write(repo, A, method_file('dd($human);', 'dd($agent);', 'return 1;'))
+    s.bash_hook('PostToolUse')
+    out = s.stop('p1')
+    check('a Bash change to a human-dirty file blocks on the agent line only',
+          out['decision'] == 'block' and 'dd($agent)' in out['reason']
+          and 'dd($human)' not in out['reason'], out)
+
+
+def case_pulled_commits_are_not_the_agents(repo, data):
+    with tempdir() as other:
+        git(other, 'clone', '-q', repo, other)
+        git(other, 'config', 'user.email', 'mate@t')
+        git(other, 'config', 'user.name', 'mate')
+        write(other, 'app/Svc/B.php', body('dd($mate);', 'B'))
+        git(other, 'add', '-A')
+        subprocess.run(['git', '-C', other, 'commit', '-qm', 'teammate'], check=True,
+                       env=dict(os.environ, GIT_COMMITTER_DATE='2020-01-01T00:00:00'))
+        s = Session(repo, data, 'pull')
+        s.bash_hook('PreToolUse')
+        git(repo, 'pull', '-q', other, 'HEAD')
+        s.bash_hook('PostToolUse')
+        pulled = s.stop('p1')
+    check("a teammate's commit pulled through Bash does not block the agent",
+          pulled['decision'] is None, pulled)
+
+    s.edit('app/Svc/B.php', body('dd($mate); dd($agent);', 'B'))
+    mine = s.stop('p2')
+    check('editing that file afterwards still checks what the agent wrote',
+          mine['decision'] == 'block' and 'dd($agent)' in mine['reason'], mine)
+
+
+def case_agent_commit_in_bash_is_still_checked(repo, data):
+    s = Session(repo, data, 'bash-commit')
+    s.bash_hook('PreToolUse')
+    write(repo, A, method_file('dd($agent);', 'return 1;'))
+    commit(repo, 'agent commits in the same call')
+    s.bash_hook('PostToolUse')
+    out = s.stop('p1')
+    check('a change the agent commits inside one Bash call is still its own',
+          out['decision'] == 'block' and 'dd($agent)' in out['reason'], out)
+
+
+def case_other_terminal_commit(repo, data):
+    """COL R2: the human commits b.php elsewhere mid-session; the agent's next
+    Bash call (`ls`) must not take it -- Pre and Post now share the session base."""
+    s = Session(repo, data, 'other-terminal')
+    s.edit(A, body('return 1;'))
+    write(repo, 'app/Svc/B.php', body('dd($human);', 'B'))
+    commit(repo, 'human, another terminal')
+    s.bash_hook('PreToolUse')
+    s.bash_hook('PostToolUse')          # `ls`: changes nothing
+    out = s.stop('p1')
+    check("the human's commit is not the agent's", out['decision'] is None, out)
+
+
+# ---------------------------------------------------------------- collection gaps (R23c-e)
+
+def case_base_outlives_a_week(repo, data):
+    """R23c -- a live session's base is refreshed, so the 7-day GC keeps it."""
+    import time
+    s = Session(repo, data, 'week')
+    s.edit(A, body('return 1;'))
+    base = os.path.join(data, 'base-week.json')
+    old = time.time() - 8 * 86400
+    os.utime(base, (old, old))
+    s.edit(A, body('return 2;'))
+    check('touching the session refreshes its base', os.path.getmtime(base) > old + 86400,
+          os.path.getmtime(base))
+
+
+def case_bash_without_pre_is_said(repo, data):
+    """R23d -- a Bash call whose Pre never ran is not a silent pass."""
+    s = Session(repo, data, 'nopre')
+    write(repo, A, body())
+    s.bash_hook('PostToolUse')
+    out = s.stop('p1')
+    check('the Stop says a Bash change was not collected',
+          'Bash 변경 미수집 1회' in (out.get('summary') or ''), out)
+    again = s.stop('p2')
+    check('once', 'Bash 변경 미수집' not in (again.get('summary') or ''), again)
+
+
+def case_configured_edit_tool(repo, data):
+    """R23e -- an MCP editing tool named in the config is collected like Edit."""
+    write(repo, '.claude/convention-guard/config.yaml',
+          'mode: fix\ncollect:\n  edit_tools: [mcp__fs__write_file]\n')
+    s = Session(repo, data, 'mcp')
+    s.pre(A, tool='mcp__fs__write_file')
+    write(repo, A, body())
+    s.touch(A, tool='mcp__fs__write_file')
+    out = s.stop('p1')
+    check('its write is checked', out['decision'] == 'block', out)
+    s2 = Session(repo, data, 'mcp-other')
+    write(repo, 'app/Svc/B.php', body(cls='B'))
+    s2.touch('app/Svc/B.php', tool='mcp__fs__read_file')
+    check('a tool not named is not', s2.stop('p1')['decision'] is None)
+
+
+# ---------------------------------------------------------------- display budget (R3)
+
+DD = 'core/php-no-debug-output'
+
+
+def case_hidden_finding_is_not_a_pass(repo, data):
+    """CYC s1c: fixing only what was shown must not read as a pass, and the
+    rest must come back -- not stay silent for the session."""
+    s = Session(repo, data, 'hidden')
+    first = s.turn(A, method_file('dd(1);', 'dd(2);'), 'p1')
+    check('the block says one more is not shown', '… 1곳 더' in first['reason'],
+          first['reason'][:500])
+    done = s.turn(A, method_file('return 1;', 'dd(2);'), 'p1', stop_hook_active=True)
+    check('fixing the shown one is not "재검증 통과"',
+          '재검증 통과' not in done['summary'] and '미표시 1' in done['summary'], done)
+    check('and the rule is not settled for the session',
+          DD not in (s.state().get('fired_rules') or []), s.state().get('fired_rules'))
+    nxt = s.turn(A, method_file('return 1;', 'dd(2);'), 'p2')
+    check('the hidden one blocks in the next request', nxt['decision'] == 'block'
+          and 'dd(2)' in nxt['reason'] and '지난 턴에도' in nxt['reason'], nxt['reason'][:400])
+
+
+def case_hidden_rules_are_counted(repo, data):
+    """CYC s1: a rule past max_error_rules is named as a count in the block."""
+    s = Session(repo, data, 'hidden-rules')
+    first = s.turn(A, method_file('dd(1);', "$k = env('X');"), 'p1')
+    check('the block counts the rule it did not show', '… 1개 규칙 더' in first['reason'],
+          first['reason'][:600])
+
+
+def case_verify_cap_is_not_new(repo, data):
+    """C6 / CYC s8: past VERIFY_CAP, candidates that come into view after a fix
+    are not "new" -- they were there all along."""
+    s = Session(repo, data, 'verify-cap')
+    lines = ['dd(%d);' % i for i in range(55)]
+    s.turn(A, method_file(*lines), 'p1')
+    s.turn(A, method_file(*(['return 0;'] * 3 + lines[3:])), 'p1', stop_hook_active=True)
+    check('nothing is called new', 'new' not in outcomes(s), outcomes(s))
+
+
+def case_reformat_and_move_are_still(repo, data):
+    """R23f / CYC s4: a violation reformatted in place, or moved to another
+    file, is the same violation -- still, not fixed plus new."""
+    s = Session(repo, data, 'reformat')
+    s.turn(A, method_file('dd($x);', 'return 1;'), 'p1')
+    again = s.turn(A, method_file('dd( $x );', 'return 1;'), 'p1', stop_hook_active=True)
+    check('reformatted in place is still', outcomes(s) == ['still'], s.events('verify'))
+    check('and still blocks', again['decision'] == 'block', again)
+
+    t = Session(repo, data, 'move')
+    t.turn(A, method_file('dd($x);', 'return 1;'), 'q1')
+    write(repo, A, method_file('return 1;'))
+    t.touch(A)
+    moved = HDR + 'class B {\n    public function g()\n    {\n        dd($x);\n    }\n}\n'
+    t.turn('app/Svc/B.php', moved, 'q1', stop_hook_active=True)
+    verify = sorted(e['outcome'] for e in t.events('verify') if e.get('cycle')
+                    and e['cycle'] != s.events('verify')[0]['cycle'])
+    check('moved to another file is still', verify == ['still'], t.events('verify'))
+
+
 CASES = [
     (case_fixed_passes, ''),
     (case_still_blocks_once_more, 'once_per_session: false\n'),
@@ -255,12 +545,31 @@ CASES = [
     (case_dismissed_in_cycle, ''),
     (case_abandoned_request, 'once_per_session: false\n'),
     (case_new_occurrence_is_not_a_repeat, 'once_per_session: false\n'),
-    (case_consecutive_cap, 'once_per_session: false\n'),
+    (case_consecutive_cap, 'once_per_session: false\nlimits:\n  max_verify_attempts: 5\n'),
+    (case_cap_does_not_cross_requests, 'once_per_session: false\n'),
     (case_report_mode, 'mode: report\n'),
     (case_question_turn, ''),
     (case_commit_before_first_stop, 'once_per_session: false\n'),
     (case_commit_during_open_cycle, 'once_per_session: false\n'),
     (case_no_prompt_ids, ''),
+    (case_key_change_mid_cycle, 'once_per_session: false\n'),
+    (case_deletion_only_turn, ''),
+    (case_too_large_is_said, ''),
+    (case_empty_repo_commit, ''),
+    (case_unknown_file_is_said, ''),
+    (case_human_lines_are_not_the_agents, 'once_per_session: false\n'),
+    (case_same_line_twice_is_counted, ''),
+    (case_bash_keeps_human_lines_out, ''),
+    (case_pulled_commits_are_not_the_agents, 'once_per_session: false\n'),
+    (case_agent_commit_in_bash_is_still_checked, ''),
+    (case_other_terminal_commit, ''),
+    (case_base_outlives_a_week, ''),
+    (case_bash_without_pre_is_said, ''),
+    (case_configured_edit_tool, ''),
+    (case_hidden_finding_is_not_a_pass, 'limits:\n  max_locations_per_rule: 1\n'),
+    (case_hidden_rules_are_counted, 'limits:\n  max_error_rules: 1\n'),
+    (case_verify_cap_is_not_new, 'once_per_session: false\n'),
+    (case_reformat_and_move_are_still, 'once_per_session: false\n'),
 ]
 
 

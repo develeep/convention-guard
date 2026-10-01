@@ -17,6 +17,10 @@ could not tell a declined finding from an ignored one.
 so the fingerprint always agrees. --key takes the fingerprint as given
 (rule:file:hash, as convention-guard prints it) without re-scanning.
 
+A fingerprint is of the code, so it hides every identical line in the file.
+Both forms count those first and refuse when there is more than one, unless
+--all-identical says that is meant (R18).
+
 Exit codes: 0 recorded (or already recorded), 1 nothing to dismiss at that
 location, 2 invalid input or an unreadable dismissed.yaml.
 """
@@ -67,6 +71,33 @@ def current_candidates(root, cfg, rule_id, relpath=None):
     return _candidates(whole, cfg, rule_id)
 
 
+def file_candidates(root, cfg, rule_id, relpath):
+    """Every candidate of the rule in the whole file -- what one fingerprint can hide."""
+    try:
+        whole = ChangeScope.files(root, [relpath])
+    except ScopeError:
+        return []
+    return _candidates(whole, cfg, rule_id)[1] if whole else []
+
+
+def print_locations(cands):
+    for cand in cands[:10]:
+        print(fmt.location(cand.file, cand.line, cand.snippet), file=sys.stderr)
+    if len(cands) > 10:
+        print(fmt.more(len(cands) - 10, '곳'), file=sys.stderr)
+
+
+def refuse_identical(same, all_identical):
+    """2 when one record would hide several lines nobody asked about, else None."""
+    if len(same) < 2 or all_identical:
+        return None
+    fmt.eprint('error', '같은 코드가 이 파일에 %d곳 있어 하나만 기각할 수 없습니다 — 모두 오탐이면 '
+                        '--all-identical 을 붙이세요 (기각 뒤에 추가되는 같은 줄도 가려집니다)'
+               % len(same))
+    print_locations(same)
+    return 2
+
+
 def rule_exists(root, cfg, rule_id):
     stacks = pipeline.detect_stacks(root, cfg)
     ruleset = pipeline.load_rules(root, cfg, stacks)
@@ -94,7 +125,7 @@ def show_list(root, style=fmt.PLAIN):
 
 
 def record(root, rule_id, relpath, reason, by, digest=None, snippet=None, line=None,
-           style=fmt.PLAIN):
+           style=fmt.PLAIN, covers=1):
     try:
         added = dismisslib.add(root, rule_id, relpath, reason, digest=digest, snippet=snippet,
                                line=line, by=by)
@@ -109,6 +140,8 @@ def record(root, rule_id, relpath, reason, by, digest=None, snippet=None, line=N
     item = [fmt.item_head('pass' if added else 'info', rule_id, style=style), loc]
     if digest:
         item += fmt.aux('참고', '키 %s:%s:%s' % (rule_id, relpath, digest), style=style)
+    if covers > 1:
+        item += fmt.aux('참고', '같은 코드 %d곳이 함께 가려집니다' % covers, style=style)
     if not added:
         print(style.finish(fmt.blocks([fmt.header('dismiss', ['이미 기록됨', where], style=style)],
                                       item)))
@@ -134,6 +167,8 @@ def main():
     parser.add_argument('--by', choices=['agent', 'human'], default='human',
                         help='누가 판단했는지 (에이전트는 agent)')
     parser.add_argument('--whole-file', action='store_true', help='이 파일 전체에서 이 규칙을 끕니다')
+    parser.add_argument('--all-identical', action='store_true',
+                        help='같은 코드가 파일에 여러 곳 있을 때 모두 기각합니다')
     parser.add_argument('--list', action='store_true', help='기록된 기각 목록')
     parser.add_argument('--cwd', help='레포 경로 (기본: 현재 디렉터리)')
     args = parser.parse_args()
@@ -159,7 +194,8 @@ def main():
 
     relpath = args.file.replace(os.sep, '/')
     if os.path.isabs(relpath):
-        relpath = os.path.relpath(relpath, root).replace(os.sep, '/')
+        relpath = os.path.relpath(relpath, root)
+    relpath = dismisslib.normalize(relpath)
     cfg = configlib.load(root)
 
     if args.key or args.whole_file:
@@ -167,8 +203,14 @@ def main():
             fmt.eprint('error', '그런 규칙이 없습니다: %s — detect_stack.py 로 목록을 확인하세요'
                        % args.rule)
             return 2
-        return record(root, args.rule, relpath, args.reason, args.by,
-                      digest=None if args.whole_file else digest, style=style)
+        if args.whole_file:
+            return record(root, args.rule, relpath, args.reason, args.by, style=style)
+        same = dismisslib.covered(file_candidates(root, cfg, args.rule, relpath), relpath, digest)
+        refused = refuse_identical(same, args.all_identical)
+        if refused:
+            return refused
+        return record(root, args.rule, relpath, args.reason, args.by, digest=digest,
+                      style=style, covers=len(same))
 
     try:
         rule, cands = current_candidates(root, cfg, args.rule, relpath)
@@ -191,14 +233,16 @@ def main():
     if len(mine) > 1 and not args.line:
         fmt.eprint('error', '이 파일에 %d곳이 걸립니다 — --line 으로 하나를 고르거나 --whole-file 을 '
                             '쓰세요' % len(mine))
-        for cand in mine[:10]:
-            print(fmt.location(cand.file, cand.line, cand.snippet), file=sys.stderr)
-        if len(mine) > 10:
-            print(fmt.more(len(mine) - 10, '곳'), file=sys.stderr)
+        print_locations(mine)
         return 2
     target = mine[0]
+    same = dismisslib.covered(file_candidates(root, cfg, args.rule, relpath), relpath,
+                              target.code_hash) or [target]
+    refused = refuse_identical(same, args.all_identical)
+    if refused:
+        return refused
     return record(root, args.rule, relpath, args.reason, args.by, digest=target.code_hash,
-                  snippet=target.snippet, line=target.line, style=style)
+                  snippet=target.snippet, line=target.line, style=style, covers=len(same))
 
 
 if __name__ == '__main__':

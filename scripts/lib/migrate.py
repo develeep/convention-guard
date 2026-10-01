@@ -528,7 +528,8 @@ def validate(old_rule, new_text):
 
 
 # The comment token a generated fixture is wrapped in. `blade` shares PHP's.
-FIXTURE_COMMENT = {'php': '//', 'blade': '//', 'js': '//', 'go': '//', 'java': '//',
+FIXTURE_COMMENT = {'php': '//', 'blade': '//', 'js': '//', 'ts': '//', 'go': '//',
+                   'java': '//', 'kotlin': '//', 'swift': '//', 'csharp': '//', 'dart': '//',
                    'rust': '//', 'c': '//', 'py': '#'}
 
 

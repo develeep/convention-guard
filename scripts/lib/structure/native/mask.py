@@ -53,13 +53,21 @@ _NEWLINE = re.compile(r'\n')
 # into itself. A literal cannot cross a line: no closing `/` on the line means
 # the opener was division after all.
 _REGEX_BODY = re.compile(r'(?:[^\\/\[\n]|\\.|\[(?:[^\\\]\n]|\\.)*\])+/[A-Za-z]*')
-# What may come right before a regex literal. Anything else -- an identifier, a
-# number, `)`, `]`, a closing quote -- makes `/` division, the safe reading:
-# a missed regex is today's behaviour, a false one breaks a sound file.
-_REGEX_AFTER_PUNCT = frozenset('(,=:[!&|?{};')
-_REGEX_AFTER_WORD = frozenset(('return', 'typeof', 'case', 'do', 'else', 'in', 'of', 'new',
-                               'delete', 'void', 'throw', 'instanceof', 'yield', 'await'))
-_TRAILING_WORD = re.compile(r'(\w+)$')
+# What ends a value, so that a `/` after it is division: an identifier or a
+# number (unless it is one of `langdef.regex_after_words`), `)`, `]`, a
+# closing quote, `++`/`--`. That set is closed and small; everything else --
+# an operator, `=>`, `(`, `,` -- leaves the parser expecting an operand, and
+# there `/` opens a regex. A `)` that closes a `langdef.control_heads` header
+# (`if (...)`) ends a header, not a value (R9).
+_VALUE_END = frozenset(')]\'"`')
+_TRAILING_WORD = re.compile(r'([\w$]+)$')
+# JSX opens where an operand may start, like a regex -- after these, after
+# `langdef.jsx_after_words`, or at the start of the file -- and only as
+# `<Name` or the fragment `<>`.
+_JSX_AFTER_PUNCT = frozenset('(,=:[!&|?{};')
+_JSX_NAME = re.compile(r'[A-Za-z_$>]')
+_JSX_TAG = re.compile(r'(?P<astr>["\'])|(?P<lb>\{)|(?P<selfclose>/>)|(?P<gt>>)')
+_JSX_TEXT = re.compile(r'(?P<lb>\{)|(?P<closetag></)|(?P<open><(?=[A-Za-z_$>]))')
 # How far back to look for the previous token; past it, `/` is division.
 _LOOKBEHIND = 64
 _HEREDOC_ID = re.compile(r"[ \t]*(['\"]?)(\w+)\1")
@@ -98,10 +106,12 @@ def _build(langdef):
     for i, spec in enumerate(langdef.multiline_strings):
         code.append(('ml%d' % i, re.escape(spec.open), len(spec.open)))
     for i, delim in enumerate(langdef.string_delims):
-        code.append(('sd%d' % i, re.escape(delim.open), len(delim.open)))
+        code.append(('sd%d' % i, re.escape(delim.open) + (delim.guard or ''), len(delim.open)))
     if langdef.regex_literals:
         # weight 1, so `//` and `/*` are tried first (SR-01)
         code.append(('rx', '/', 1))
+    if langdef.jsx:
+        code.append(('jx', '<', 1))
     for _open, close in langdef.tag_boundaries:
         code.append(('tagclose', re.escape(close), len(close)))
         break                                   # every boundary shares one closer
@@ -153,12 +163,20 @@ def _build(langdef):
     )
 
 
-def _terminator(name):
-    """The line that closes a heredoc opened with `name` (SR-09)."""
-    pattern = _TERMINATORS.get(name)
+def _terminator(name, spec, interpolates):
+    """The line that closes a heredoc opened with `name` (SR-09) -- and, in a
+    heredoc that interpolates, its escape and `{$` hole too: `{$u->dd()}`
+    inside one is code, as it is inside double quotes."""
+    key = (name, interpolates)
+    pattern = _TERMINATORS.get(key)
     if pattern is None:
-        pattern = _TERMINATORS[name] = re.compile(
-            r'(?P<close>^[ \t]*%s)(?![\w])' % re.escape(name), re.M)
+        parts = [('close', r'(?m:^)[ \t]*%s(?![\w])' % re.escape(name), 1)]
+        if interpolates and spec.escape:
+            parts.append(('esc', re.escape(spec.escape), 9))
+        if interpolates and spec.interpolation:
+            parts.append(('interp', re.escape(spec.interpolation[0]),
+                          len(spec.interpolation[0]) + 1))
+        pattern = _TERMINATORS[key] = _alternation(parts)
     return pattern
 
 
@@ -228,6 +246,11 @@ def _scan(text, langdef, pats, in_code, base=0):
             pos = _step_literal(text, pats, stack, frame, match, group, strings, base, pos)
             if pos is None:
                 return comments, strings, _reason(frame, text, base), texts
+        elif frame.kind in ('jsx_tag', 'jsx_text'):
+            pos = _step_jsx(text, stack, frame, match, group, strings, base, pos)
+            if pos is None:
+                return (comments, strings,
+                        'unterminated_jsx:%d' % (text.count('\n', 0, frame.start) + 1), texts)
 
     return _close_out(text, stack, comments, strings, texts, base)
 
@@ -243,6 +266,10 @@ def _pattern_for(frame, pats):
         return pats.blocks[frame.index][0]
     if frame.kind == 'string':
         return pats.strings[frame.index][0]
+    if frame.kind == 'jsx_tag':
+        return _JSX_TAG
+    if frame.kind == 'jsx_text':
+        return _JSX_TEXT
     return frame.pattern
 
 
@@ -259,7 +286,10 @@ def _step_code(text, langdef, pats, stack, frame, match, group, comments, string
     elif group.startswith('ml'):
         return _open_multiline(text, pats, stack, match, int(group[2:]))
     elif group == 'rx':
-        return _regex_literal(text, match.start(), strings, base)
+        return _regex_literal(text, langdef, match.start(), strings, base)
+    elif group == 'jx':
+        if _jsx_can_start(text, langdef, match.start()):
+            stack.append(_Frame('jsx_tag', match.start()))
     elif group == 'tagclose':
         if len(stack) > 1:
             stack.pop()
@@ -271,24 +301,65 @@ def _step_code(text, langdef, pats, stack, frame, match, group, comments, string
             frame.depth -= 1
         elif frame.interp:
             stack.pop()
-            stack[-1].start = match.start()       # the next fragment owns the `}`
+            # a string's next fragment owns the `}`; jsx text does not -- the
+            # braces are the expression's, or blanking them makes it text (P-15)
+            stack[-1].start = match.end() if stack[-1].kind == 'jsx_text' else match.start()
     return None
 
 
-def _regex_can_start(text, start):
+def _regex_can_start(text, langdef, start):
     """Does `/` at `start` open a regex literal? Judged by the token before it."""
     window = text[max(0, start - _LOOKBEHIND):start].rstrip()
     if not window:
         return start <= _LOOKBEHIND           # start of file, not just a long gap
-    if window[-1] in _REGEX_AFTER_PUNCT:
+    last = window[-1]
+    if last.isalnum() or last in '_$':
+        word = _TRAILING_WORD.search(window)
+        return word.group(1) in langdef.regex_after_words
+    if last == ')':
+        return _closes_control_header(window, langdef.control_heads)
+    if last in _VALUE_END:
+        return False
+    if last in '+-' and window[-2:] == last * 2:
+        return False                          # `a++ / 2`
+    return True
+
+
+def _closes_control_header(window, heads):
+    """Does the `)` ending `window` close `if (`, `while (`, `for (`?
+
+    Only the lookbehind window is searched; a header longer than that reads
+    as a value, which makes the `/` division -- today's safe answer.
+    """
+    depth = 0
+    for index in range(len(window) - 1, -1, -1):
+        char = window[index]
+        if char == ')':
+            depth += 1
+        elif char == '(':
+            depth -= 1
+            if depth == 0:
+                word = _TRAILING_WORD.search(window[:index].rstrip())
+                return bool(word) and word.group(1) in heads
+    return False
+
+
+def _jsx_can_start(text, langdef, start):
+    """Does `<` at `start` open a JSX element? Where an operand may begin."""
+    if _JSX_NAME.match(text, start + 1) is None:
+        return False
+    window = text[max(0, start - _LOOKBEHIND):start].rstrip()
+    if not window:
+        return start <= _LOOKBEHIND
+    if window[-1] in _JSX_AFTER_PUNCT or window.endswith('=>'):
         return True
     word = _TRAILING_WORD.search(window)
-    return bool(word) and word.group(1) in _REGEX_AFTER_WORD
+    return bool(word) and word.group(1) in langdef.jsx_after_words
 
 
-def _regex_literal(text, start, strings, base):
+def _regex_literal(text, langdef, start, strings, base):
     """Record a regex literal and return where code resumes (SR-12b)."""
-    if _regex_can_start(text, start):
+    if _regex_can_start(text, langdef, start):
         body = _REGEX_BODY.match(text, start + 1)
         if body is not None:
             strings.append(Span(base + start, base + body.end()))
@@ -305,7 +376,7 @@ def _open_multiline(text, pats, stack, match, index):
             return match.end()                    # `<<<` that opens nothing
         nowdoc = ident.group(1) == "'"
         frame = _Frame('multiline', match.start(), index,
-                       pattern=_terminator(ident.group(2)), spec=spec)
+                       pattern=_terminator(ident.group(2), spec, not nowdoc), spec=spec)
         frame.interp = not nowdoc
         stack.append(frame)
         return ident.end()
@@ -318,7 +389,9 @@ def _open_multiline(text, pats, stack, match, index):
 def _step_literal(text, pats, stack, frame, match, group, strings, base, pos):
     """One step inside a string or multiline literal. None means failure."""
     if group == 'esc':
-        return min(match.end() + 1, len(text))
+        # `\\` takes the next character along; a doubled `""` is complete
+        extra = 1 if match.end() - match.start() == 1 else 0
+        return min(match.end() + extra, len(text))
     if group == 'nl':
         return None
     if group == 'close':
@@ -330,6 +403,59 @@ def _step_literal(text, pats, stack, frame, match, group, strings, base, pos):
         stack.append(_Frame('code', match.end(), interp=True))
         return pos
     return pos
+
+
+def _step_jsx(text, stack, frame, match, group, strings, base, pos):
+    """One step inside a JSX element. None means it cannot be closed.
+
+    A tag frame reads attributes: quoted values are strings, `{...}` is code,
+    `/>` ends the element and `>` turns the frame into its children. A text
+    frame is literal text -- recorded as a string, so a rule's `not_in:
+    string` treats prose like any other literal -- broken by `{...}`, a nested
+    `<Tag`, and the closing `</Tag>` (R9).
+    """
+    if frame.kind == 'jsx_tag':
+        if group == 'astr':
+            close = text.find(match.group(), pos)
+            if close < 0:
+                return None
+            strings.append(Span(base + match.start(), base + close + 1))
+            return close + 1
+        if group == 'lb':
+            stack.append(_Frame('code', pos, interp=True))
+        elif group == 'selfclose':
+            stack.pop()
+            _resume(stack, pos)
+        else:                                     # `>`: the children begin
+            frame.kind = 'jsx_text'
+            frame.start = pos
+        return pos
+    if group == 'lb':
+        _text(text, strings, base, frame.start, match.start())
+        stack.append(_Frame('code', pos, interp=True))
+        return pos
+    _text(text, strings, base, frame.start, match.start())
+    if group == 'open':
+        stack.append(_Frame('jsx_tag', match.start()))
+        return pos
+    close = text.find('>', pos)                   # `</Tag>`
+    if close < 0:
+        return None
+    stack.pop()
+    _resume(stack, close + 1)
+    return close + 1
+
+
+def _text(text, strings, base, start, end):
+    """Record jsx text -- prose, so whitespace between tags is none (P-15)."""
+    if text[start:end].strip():
+        strings.append(Span(base + start, base + end))
+
+
+def _resume(stack, pos):
+    """After a nested element, the enclosing text picks up here."""
+    if stack and stack[-1].kind == 'jsx_text':
+        stack[-1].start = pos
 
 
 def _reason(frame, text, base):
@@ -363,6 +489,8 @@ def _close_out(text, stack, comments, strings, texts, base):
             reason = reason or 'unterminated_heredoc:%d' % line
         elif frame.kind == 'code' and frame.interp:
             reason = reason or 'unterminated_interpolation:%d' % line
+        elif frame.kind in ('jsx_tag', 'jsx_text'):
+            reason = reason or 'unterminated_jsx:%d' % line
     comments.sort()
     strings.sort()
     texts.sort()

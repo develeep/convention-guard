@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""PostToolUse hook adapter: record which files the agent touched.
+"""Pre/PostToolUse hook adapter: record what the agent touched and what it did not write.
 
-Cost is a few milliseconds and zero context. The queue is what makes the Stop
-check precise -- `git diff` alone also picks up the human's own edits.
+Pre remembers the lines a file already had before the agent changed it; Post
+records the file. Zero context. Together they are what makes the Stop check
+precise -- `git diff` alone also picks up the human's own edits.
 """
 
 import json

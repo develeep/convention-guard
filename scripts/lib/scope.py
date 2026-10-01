@@ -16,6 +16,7 @@ hook run of the same change cannot disagree.
 import os
 
 from . import gitdiff
+from .candidate import fingerprint
 
 
 class ScopeError(Exception):
@@ -23,23 +24,46 @@ class ScopeError(Exception):
 
 
 class ChangeScope:
-    def __init__(self, root, changed, new_files, label, base_ref=None):
+    def __init__(self, root, changed, new_files, label, base_ref=None, seams=None,
+                 too_large=(), blob=None, unknown=()):
         self.root = root
-        # Every constructor funnels through here, so what counts as scannable
-        # cannot differ between them. It used to: --staged and --range built
-        # their file list straight from `git diff`, so a 500KB bundle or a
-        # .svg was checked there and skipped by the hook and --all.
-        self.changed = {rel: lines for rel, lines in changed.items()
-                        if gitdiff.scannable(root, rel)}
+        # where the bodies come from: None the working tree, ':' the index,
+        # 'REV:' a revision -- a gate reads the code it gates (R15)
+        self.blob = blob
+        self._text = {}
+        if blob is None:
+            # Every constructor funnels through here, so what counts as scannable
+            # cannot differ between them. It used to: --staged and --range built
+            # their file list straight from `git diff`, so a 500KB bundle or a
+            # .svg was checked there and skipped by the hook and --all.
+            self.changed = {rel: lines for rel, lines in changed.items()
+                            if gitdiff.scannable(root, rel)}
+            big = {rel for rel in changed
+                   if rel not in self.changed and gitdiff.too_large(root, rel)}
+        else:
+            self._text, big = gitdiff.read_blobs(root, blob, changed)
+            self.changed = {rel: lines for rel, lines in changed.items() if rel in self._text}
+        # left out for their size: the caller names them (R20)
+        self.too_large = tuple(sorted(set(too_large) | big))
+        # touched files git cannot see (a nested repo): named, never passed (R23b)
+        self.unknown = tuple(sorted(unknown))
+        # where lines were only removed (gitdiff.parse_diff): a file that just
+        # lost lines is in `changed` with none added (R19)
+        self.seams = {rel: frozenset(found) for rel, found in (seams or {}).items()
+                      if rel in self.changed}
         self.new_files = set(new_files)     # judged as "whole file is new"
         self.label = label
         self.base_ref = base_ref
-        self._text = {}
 
     # -- queries used by detectors and linters
 
     def paths(self):
         return sorted(self.changed)
+
+    def lint_paths(self):
+        """Files with added lines. A linter finding in a file that only lost
+        lines could never be this change's, so those are not linted."""
+        return sorted(rel for rel, lines in self.changed.items() if lines)
 
     def __bool__(self):
         return bool(self.changed)
@@ -51,6 +75,8 @@ class ChangeScope:
         return relpath in self.new_files
 
     def text(self, relpath):
+        """The body of a changed file, from where the scope reads. A file outside
+        the change (a related file for the reviewer) comes from the working tree."""
         if relpath not in self._text:
             self._text[relpath] = gitdiff.read_text(self.root, relpath)
         return self._text[relpath]
@@ -61,16 +87,35 @@ class ChangeScope:
     def changed_linenos(self, relpath):
         return {lineno for lineno, _ in self.changed.get(relpath, ())}
 
+    def seams_of(self, relpath):
+        """{n}: lines n and n+1 meet where this change removed code."""
+        return self.seams.get(relpath, frozenset())
+
     def added_body(self, relpath):
         return '\n'.join(text for _, text in self.changed.get(relpath, ()))
 
     # -- constructors
 
     @classmethod
-    def from_touched(cls, root, touched, base_ref=None):
+    def from_touched(cls, root, touched, base_ref=None, foreign=None):
+        """The lines the agent added. `foreign` ({relpath: {line key: count}},
+        see state.read_foreign) holds the lines that were already there when
+        it first touched a file, or that other people's commits brought in;
+        those are taken out. The file itself is still read whole for context (R12).
+        """
         _require_repo(root)
-        changed = gitdiff.added_lines(root, touched, base_ref)
-        return cls(root, changed, gitdiff.new_files(root) & set(changed), '이번 작업', base_ref)
+        foreign = foreign or {}
+        seams, oversized, new, unknown = {}, set(), set(), set()
+        changed = {}
+        for rel, lines in gitdiff.added_lines(root, touched, base_ref, seams, oversized, new,
+                                              unknown=unknown).items():
+            mine = without_lines(lines, foreign.get(rel))
+            if mine or rel in seams:
+                changed[rel] = mine
+        # a file that had someone else's lines before the agent came is not its new file
+        new = {rel for rel in new & set(changed) if not foreign.get(rel)}
+        return cls(root, changed, new, '이번 작업', base_ref, seams, oversized,
+                   unknown=unknown)
 
     @classmethod
     def working_tree(cls, root, base_ref=None):
@@ -78,27 +123,31 @@ class ChangeScope:
         paths = set()
         if gitdiff.ref_exists(root, 'HEAD'):
             paths |= set(_names(root, ['diff', 'HEAD', '--name-only']))
-        fresh = gitdiff.new_files(root)
         if base_ref:
             paths |= set(_names(root, ['diff', base_ref, '--name-only']))
-        changed = gitdiff.added_lines(root, sorted(paths | fresh), base_ref)
-        return cls(root, changed, fresh & set(changed), '워킹 트리')
+        seams, oversized, new = {}, set(), set()
+        changed = gitdiff.added_lines(root, sorted(paths), base_ref, seams, oversized, new,
+                                      with_untracked=True)
+        return cls(root, changed, new & set(changed), '워킹 트리', seams=seams,
+                   too_large=oversized)
 
     @classmethod
     def staged(cls, root):
         _require_repo(root)
-        paths = _names(root, ['diff', '--cached', '--name-only'])
-        new = set(_names(root, ['diff', '--cached', '--name-only', '--diff-filter=A']))
-        changed = _diff(root, paths, ['--cached'])
-        return cls(root, changed, new & set(changed), '스테이지된 변경')
+        paths, new, renamed = _status(root, ['--cached'])
+        seams = {}
+        changed = _diff(root, paths, ['--cached'], seams, renamed)
+        return cls(root, changed, new & set(changed), '스테이지된 변경', seams=seams, blob=':')
 
     @classmethod
     def git_range(cls, root, spec):
         _require_repo(root)
-        paths = _names(root, ['diff', '--name-only', spec])
-        new = set(_names(root, ['diff', '--name-only', '--diff-filter=A', spec]))
-        changed = _diff(root, paths, [spec])
-        return cls(root, changed, new & set(changed), spec)
+        paths, new, renamed = _status(root, [spec])
+        seams = {}
+        changed = _diff(root, paths, [spec], seams, renamed)
+        right = _right_side(spec)
+        return cls(root, changed, new & set(changed), spec, seams=seams,
+                   blob='%s:' % right if right else None)
 
     @classmethod
     def files(cls, root, raw_paths):
@@ -109,14 +158,15 @@ class ChangeScope:
             if not os.path.exists(path) and os.path.exists(os.path.join(root, raw)):
                 path = os.path.join(root, raw)
             rel = os.path.relpath(path, root).replace(os.sep, '/')
-            if rel.startswith('..') or not os.path.isfile(path):
+            if rel == '..' or rel.startswith('../') or not os.path.isfile(path):
                 bad.append(raw)
             else:
                 rels.append(rel)
         if bad:
             raise ScopeError('레포 안의 파일이 아닙니다: %s' % ', '.join(bad))
         changed = _whole(root, rels)
-        return cls(root, changed, set(changed), '지정 파일 %d개' % len(rels))
+        return cls(root, changed, set(changed), '지정 파일 %d개' % len(rels),
+                   too_large=_oversized(root, rels))
 
     @classmethod
     def everything(cls, root):
@@ -131,8 +181,44 @@ class ChangeScope:
             tracked = gitdiff.tracked(root)
         except gitdiff.GitError as exc:
             raise ScopeError(str(exc))
-        changed = _whole(root, list(dict.fromkeys(tracked + sorted(gitdiff.untracked(root)))))
-        return cls(root, changed, set(changed), '전수조사 (%d개 파일)' % len(changed))
+        rels = list(dict.fromkeys(tracked + sorted(gitdiff.untracked(root))))
+        changed = _whole(root, rels)
+        return cls(root, changed, set(changed), '전수조사 (%d개 파일)' % len(changed),
+                   too_large=_oversized(root, rels))
+
+
+def line_key(text):
+    """What identifies a line across edits that move it: its text, whitespace aside."""
+    return fingerprint(text)
+
+
+def line_counts(lines):
+    """[(lineno, text)] -> {line key: count}."""
+    counts = {}
+    for _lineno, text in lines:
+        key = line_key(text)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def without_lines(lines, counts):
+    """`lines` minus as many lines per key as `counts` holds.
+
+    Counted, not a set: the agent writing a second `return null;` next to a
+    human's must still be checked. Which of two identical lines is dropped
+    is the earlier one -- the text, and so the finding, is the same.
+    """
+    if not counts:
+        return list(lines)
+    left = dict(counts)
+    out = []
+    for lineno, text in lines:
+        key = line_key(text)
+        if left.get(key, 0) > 0:
+            left[key] -= 1
+        else:
+            out.append((lineno, text))
+    return out
 
 
 def _require_repo(root):
@@ -147,11 +233,34 @@ def _names(root, args):
         raise ScopeError(str(exc))
 
 
-def _diff(root, paths, args):
+def _right_side(spec):
+    """The revision `git diff <spec>` compares *to*: B for A..B and A...B,
+    HEAD for A.., None for a bare A (that one diffs against the working tree)."""
+    for sep in ('...', '..'):
+        if sep in spec:
+            return spec.split(sep, 1)[1] or 'HEAD'
+    return None
+
+
+def _status(root, args):
+    """(new-side paths, added files, rename sources) of one diff (R14)."""
     try:
-        return gitdiff.diff_lines(root, paths, args, strict=True)
+        paths, added, renamed, _deleted = gitdiff.name_status(root, args, strict=True)
     except gitdiff.GitError as exc:
         raise ScopeError(str(exc))
+    return paths, added, renamed
+
+
+def _diff(root, paths, args, seams=None, companions=()):
+    try:
+        return gitdiff.diff_lines(root, paths, args, strict=True, seams=seams,
+                                  companions=companions)
+    except gitdiff.GitError as exc:
+        raise ScopeError(str(exc))
+
+
+def _oversized(root, rels):
+    return {rel for rel in rels if gitdiff.too_large(root, rel)}
 
 
 def _whole(root, rels):

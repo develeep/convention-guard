@@ -9,12 +9,17 @@ applies_to:
 detect:
   when_line_added: 'public\s+function\s+(store|update|create)\s*\('
   must_contain_in_file: '(FormRequest|Http\\Requests|->validate\(|->validated\(\)|Validator::make\()'
+  # 주석(기본)과 문자열 안의 검증 흔적은 검증이 아닙니다
+  must_not_in: [comment, string]
 message: |
   쓰기 액션을 추가했는데 이 파일 어디에도 검증이 없습니다.
   FormRequest 를 만들어 타입힌트로 받고 $request->validated() 를 쓰세요.
 tests:
   match:
     - "class UserController extends Controller\n{\n    public function store(Request $request)\n    {\n        return User::create($request->all());\n    }\n}"
+    # 주석·문자열에만 있는 검증은 검증이 아닙니다
+    - "class UserController extends Controller\n{\n    public function store(Request $request)\n    {\n        // TODO: FormRequest 로 교체할 것\n        return User::create($request->all());\n    }\n}"
+    - "class UserController extends Controller\n{\n    public function store(Request $request)\n    {\n        $note = \"->validated() 는 나중에\";\n        return User::create($request->all());\n    }\n}"
   no_match:
     - "use App\\Http\\Requests\\StoreUserRequest;\n\nclass UserController extends Controller\n{\n    public function store(StoreUserRequest $request)\n    {\n        return User::create($request->validated());\n    }\n}"
     - "class UserController extends Controller\n{\n    public function index()\n    {\n        return User::all();\n    }\n}"

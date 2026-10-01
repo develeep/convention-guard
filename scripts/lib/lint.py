@@ -167,27 +167,36 @@ def _parse_diff(root, text):
     """Unified diff from a formatter (php-cs-fixer --diff, pint --test -v).
 
     The `-` side is the file as it stands, so its line numbers are the ones
-    that can be compared against the change.
+    that can be compared against the change. Headers are only headers outside
+    a hunk -- a removed `-- comment` line reads `--- comment` -- and a run of
+    added lines with nothing removed is anchored to the line above it (R17).
     """
-    out, cur, minus = [], None, 0
+    out, cur, minus, in_hunk, removed = [], None, 0, False, False
     for line in (text or '').split('\n'):
-        if line.startswith('--- '):
+        if not in_hunk and line.startswith('--- '):
             raw = line[4:].strip()
             cur = None if raw == '/dev/null' else _rel(root, raw)
             continue
-        if line.startswith('+++ '):
+        if not in_hunk and line.startswith('+++ '):
             continue
         match = DIFF_HUNK_RE.match(line)
         if match:
-            minus = int(match.group(1))
+            minus, in_hunk, removed = int(match.group(1)), True, False
             continue
-        if cur is None or not minus:
+        if not line or line[0] not in '-+ \\':
+            in_hunk = False                     # the next file's header, or the end
+            continue
+        if cur is None:
             continue
         if line.startswith('-'):
             out.append(_loc(root, cur, minus, '포맷이 규약과 다릅니다'))
-            minus += 1
+            minus, removed = minus + 1, True
+        elif line.startswith('+'):
+            if not removed:                     # a pure insertion: the line above it
+                out.append(_loc(root, cur, max(minus - 1, 1), '포맷이 규약과 다릅니다'))
+                removed = True
         elif line.startswith(' '):
-            minus += 1
+            minus, removed = minus + 1, False
     return out
 
 
@@ -215,14 +224,34 @@ def parse_output(root, entry, text):
 
 # ---------------------------------------------------------------- running
 
+UNCHECKED = 'unchecked_linter'
+
+
+class Note(str):
+    """A note's text that also says what kind of note it is. Still a str, so
+    every `(level, text)` reader is unchanged; the Stop hook orders warnings by
+    `kind`, not by matching words that may be reworded (R23i)."""
+
+    def __new__(cls, text, kind):
+        note = str.__new__(cls, text)
+        note.kind = kind
+        return note
+
+
 def _unchecked(notes, argv, why):
     if notes is None:
         return
-    notes.append(('warn', '린터 %s 를 돌리지 못했습니다 (%s) — 이번 변경은 이 린터로 '
-                          '검사되지 않았습니다' % (argv[0], why)))
+    notes.append(('warn', Note('린터 %s 를 돌리지 못했습니다 (%s) — 이번 변경은 이 린터로 '
+                               '검사되지 않았습니다' % (argv[0], why), UNCHECKED)))
 
 
-def run(root, entries, files, timeout=90, max_files=40, budget=None, notes=None):
+def _unfinished(collector, entry):
+    if collector is not None:
+        collector.add(entry_key(entry))
+
+
+def run(root, entries, files, timeout=90, max_files=40, budget=None, notes=None,
+        unfinished=None):
     """Return list of failures: {stack, cmd, output, locations, anchored}.
 
     `timeout` is per linter and `entries` runs sequentially, so N linters can
@@ -230,6 +259,8 @@ def run(root, entries, files, timeout=90, max_files=40, budget=None, notes=None)
     nothing, and a killed hook is indistinguishable from a clean check. Pass
     `budget` to cap the whole phase, and `notes` to hear about what that cost --
     a linter that did not run must never pass for one that found nothing.
+    `unfinished` collects the entry keys of those, so a re-check can tell
+    "not run" from "fixed" (R17).
     """
     failures = []
     if not files:
@@ -270,15 +301,18 @@ def run(root, entries, files, timeout=90, max_files=40, budget=None, notes=None)
                 if left <= 0:
                     remaining = sum(len(chunk) for chunk in chunks[index:])
                     _unchecked(notes, argv, '시간 예산 소진으로 %d개 파일 미검사' % remaining)
+                    _unfinished(unfinished, entry)
                     break
             try:
                 proc = subprocess.run(argv, cwd=root, capture_output=True, text=True,
                                       errors='replace', timeout=left)
             except subprocess.TimeoutExpired:
                 _unchecked(notes, argv, '%d초 안에 끝나지 않음' % round(left))
+                _unfinished(unfinished, entry)
                 continue
             except (OSError, ValueError) as exc:
                 _unchecked(notes, argv, str(exc))
+                _unfinished(unfinished, entry)
                 continue
             if proc.returncode == 0:
                 continue

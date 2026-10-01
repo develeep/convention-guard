@@ -14,6 +14,8 @@ message: |
 tests:
   match:
     - '  console.log(user);'
+    # 앞의 문자열 매치가 같은 줄의 진짜 호출을 가리지 않습니다
+    - 'const s = "console.log("; console.log(x);'
   no_match:
     - '  logger.debug(user);'
     - '  console.error(err);'

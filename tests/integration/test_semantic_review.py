@@ -287,10 +287,49 @@ def case_verdicts_stay_distinct(repo, data):
           and abs(rule['false_positive_rate'] - 1 / 3) < 1e-9, rule)
 
 
+def case_one_question_shows_every_candidate(repo, data):
+    """R7 / SEM r4: two candidates in one function are one question, but the
+    reviewer must see both -- the real N+1 is the second loop."""
+    body = ('    public function index()\n    {\n'
+            "        $orders = Order::query()->with('items')->get();\n"
+            '        foreach ($orders as $order) {\n            $order->items->count();\n        }\n'
+            '        $others = Order::query()->get();\n'
+            '        foreach ($others as $other) {\n            $other->items->count();\n        }\n'
+            '        return $orders;\n    }\n')
+    s = Session(repo, data, 'two-loops')
+    first = s.turn(CTRL, HEAD + body + '}\n', 'p1')
+    batch = batch_of(first)
+    check('a batch is written', batch and os.path.isfile(batch), first['reason'][:300])
+    if not batch:
+        return
+    items = json.load(open(batch, encoding='utf-8'))['items']
+    check('one question for the function', len(items) == 1, items)
+    lines = [entry['line'] for entry in items[0].get('lines') or []]
+    check('carrying both candidate lines', len(lines) == 2 and lines == sorted(lines), items[0])
+    shown = run_script('review.py', ['show', batch], env=s.env, cwd=repo).stdout
+    check('show prints both', '$order->items->count()' in shown
+          and '$other->items->count()' in shown, shown[:800])
+    check('and tells the reviewer any one is enough', '하나라도' in shown, shown[:1200])
+    item = next(iter(s.state()['cycle']['review']['items'].values()))
+    check('the cycle tracks the first candidate, as the batch does',
+          item['line'] == lines[0], (item, lines))
+
+    old = json.load(open(batch, encoding='utf-8'))
+    old['version'] = 1
+    for entry in old['items']:
+        entry.pop('lines', None)
+    with open(batch, 'w', encoding='utf-8') as fh:
+        json.dump(old, fh, ensure_ascii=False)
+    legacy = run_script('review.py', ['show', batch], env=s.env, cwd=repo)
+    check('a version 1 batch from before an upgrade is still read', legacy.returncode == 0,
+          legacy.stderr)
+
+
 CASES = [case_no_candidate_no_ai, case_violation_fix_rejudge, case_valid_is_cached,
          case_reviewer_skipped, case_record_validation, case_report_mode,
          case_deferred_batches_continue, case_scan_review,
-         case_scan_review_without_candidates, case_verdicts_stay_distinct]
+         case_scan_review_without_candidates, case_verdicts_stay_distinct,
+         case_one_question_shows_every_candidate]
 
 
 def main():

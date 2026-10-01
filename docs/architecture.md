@@ -23,7 +23,7 @@ Instruction → Execution → Verification → Feedback → Fix → Verification
 ## 전체 흐름
 
 ```
-PostToolUse(Write|Edit|MultiEdit|NotebookEdit)   collect.py   터치한 파일 경로와 세션 최초 HEAD 기록 (출력·컨텍스트 0)
+Pre/PostToolUse(Write|Edit|MultiEdit|NotebookEdit|Bash|mcp__*)   collect.py   터치한 파일, 에이전트가 쓰지 않은 줄, 세션 최초 HEAD 기록 (출력·컨텍스트 0)
                                 │
 Stop                      check.py ─── lib/hooks.py
                                 │
@@ -139,20 +139,36 @@ scope → stacks → rules (프리셋 → 비활성 규칙 제외 → 적용 가
 | still | 그대로 남음 |
 | new | 사이클을 열 때 없던 후보 — 대개 수정이 만든 것 |
 
-still 이나 new 중 error 가 있으면 `limits.max_verify_attempts` 까지 다시 차단하고, 그다음에는 남은 것을 기록만 하고 닫습니다. 사이클 전체가 `limits.max_consecutive_blocks` 안에 묶여 있어 무한 루프가 되지 않습니다.
+still 이나 new 중 error 가 있으면 `limits.max_verify_attempts` 까지 다시 차단하고, 그다음에는 남은 것을 기록만 하고 닫습니다. 사이클 전체가 `limits.max_consecutive_blocks` 안에 묶여 있어 무한 루프가 되지 않습니다. 이 상한은 요청마다 새로 셉니다. 표시 예산(`limits.*`) 밖의 error 는 차단하지 않지만, 남아 있는 동안은 통과로 닫지 않고("미표시 N") 그 규칙을 `once_per_session` 으로 조용히 만들지도 않습니다.
 
-후보 식별은 `규칙:파일:코드 지문` 키입니다. 위쪽에 줄이 추가돼도 같은 후보이고, 줄 자체가 바뀌면 다른 후보입니다. 처음에 표시 예산 때문에 보여주지 않은 후보도 "본 것"으로 기억해 new 로 오인하지 않습니다.
+후보 식별은 `규칙:파일:코드 지문` 키입니다. 위쪽에 줄이 추가돼도 같은 후보이고, 줄 자체가 바뀌면 다른 후보입니다. 지문은 표시용으로 자른 120자 스니펫이 아니라 **줄 전체**(file 앵커는 앞뒤 공백을 뺀 매치 전체)에서 계산합니다. 3.2 까지 기록된 지문(자른 스니펫, 1행은 BOM 포함)은 기각·열린 사이클에서 계속 인정합니다. 단, 그 기록은 3.2 의미 그대로 앞 120자가 같은 줄을 모두 가립니다. 처음에 표시 예산 때문에 보여주지 않은 후보도 "본 것"으로 기억해 new 로 오인하지 않습니다.
 
 사용자가 요청을 중단하고 새 요청을 보내면(`stop_hook_active` 가 아닌 Stop) 열린 사이클은 abandoned 로 닫히고, 결과는 그대로 측정됩니다.
 
 ## 검사 범위의 한계
 
-검사 대상은 수집 훅이 기록한 터치 파일입니다. Write/Edit 계열은 도구 입력의 파일 경로를 사용합니다.
-Bash 는 PreToolUse 에서 기존 dirty 파일의 지문을 저장하고 PostToolUse 에서 달라진 경로만 추가하므로,
-사람이 먼저 수정해 둔 파일을 에이전트 책임으로 묶지 않습니다. 다음은 여전히 **검사되지 않습니다**.
+검사 대상은 수집 훅이 기록한 터치 파일 중 **에이전트가 쓴 줄**입니다. 판정에는 여전히 파일 전체를 씁니다.
+
+- Write/Edit 계열은 도구 입력의 파일 경로를 기록합니다.
+- Bash 는 PreToolUse 에서 dirty 파일의 지문을 저장하고, PostToolUse 에서 지문이 달라진 파일만 추가합니다.
+- 모든 도구의 PreToolUse 는 파일을 **처음 건드리기 직전**에, 그 파일이 세션 base 대비 이미 추가하고 있던 줄을 기준선으로 남깁니다. 사람이 먼저 써 둔 미커밋 줄이 여기에 들어갑니다.
+- Bash 가 HEAD 를 옮기면(pull, merge, checkout) 그 호출 전에 만들어진 커밋이 가져온 줄도 남깁니다. 호출 중에 만든 커밋(에이전트의 `git commit`, rebase 로 다시 쓴 커밋)과 머지 커밋은 에이전트 것으로 봅니다.
+- Stop 은 추가된 줄에서 이 줄들을 **개수만큼** 뺍니다. 사람 줄과 똑같은 줄을 에이전트가 하나 더 쓰면 그 줄은 검사합니다. 줄은 공백을 무시한 텍스트로 식별하므로 위아래로 밀려도 유지됩니다.
+- 기준선보다 먼저 사람 줄이 있던 파일은 "새 파일"로 보지 않습니다 (`absent` 앵커).
+
+의심스러우면 검사하는 쪽으로 기웁니다. 다음은 **에이전트 것으로 검사됩니다**.
+
+- 기준선을 남기지 못한 파일 (PreToolUse 없이 PostToolUse 만 온 편집). 이전처럼 파일의 추가된 줄 전부입니다.
+- 에이전트가 처음 건드린 뒤에 사람이 같은 파일에 쓴 줄
+- 포매터가 다시 쓴 사람 줄 (텍스트가 달라져 기준선과 맞지 않음)
+- `scope.base_ref` 로 넣은 브랜치 변경 (명시적으로 켠 범위라 기준선을 적용하지 않음)
+
+다음은 여전히 **검사되지 않습니다**.
 
 - 수집 훅이 10초 예산 안에 끝나지 못한 편집
-- PreToolUse 없이 PostToolUse 만 전달된 Bash 호출
+- PreToolUse 없이 PostToolUse 만 전달된 Bash 호출 (다음 Stop 이 "Bash 변경 미수집 N회"로 알립니다)
+- `collect.edit_tools` 에 이름이 없는 MCP 편집 도구
+- 다른 사람 커밋을 가져오는 같은 Bash 호출 안에서 에이전트가 그 커밋과 똑같은 줄을 쓴 경우
 
 세션의 첫 수집 시점 HEAD도 저장하므로 Stop 전에 커밋한 변경까지 검사합니다. 범위 계산 실패는
 깨끗한 통과로 읽지 않고 검사 불가 메시지를 냅니다.
@@ -170,6 +186,8 @@ Bash 는 PreToolUse 에서 기존 dirty 파일의 지문을 저장하고 PostToo
 | `touched-<session>.txt` | 수집 훅이 한 줄씩 덧붙이는 터치 파일 (병렬 실행 안전) |
 | `base-<session>.json` | 세션 첫 수정 시점의 레포 루트와 HEAD |
 | `bash-<session>-<tool>.json` | Bash 실행 전 dirty 파일 지문 (PostToolUse 후 삭제) |
+| `bashmiss-<session>.txt` | 실행 전 스냅샷 없이 끝난 Bash 호출 수 (Stop 이 알리고 지움) |
+| `foreign-<session>.jsonl` | 터치 파일에서 에이전트가 쓰지 않은 줄 — 기준선(파일마다 첫 기록)과 커밋으로 들어온 줄 (덧붙이기만 함) |
 | `session-<session>.json` | 연속 차단 수, 열린 사이클, 세션 동안 고쳐진 규칙 |
 | `reviews/*.json` | 판정 배치와 기록된 판정 (7일 후 정리) |
 | `verdicts.json` | 판정 캐시 (레포별, TTL) |

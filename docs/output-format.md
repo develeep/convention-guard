@@ -361,7 +361,7 @@ convention-guard ✖ 차단 — error 1 · warn 1
 - 끝내면 같은 범위를 다시 검사해 남은 것과 새로 생긴 것만 알립니다.
 ```
 
-- `systemMessage` 는 `reason` 의 첫 줄과 같습니다(D11). 노트(자동 수정, 구조 미확인)는 ` · ` 로 뒤에 붙고 `convention-guard` 는 한 번만 나옵니다.
+- `systemMessage` 는 `reason` 의 첫 줄과 같습니다(D11). 노트(자동 수정, 구조 미확인, 큰 파일 미검사, 검사되지 않음 — git 이 볼 수 없는 중첩 레포·worktree 안 파일)는 ` · ` 로 뒤에 붙고 `convention-guard` 는 한 번만 나옵니다.
 - 머리말 속성 순서: `린터 실패 N` → `error N` → `warn N` → `info N`(있을 때) → `판정 대기 N`(있을 때) → `검사 경고 N`(있을 때).
 - 섹션 순서: `■ 자동 수정` → `■ 린터 실패` → `■ 지적` → `■ 참고` → `■ 판정 대기` → `■ 린터 참고` → `■ 검사 경고` → `■ 다음`.
 - 리뷰어가 VIOLATION 으로 판정한 규칙은 `= 참고: 리뷰어 판정 VIOLATION` 을 붙입니다.
@@ -421,6 +421,8 @@ convention-guard ✖ 재검증 차단 — 고쳐짐 0 · 기각 0 · 남음 1 ·
 ```
 convention-guard ✔ 재검증 통과 — 고쳐짐 2 · 기각 1
 convention-guard ⚠ 재검증 종료 — 고쳐짐 0 · 기각 0 · 남음 1 · 새로 생김 0 · 이후 기록만
+convention-guard ⚠ 재검증 종료 — 고쳐짐 1 · 기각 0 · 미표시 1 · 다음 요청에서 다시 알림
+convention-guard ⚠ 재검증 종료 — 고쳐짐 0 · 기각 0 · 남음 0 · 새로 생김 0 · 린터 미확인 1 · 이후 기록만
 convention-guard ⚠ 기록 — warn 1 (core/php-no-empty-catch)
 convention-guard ℹ 기록 — info 1
 convention-guard ✖ 기록 — error 1 · 차단 안 함: mode=report
@@ -434,6 +436,8 @@ convention-guard ✖ 건너뜀 — 내부 오류: <예외 한 줄>
 
 - 아이콘은 가장 높은 강도의 것(F7 과 같은 규칙), 통과는 `✔` 입니다.
 - `재검증 통과` 는 지금은 아무것도 출력하지 않는 경로입니다. 사용자가 사이클이 닫힌 것을 보도록 새로 냅니다.
+- 보여 준 것은 고쳤지만 표시 예산 밖 error 가 남았으면 `재검증 통과` 가 아니라 `⚠ 재검증 종료 — … 미표시 N` 입니다. 그 후보는 다음 요청에서 "지난 턴에도 지적했습니다"로 다시 올라오고, 그 규칙은 세션 동안 조용해지지 않습니다.
+- 차단 사유는 예산 밖을 숫자로 남깁니다: 규칙의 위치 아래 `… N곳 더`, 섹션 끝에 `… N개 규칙 더`.
 - 여러 줄 오류(YAML 파싱)는 첫 줄만 쓰고 ` … — 전체: python3 "…/scripts/detect_stack.py"` 를 붙입니다.
 
 ### 4. scan.py 텍스트
@@ -468,6 +472,7 @@ convention-guard scan — 워킹 트리 · 파일 5개 · 스택 laravel, php ·
 
 ■ 검사 경고
 ⚠ 구조 미확인 2개 파일 — app/Svc/B.php, app/Svc/C.php (구조 조건을 적용하지 못해 후보를 그대로 올렸습니다)
+⚠ 큰 파일 미검사 1개 파일 — app/Svc/Big.php (400KB 를 넘어 규칙을 적용하지 않았습니다)
 
 ■ 다음
 - 자동 수정을 적용하려면:
@@ -665,6 +670,7 @@ convention-guard dismiss — 1건 기록 · .claude/convention-guard/dismissed.y
 - 이미 기록됨: 머리말 `— 이미 기록됨 · …`, 항목 아이콘 `ℹ`.
 - 파일 전체: 위치 줄 `app/Svc/B.php  (파일 전체)`. `--key` 로 기록해 줄을 모르면 위치 줄은 `app/Svc/A.php` 입니다.
 - 한 파일에 여러 곳, 위치 없음, 잘못된 키 같은 입력 오류는 stderr `convention-guard: error: …` 입니다. 후보 목록이 필요하면 그 아래 위치 줄(F4)로 씁니다.
+- 같은 코드가 파일에 여러 곳 있으면 지문 하나가 모두 가리므로 `--all-identical` 없이는 같은 오류 형식으로 거부하고 그 위치들을 나열합니다. `--all-identical` 로 기록하면 `= 참고: 같은 코드 N곳이 함께 가려집니다` 가 붙습니다.
 
 `--list`:
 

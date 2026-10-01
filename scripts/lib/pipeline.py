@@ -15,7 +15,8 @@ from .paths import plugin_root as default_plugin_root
 
 class Result:
     def __init__(self, scope, stacks, ruleset, applicable, lint_blocking, lint_notes,
-                 lint_raw, hits, semantic_hits, dismissals, unchecked=None):
+                 lint_raw, hits, semantic_hits, dismissals, unchecked=None,
+                 lint_unfinished=()):
         self.scope = scope
         self.stacks = stacks
         self.ruleset = ruleset              # RuleSet: rules in play, inactive, notes, presets
@@ -31,6 +32,11 @@ class Result:
         # files whose structure could not be read, so their conditions were not
         # applied: the candidates are still here, and the caller says so
         self.unchecked = unchecked if unchecked is not None else detect.Unchecked()
+        # linter entry keys that did not finish: their findings are unknown (R17)
+        self.lint_unfinished = frozenset(lint_unfinished)
+        # files left out for their size, named rather than passed (R20)
+        self.too_large = tuple(scope.too_large)
+        self.unknown = tuple(scope.unknown)     # touched files git cannot see (R23b)
 
     @property
     def errors(self):
@@ -70,11 +76,12 @@ def run(scope, cfg, plugin_root=None, run_lint=True, cap=None, use_dismiss=True,
         is_dismissed = recorded.is_dismissed
         dismissals = len(recorded)
 
-    lint_blocking, lint_notes, lint_raw = [], [], []
+    lint_blocking, lint_notes, lint_raw, lint_unfinished = [], [], [], set()
     if run_lint and cfg['linters']['enabled'] and stacks.lint and scope:
-        lint_raw = lint.run(root, stacks.lint, scope.paths(),
+        lint_raw = lint.run(root, stacks.lint, scope.lint_paths(),
                             timeout=int(cfg['linters']['timeout']),
-                            budget=lint_budget, notes=ruleset.notes)
+                            budget=lint_budget, notes=ruleset.notes,
+                            unfinished=lint_unfinished)
         lint_blocking, lint_notes = lint.split_by_change(lint_raw, scope)
 
     if (not rule_filter and cfg['semantic_review']['enabled']
@@ -95,4 +102,4 @@ def run(scope, cfg, plugin_root=None, run_lint=True, cap=None, use_dismiss=True,
                                is_dismissed, unchecked)
 
     return Result(scope, stacks, ruleset, applicable, lint_blocking, lint_notes, lint_raw,
-                  hits, semantic_hits, dismissals, unchecked)
+                  hits, semantic_hits, dismissals, unchecked, lint_unfinished)

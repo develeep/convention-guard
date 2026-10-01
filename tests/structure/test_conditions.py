@@ -73,6 +73,27 @@ audit();
     check('several scopes must all hold',
           judge(text, {'in_scope': ['loop', 'class']}, 'query($x)') == REJECT)
 
+    # R10: only the body is inside -- the header and what follows the `}` are not
+    text = 'async function f() {\n  for (const x of await load()) {\n    use(x);\n  }\n}\n'
+    check('the iterable in a loop header is not in the loop',
+          judge(text, {'in_scope': 'loop'}, 'await load', 'js') == REJECT)
+    check('the loop body still is',
+          judge(text, {'in_scope': 'loop'}, 'use(x)', 'js') == ACCEPT)
+    text = 'function f() {\n  for (const x of xs) { a(x); } b();\n}\n'
+    check('a statement after the closing brace on the same line is outside',
+          judge(text, {'in_scope': 'loop'}, 'b()', 'js') == REJECT)
+    check('the body on that line is inside',
+          judge(text, {'in_scope': 'loop'}, 'a(x)', 'js') == ACCEPT)
+    text = PHP + 'function handle() {\n    foreach ($xs as $x) {\n        query($x);\n    }\n}\n'
+    check('the foreach keyword itself is not inside its loop',
+          judge(text, {'in_scope': 'loop'}, 'foreach') == REJECT)
+    check('but it is inside the function', judge(text, {'in_scope': 'function'}, 'foreach') == ACCEPT)
+    text = 'def f(xs):\n    for x in load():\n        db.query(x)\n'
+    check('a python for header is not in its loop',
+          judge(text, {'in_scope': 'loop'}, 'load()', 'py') == REJECT)
+    check('a python loop body is',
+          judge(text, {'in_scope': 'loop'}, 'db.query', 'py') == ACCEPT)
+
 
 def case_block_empty():
     print('case_block_empty:')

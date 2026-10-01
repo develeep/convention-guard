@@ -47,6 +47,23 @@ def git_toplevel(path):
     return os.path.abspath(top) if proc.returncode == 0 and top else path
 
 
+def repo_relative(path, root):
+    """`path` relative to the work tree root, '/'-separated, or None outside it.
+
+    Tried as given, then with symlinks resolved: /tmp/x and /private/tmp/x are
+    one file. `..foo.php` is a file name, only `..` itself leaves (R23b).
+    """
+    for candidate, base in ((os.path.abspath(path), os.path.abspath(root)),
+                            (os.path.realpath(path), os.path.realpath(root))):
+        try:
+            rel = os.path.relpath(candidate, base)
+        except ValueError:          # another drive on Windows
+            continue
+        if rel != os.pardir and not rel.startswith(os.pardir + os.sep):
+            return rel.replace(os.sep, '/')
+    return None
+
+
 def user_option(key, default=None):
     """userConfig value, delivered to hooks as CLAUDE_PLUGIN_OPTION_<KEY>."""
     return parse_option(os.environ.get('CLAUDE_PLUGIN_OPTION_' + key.upper()), default)

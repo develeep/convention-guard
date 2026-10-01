@@ -60,13 +60,14 @@ def case_hooks():
     # the matcher is what decides whether collect.py is ever called; hooks.py
     # ignores anything outside WATCHED_TOOLS, so a tool in one and not the
     # other is either a hook that fires for nothing or an edit never recorded
+    # plus MCP tools, which only count when the config names them (R23e)
+    wanted = hooklib.WATCHED_TOOLS | {hooklib.MCP_MATCHER}
     matcher = events['PostToolUse'][0].get('matcher') or ''
-    check('PostToolUse matcher equals hooks.WATCHED_TOOLS',
-          set(matcher.split('|')) == hooklib.WATCHED_TOOLS,
-          (matcher, sorted(hooklib.WATCHED_TOOLS)))
+    check('PostToolUse matcher equals hooks.WATCHED_TOOLS + MCP',
+          set(matcher.split('|')) == wanted, (matcher, sorted(wanted)))
     pre_matcher = events['PreToolUse'][0].get('matcher') or ''
-    check('PreToolUse snapshots Bash before it can change files',
-          pre_matcher == 'Bash', pre_matcher)
+    check('PreToolUse baselines every watched tool before it can change files',
+          set(pre_matcher.split('|')) == wanted, pre_matcher)
 
     # LINT_BUDGET only protects the turn while it stays under what the hook is
     # given; raising the budget past the timeout brings back the silent kill

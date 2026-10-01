@@ -19,7 +19,7 @@ applies_to:
   stacks: [php]                   # 필수. 감지된 스택 태그 중 하나라도 맞으면 적용. ["*"] = 전부
   files: ["app/**/*.php"]         # 생략 = 모든 파일
   exclude: ["app/Services/NotificationService.php"]
-  version: ">=10"                 # 선택. {laravel: ">=10"} 형태도 가능
+  version: ">=10"                 # 선택. ">=10 <12"(공백 = 그리고), {laravel: ">=10"}. ^ ~ || 는 로드 오류
 superseded_by: [pint.json]        # 이 파일이 레포에 있으면 규칙이 물러남 (포맷 규칙용)
 detect: {...}                     # 아래
 semantic_review: {...}            # 선택. 아래
@@ -32,7 +32,7 @@ tests:
   no_match: [...]                 # 걸리면 안 되는 헷갈리는 정상 코드
 ```
 
-글롭: `**/` 는 디렉터리를 넘나들고, `*` 는 한 디렉터리 안, `{a,b}` 는 선택.
+글롭: `**/` 는 디렉터리를 넘나들고, `*`·`?` 는 한 디렉터리 안, `{a,b}` 는 선택(안에 글롭 가능: `{*.test.ts,*.spec.ts}`), `[Tt]`·`[!_]` 는 한 글자. 대소문자를 구분합니다(`*.{php,PHP}`). 디렉터리 아래 전부는 `vendor/**` — `/` 로 시작하거나 끝나는 글롭은 로드 오류입니다.
 
 ## detect: 앵커와 조건
 
@@ -45,6 +45,8 @@ tests:
 | `when_file_added: true` | `must_contain_in_file: '<정규식>'` | 새 파일에 필수 요소가 없음 |
 | `when_changed: [글롭]` | `require_changed: [글롭]` | 변경 집합에 A 는 있고 B 는 없음 |
 | `file_regex: '<정규식>'` | — | 파일 전체에서 매치된 구간이 변경된 줄과 겹침 |
+
+`must_contain_in_file` 은 주석 안의 매치를 세지 않습니다. `must_not_in: [comment, string]` 은 문자열도 빼고, `must_not_in: []` 는 주석도 셉니다(기본값 `[comment]` 를 대체).
 
 `flags: i` 로 대소문자 무시. 정규식은 Python `re` 문법이고, YAML 에서는 작은따옴표로 감쌉니다 (안의 `'` 는 `''`).
 
@@ -116,5 +118,7 @@ applies_to:
 | applies_to.stacks 가 필요합니다 | 스택 태그 또는 `["*"]` |
 | 앵커가 정확히 하나 있어야 합니다 | detect 의 앵커 키 정리 |
 | when_file_added 에는 must_contain_in_file 이 필요합니다 | 조건 추가 |
+| when_changed 규칙에는 applies_to.files 를 쓸 수 없습니다 | 경로는 `when_changed` / `require_changed` 글롭에 (제외는 `applies_to.exclude`) |
+| must_not_in 은 must_contain_in_file 과만 씁니다 | `must_not_in` 삭제 또는 필수 요소 추가 |
 | 어느 프리셋에도 속하지 않아 실행되지 않습니다 | (플러그인 규칙) `presets/*.yaml` 의 rules 에 id 추가 |
 | fix.auto 가 위반을 고치지 못함 | replace/with 수정 |

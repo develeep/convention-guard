@@ -21,6 +21,16 @@ cases:
         namespace App\Services;
     expect: []
 
+  - name: 주석에만 선언이 있는 새 파일은 걸림
+    after:
+      app/Services/Foo.php: |
+        <?php
+
+        // declare(strict_types=1);
+
+        namespace App\Services;
+    expect: ["app/Services/Foo.php:1"]
+
   - name: 선언 없는 레거시 파일을 고쳐도 조용함
     before:
       app/Legacy/Old.php: |

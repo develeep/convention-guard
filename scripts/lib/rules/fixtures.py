@@ -61,6 +61,14 @@ def passes_conditions(rule, text, language, match):
     return conditions.evaluate(rule, analysed, span) != REJECT
 
 
+def has_requirement(rule, sample):
+    """Like the detector: a requirement in a comment does not count (R6)."""
+    text, language = synthesise(rule, sample)
+    found, _reason = conditions.requirement_present(
+        rule, text, lambda: structure.analyze(text, language))
+    return found
+
+
 def matcher(rule):
     kind = rule['kind']
     if conditions.has_conditions(rule) and kind in ('line', 'requires', 'file'):
@@ -69,10 +77,11 @@ def matcher(rule):
         def check(sample):
             text, language = synthesise(rule, sample)
             pattern = rule['compiled_file'] if kind == 'file' else rule['compiled_when']
-            match = pattern.search(text)
-            if match is None or not plain(sample):
+            if not plain(sample):
                 return False
-            return passes_conditions(rule, text, language, match)
+            # like the detector: any match the conditions keep is enough (R5)
+            return any(passes_conditions(rule, text, language, match)
+                       for match in pattern.finditer(text))
         return check
     return _plain_matcher(rule)
 
@@ -87,10 +96,10 @@ def _plain_matcher(rule):
             return not any(match_any(rule['require_changed'], p) for p in paths)
         return check
     if kind == 'absent':
-        return lambda s: not rule['compiled_must'].search(str(s))
+        return lambda s: not has_requirement(rule, s)
     if kind == 'requires':
         return lambda s: (bool(rule['compiled_when'].search(str(s)))
-                          and not rule['compiled_must'].search(str(s)))
+                          and not has_requirement(rule, s))
     if kind == 'file':
         return lambda s: bool(rule['compiled_file'].search(str(s)))
     return lambda s: bool(rule['compiled_when'].search(str(s)))

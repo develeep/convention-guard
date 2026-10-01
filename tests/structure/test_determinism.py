@@ -12,10 +12,13 @@ static check cannot see.
 
 A third check keeps `langs.py` the only file that knows a language by name
 (NR-18): scanning or scoping must branch on the definition, never on 'php'.
+A fourth keeps it the only file that knows a language's *grammar*: no
+keyword spelled out in an engine regex or word set (R23k).
 """
 import ast
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -84,6 +87,50 @@ def case_languages_live_in_one_file():
             if isinstance(node, ast.Constant) and node.value in names:
                 findings.append('%s:%d %r' % (relpath, node.lineno, node.value))
     check('only langs.py names a language (NR-18)', not findings, '; '.join(findings))
+
+
+# What a regex literal may contain without it being grammar: the syntax of
+# the regex itself. Group names, escapes and character classes go first; a
+# word left over (`def`, `class`, `return`) is a language's grammar and
+# belongs in langs.py (R23k).
+_REGEX_SYNTAX = re.compile(r'\(\?P?<[^>]*>|\(\?P=\w+\)|\\.|\[(?:\\.|[^\]\\])*\]')
+_WORD = re.compile(r'[A-Za-z]{2,}')
+
+
+def _string_parts(node):
+    """The string constants an expression is built from."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [node.value]
+    if isinstance(node, ast.BinOp):
+        return _string_parts(node.left) + _string_parts(node.right)
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return [part for elt in node.elts for part in _string_parts(elt)]
+    return []
+
+
+def case_grammar_lives_in_langs():
+    print('case_grammar_lives_in_langs:')
+    findings = []
+    for relpath, text in sources():
+        if relpath.replace(os.sep, '/') not in LANGUAGE_FREE:
+            continue
+        for node in ast.walk(ast.parse(text, relpath)):
+            if not (isinstance(node, ast.Call) and node.args):
+                continue
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, 'id', '')
+            if name == 'compile':
+                strip = _REGEX_SYNTAX
+            elif name == 'frozenset':
+                strip = None
+            else:
+                continue
+            for part in _string_parts(node.args[0]):
+                words = _WORD.findall(strip.sub(' ', part) if strip else part)
+                if words:
+                    findings.append('%s:%d %s' % (relpath, node.lineno, ','.join(words)))
+    check('no keyword of a language is spelled out in the engine (R23k)',
+          not findings, '; '.join(findings))
 
 
 DUMP = r'''
@@ -155,6 +202,9 @@ def case_detection_is_deterministic():
         def changed_linenos(self, relpath):
             return {n for n, _ in self.lines(relpath)}
 
+        def seams_of(self, relpath):
+            return frozenset()
+
         def added_body(self, relpath):
             return self.files.get(relpath, '')
 
@@ -187,6 +237,7 @@ def case_detection_is_deterministic():
 
 def main():
     for case in (case_no_unstable_apis, case_languages_live_in_one_file,
+                 case_grammar_lives_in_langs,
                  case_hash_seed_does_not_change_the_answer,
                  case_detection_is_deterministic):
         case()

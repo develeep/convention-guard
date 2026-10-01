@@ -20,15 +20,19 @@ subagent. No candidates, no AI call.
 """
 
 import os
+import time
 
 from . import (autofix, config as configlib, cycle as cyclelib, dismiss as dismisslib, fmt,
-               gitdiff, log, pipeline, report, semantic, state as statelib)
+               gitdiff, lint, log, pipeline, report, semantic, state as statelib)
 from .candidate import VIOLATION, fingerprint, parse_key
-from .paths import git_toplevel, hook_project_dir
-from .scope import ChangeScope, ScopeError
+from .paths import git_toplevel, hook_project_dir, repo_relative
+from .scope import ChangeScope, ScopeError, line_counts
 
 EDIT_TOOLS = {'Write', 'Edit', 'MultiEdit', 'NotebookEdit'}
 WATCHED_TOOLS = EDIT_TOOLS | {'Bash'}
+# hooks.json also routes MCP tools here; one counts only when the config names
+# it under collect.edit_tools, so a read-only MCP call costs a config read (R23e)
+MCP_MATCHER = 'mcp__.*'
 
 # Locations per rule the re-scan collects. Far above what a block shows, so a
 # flagged candidate is not read as fixed merely because others crowd it out.
@@ -54,17 +58,89 @@ def _tool_use_key(payload):
 
 
 def on_pre_tool_use(payload):
-    """Snapshot pre-existing dirty files before Bash so they are not claimed."""
-    if not isinstance(payload, dict) or payload.get('tool_name') != 'Bash':
+    """Before the agent writes, remember what is not its own (R12).
+
+    Every file it is about to touch gets a baseline -- the lines it already
+    adds over the session base -- the first time. Bash also snapshots dirty
+    files, so the Post can tell which of them the call actually changed.
+    """
+    root = _watched_root(payload)
+    if root is None:
         return None
-    root = git_toplevel(hook_project_dir(payload))
     session = payload.get('session_id')
     head = gitdiff.current_head(root)
-    statelib.record_base(session, root, head)
-    paths = gitdiff.changed_paths(root, head)
+    statelib.record_base(session, root, head or gitdiff.session_base(root))
+    base = statelib.read_base(session, root)
+    if payload.get('tool_name') != 'Bash':
+        _record_baseline(session, root, base, _repo_paths(root, payload.get('tool_input')))
+        return None
+    # the same baseline the Post compares against, or a file committed
+    # mid-session would be missing here and read as changed by this call
+    paths = gitdiff.changed_paths(root, base)
+    # ponytail: every dirty file is read once per session; a huge untracked
+    # tree can eat the 10s budget, and then the call is not collected at all
+    _record_baseline(session, root, base, paths)
     fingerprints = {rel: gitdiff.file_fingerprint(root, rel) for rel in paths}
-    statelib.save_bash_snapshot(session, _tool_use_key(payload), root, fingerprints)
+    statelib.save_bash_snapshot(session, _tool_use_key(payload), root, fingerprints,
+                                head=head, started=time.time())
     return None
+
+
+def _watched_root(payload):
+    """The work tree root when this tool call is one we collect, else None."""
+    if not isinstance(payload, dict):
+        return None
+    name = str(payload.get('tool_name') or '')
+    if name not in WATCHED_TOOLS and not name.startswith('mcp__'):
+        return None
+    root = git_toplevel(hook_project_dir(payload))
+    if name in WATCHED_TOOLS:
+        return root
+    try:
+        named = configlib.load(root).get('collect', {}).get('edit_tools') or ()
+    except Exception:       # noqa: BLE001 -- a bad config must not break a tool call
+        return None
+    return root if name in named else None
+
+
+def _record_baseline(session, root, base, rels):
+    baselined, _ = statelib.read_foreign(session, root)
+    todo = [rel for rel in dict.fromkeys(rels) if rel not in baselined]
+    if not todo:
+        return
+    added = gitdiff.added_lines(root, todo, base)
+    # a clean file is recorded too: empty, so no later Pre can baseline it
+    # after the agent has written to it
+    statelib.append_foreign(session, root, {rel: line_counts(added.get(rel, ())) for rel in todo})
+
+
+def _claim(session, root, rels):
+    """A file changed without a baseline (its Pre never ran) keeps every line
+    -- as before baselines existed -- and no later Pre may baseline the agent's lines."""
+    baselined, _ = statelib.read_foreign(session, root)
+    missing = [rel for rel in dict.fromkeys(rels) if rel not in baselined]
+    statelib.append_foreign(session, root, {rel: {} for rel in missing})
+
+
+def _record_arrived(session, root, snapshot, rels):
+    """Lines other people's commits brought in during this Bash call are theirs."""
+    old, new = snapshot.get('head'), gitdiff.current_head(root)
+    if old == new:
+        return
+    arrived = gitdiff.arrived_lines(root, old, new, snapshot.get('started'), rels)
+    statelib.append_foreign(session, root,
+                            {rel: line_counts(lines) for rel, lines in arrived.items()},
+                            kind='arrived')
+
+
+def _repo_paths(root, tool_input):
+    """The tool's file paths, relative to the work tree; outside it is dropped."""
+    found = []
+    for raw in _candidate_paths(tool_input):
+        rel = repo_relative(raw if os.path.isabs(raw) else os.path.join(root, raw), root)
+        if rel is not None:
+            found.append(rel)
+    return found
 
 
 def _candidate_paths(tool_input):
@@ -83,35 +159,32 @@ def _candidate_paths(tool_input):
 
 def on_post_tool_use(payload):
     """Record which files the agent touched. Injects nothing, prints nothing."""
-    if not isinstance(payload, dict) or payload.get('tool_name') not in WATCHED_TOOLS:
+    root = _watched_root(payload)
+    if root is None:
         return None
-    root = git_toplevel(hook_project_dir(payload))
     session = payload.get('session_id')
-    statelib.record_base(session, root, gitdiff.current_head(root))
+    statelib.record_base(session, root, gitdiff.session_base(root))
     if payload.get('tool_name') == 'Bash':
         tool_key = _tool_use_key(payload)
-        before = statelib.read_bash_snapshot(session, tool_key, root)
-        if before is None:
+        snapshot = statelib.read_bash_snapshot(session, tool_key, root)
+        if snapshot is None:
+            statelib.append_bash_miss(session)      # said at Stop (R23d)
             return None
+        before = snapshot['fingerprints']
         base_ref = statelib.read_base(session, root)
         changed = gitdiff.changed_paths(root, base_ref)
         found = [rel for rel in changed
                  if before.get(rel) != gitdiff.file_fingerprint(root, rel)]
+        _record_arrived(session, root, snapshot, found)
+        _claim(session, root, found)
         statelib.append_touched(session, found)
         # A missing tool_use_id cannot distinguish identical parallel Bash
         # calls. Keep their shared snapshot until GC so every Post can consume it.
         if payload.get('tool_use_id'):
             statelib.delete_bash_snapshot(session, tool_key)
         return None
-    found = []
-    for raw in _candidate_paths(payload.get('tool_input')):
-        absolute = os.path.abspath(raw if os.path.isabs(raw) else os.path.join(root, raw))
-        try:
-            rel = os.path.relpath(absolute, root)
-        except ValueError:
-            continue
-        if not rel.startswith('..'):
-            found.append(rel.replace(os.sep, '/'))
+    found = _repo_paths(root, payload.get('tool_input'))
+    _claim(session, root, found)
     statelib.append_touched(session, found)
     return None
 
@@ -195,7 +268,9 @@ def _scan_warnings(scan):
     if scan is None or not hasattr(scan, 'result'):
         return []
     warnings = [text for level, text in scan.result.notes if level == 'warn']
-    warnings.sort(key=lambda text: (0 if '검사되지 않았습니다' in text else 1, text))
+    # a linter that did not run outranks the rest: it is a hole in the check
+    warnings.sort(key=lambda text: (0 if getattr(text, 'kind', None) == lint.UNCHECKED else 1,
+                                    text))
     return warnings
 
 
@@ -221,6 +296,35 @@ def unchecked_note(unchecked, limit=None, short=False):
             % (len(unchecked), listed))
 
 
+def too_large_note(paths, limit=None, short=False):
+    """'큰 파일 미검사 1개 파일 — big.php (…)', or None when there is none.
+
+    A file past the size cap was not read at all, so no rule saw it. That is
+    not a pass and must not read like one (R20).
+    """
+    if not paths:
+        return None
+    listed = _listed(paths, limit)
+    if short:
+        return '큰 파일 미검사 %d개 파일 (%s)' % (len(paths), listed)
+    return ('큰 파일 미검사 %d개 파일 — %s (%dKB 를 넘어 규칙을 적용하지 않았습니다)'
+            % (len(paths), listed, gitdiff.MAX_BYTES // 1000))
+
+
+def unknown_note(paths):
+    """'검사되지 않음 1개 파일 (sub/x.php)': touched, but in a place git cannot
+    see from this repo (a nested repo or worktree), so nothing checked it (R23b)."""
+    if not paths:
+        return None
+    return '검사되지 않음 %d개 파일 (%s)' % (len(paths), _listed(paths, None))
+
+
+def _listed(paths, limit):
+    shown = list(paths[:limit]) if limit else list(paths)
+    folded = len(paths) - len(shown)
+    return ', '.join(shown) + (' 외 %d개' % folded if folded else '')
+
+
 def on_stop(payload):
     if not isinstance(payload, dict):
         return None
@@ -242,11 +346,20 @@ def _with_autofix_note(ctx, out):
 
 
 def _with_unchecked_note(ctx, out):
-    """Structure conditions that could not be evaluated get said out loud."""
+    """Structure conditions that could not be evaluated, and files too big to
+    read, get said out loud."""
     scan = getattr(ctx, 'last_scan', None)
-    note = unchecked_note(scan.result.unchecked, short=True) if scan is not None else None
-    if not note:
+    notes = [] if scan is None else [
+        n for n in (unchecked_note(scan.result.unchecked, short=True),
+                    too_large_note(scan.result.too_large, short=True),
+                    unknown_note(scan.result.unknown)) if n]
+    session = getattr(ctx, 'session', None)
+    misses = statelib.take_bash_misses(session) if session else 0
+    if misses:
+        notes.append('Bash 변경 미수집 %d회 (실행 전 기록이 없어 바뀐 파일을 모름)' % misses)
+    if not notes:
         return out
+    note = ' · '.join(notes)
     if out and out.get('decision') == 'block':
         out['systemMessage'] = _join_messages(out.get('systemMessage'), note)
         return out
@@ -266,12 +379,17 @@ def _stop(ctx):
 
     state = ctx.state
     cycle = state.get('cycle')
+    if not ctx.continuing or (cycle and _belongs_to_new_request(ctx, cycle)):
+        # the cap guards one request's loop; a new request starts its own (R4)
+        state['consecutive_blocks'] = 0
     scan, scanned = None, False
     if cycle and _belongs_to_new_request(ctx, cycle):
         scan, scanned = _scan(ctx), True
         if scan is not None and scan.errors:
             return config_error(scan.errors[0])
-        _close(ctx, cycle, _classify(ctx, cycle, scan), abandoned=True)
+        current = _current(ctx, scan)
+        _close(ctx, cycle, _classify(ctx, cycle, scan, current), abandoned=True,
+               current=current)
         cycle = None
 
     if not ctx.continuing:
@@ -335,12 +453,13 @@ def _run_scan(ctx):
     if session_ref == current_head:
         session_ref = None       # HEAD diff already covers the same commit
     base_ref = list(dict.fromkeys(ref for ref in (configured_ref, session_ref) if ref))
+    _, foreign = statelib.read_foreign(ctx.session, ctx.root)
     try:
-        scope = ChangeScope.from_touched(ctx.root, touched, base_ref or None)
+        scope = ChangeScope.from_touched(ctx.root, touched, base_ref or None, foreign)
     except ScopeError as exc:
         return ScanFailure(str(exc))
-    if not scope:
-        return None
+    if not scope and not (scope.too_large or scope.unknown):
+        return None         # a file we could not read still has to be named (R20, R23b)
     result = pipeline.run(scope, ctx.cfg, cap=VERIFY_CAP, lint_budget=LINT_BUDGET)
     if ctx.cfg['mode'] == 'auto-fix' and not result.errors and not ctx.autofixed:
         applied = autofix.apply(ctx.root, autofix.plan(ctx.root, result.hits))
@@ -349,7 +468,7 @@ def _run_scan(ctx):
                 ctx.event(dict(fix.to_dict(), event='autofix'))
             ctx.autofixed = applied
             # the scope caches file text and diffs; the files just changed
-            scope = ChangeScope.from_touched(scope.root, touched, scope.base_ref)
+            scope = ChangeScope.from_touched(scope.root, touched, scope.base_ref, foreign)
             result = pipeline.run(scope, ctx.cfg, cap=VERIFY_CAP, lint_budget=LINT_BUDGET)
     triage = None
     if ctx.semantic_on and not result.errors and result.semantic_hits:
@@ -404,7 +523,7 @@ def _dismissed_predicate(root):
     return is_dismissed
 
 
-def _classify(ctx, cycle, scan):
+def _classify(ctx, cycle, scan, current=None):
     review = cycle.get('review') or {}
     if review.get('batch'):
         # a candidate the reviewer called a VIOLATION is one the agent was told
@@ -414,7 +533,20 @@ def _classify(ctx, cycle, scan):
             item = review['items'].get(review_key)
             if item and verdict.get('verdict') == VIOLATION:
                 cycle['opened'].setdefault(item['key'], dict(item))
-    return cyclelib.classify(cycle, _current(ctx, scan), _dismissed_predicate(ctx.root))
+    if current is None:
+        current = _current(ctx, scan)
+    unfinished = scan.result.lint_unfinished if scan is not None else ()
+    unconfirmed = {cyclelib.lint_key({'key': key, 'cmd': ''}) for key in unfinished}
+    return cyclelib.classify(cycle, current, _dismissed_predicate(ctx.root), unconfirmed)
+
+
+def _hidden(outcome, current):
+    """Blocking findings still there that the cycle never showed -- past the
+    display budget. Not a failed fix, but not a pass either (R3)."""
+    shown = set(outcome.remaining())
+    return sorted(k for k, m in current.items()
+                  if k not in shown and not k.startswith('lint:')
+                  and m['severity'] in cyclelib.BLOCKING)
 
 
 def _pending_review(ctx, cycle, scan):
@@ -442,7 +574,7 @@ def _log_outcome(ctx, cycle, outcome, abandoned=False):
                        'abandoned': abandoned})
 
 
-def _close(ctx, cycle, outcome, abandoned=False, unreviewed=()):
+def _close(ctx, cycle, outcome, abandoned=False, unreviewed=(), current=None):
     _log_outcome(ctx, cycle, outcome, abandoned)
     for _rule, cand, _pack in unreviewed:
         ctx.event({'event': 'review_skipped', 'cycle': cycle['id'], 'rule_id': cand.rule_id,
@@ -450,12 +582,17 @@ def _close(ctx, cycle, outcome, abandoned=False, unreviewed=()):
     if abandoned:
         ctx.event(dict({'event': 'abandoned', 'cycle': cycle['id']}, **outcome.counts()))
     state = ctx.state
+    current = current or {}
     settled = {m['rule_id'] for m in outcome.fixed.values()}
     unsettled = {m['rule_id'] for m in outcome.remaining().values()}
     unsettled |= {m['rule_id'] for m in outcome.dismissed.values()}
+    # a rule with anything left -- shown or not -- is not settled (R3)
+    unsettled |= {m['rule_id'] for m in current.values()}
     state['fired_rules'] = sorted(set(state.get('fired_rules') or [])
                                   | (settled - unsettled - {'lint'}))
-    state['unresolved'] = sorted(k for k in outcome.remaining() if not k.startswith('lint:'))
+    # what was never shown comes back next request, marked as raised before
+    state['unresolved'] = sorted(set(k for k in outcome.remaining() if not k.startswith('lint:'))
+                                 | set(_hidden(outcome, current)))
     state['cycle'] = None
     if not outcome.blocking():
         state['consecutive_blocks'] = 0
@@ -470,7 +607,9 @@ def _request_review(ctx, cycle, pending, label):
                                                  label=label)
     if not path:
         return None
-    by_key = {cand.review_key: (rule, cand) for rule, cand, _ in pending}
+    by_key = {}
+    for rule, cand, _ in pending:       # the first candidate, as the batch item (R7)
+        by_key.setdefault(cand.review_key, (rule, cand))
     cycle['review'] = {'batch': path, 'items': {
         item['review_key']: dict(_entry(*by_key[item['review_key']]),
                                  key=item['key'])
@@ -482,7 +621,15 @@ def _request_review(ctx, cycle, pending, label):
 
 
 def _verify(ctx, cycle, scan):
-    outcome = _classify(ctx, cycle, scan)
+    current = _current(ctx, scan)
+    outcome = _classify(ctx, cycle, scan, current)
+    # a rule cut at VERIFY_CAP brings older candidates into view once some
+    # are fixed: they were there all along, not new (C6)
+    capped = {rule['id'] for rule, cands in scan.result.hits
+              if len(cands) >= VERIFY_CAP} if scan is not None else set()
+    for key in [k for k, m in outcome.new.items() if m['rule_id'] in capped]:
+        del outcome.new[key]
+    hidden = _hidden(outcome, current)
     skipped, needs = _pending_review(ctx, cycle, scan)
     warnings = _scan_warnings(scan)
     cfg = ctx.cfg
@@ -497,15 +644,27 @@ def _verify(ctx, cycle, scan):
              and attempts_left
              and streak < cfg.limit('max_consecutive_blocks'))
     if not again:
-        _close(ctx, cycle, outcome, unreviewed=skipped + needs)
+        _close(ctx, cycle, outcome, unreviewed=skipped + needs, current=current)
         counts = outcome.counts()
+        unshown = '미표시 %d' % len(hidden) if hidden else ''
+        unsure = outcome.unconfirmed()
+        if unsure:          # a linter that timed out has not confirmed anything (R17)
+            return notice(report.hook_header('재검증 종료', [
+                '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'],
+                '남음 %d' % (counts['still'] - len(unsure)), '새로 생김 %d' % counts['new'],
+                '린터 미확인 %d' % len(unsure), unshown, _warning_part(warnings),
+                '이후 기록만'], 'warn'))
         if not outcome.remaining() and not (skipped or needs):
+            if hidden:      # what was shown is fixed; the rest is not a pass (R3)
+                return notice(report.hook_header('재검증 종료', [
+                    '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'], unshown,
+                    _warning_part(warnings), '다음 요청에서 다시 알림'], 'warn'))
             return notice(report.hook_header('재검증 통과', [
                 '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'],
                 _warning_part(warnings)], 'pass'))
         return notice(report.hook_header('재검증 종료', [
             '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'],
-            '남음 %d' % counts['still'], '새로 생김 %d' % counts['new'],
+            '남음 %d' % counts['still'], '새로 생김 %d' % counts['new'], unshown,
             '판정 대기 %d' % len(skipped + needs) if skipped or needs else '',
             _warning_part(warnings), '이후 기록만'], 'warn'))
 
@@ -517,7 +676,7 @@ def _verify(ctx, cycle, scan):
     last_chance = (not review_page
                    and cycle['attempt'] >= cfg.limit('max_verify_attempts'))
     cycle['opened'] = outcome.remaining()
-    cycle['seen'] = sorted(set(cycle.get('seen') or ()) | set(_current(ctx, scan)))
+    cycle['seen'] = sorted(set(cycle.get('seen') or ()) | set(current))
     cycle['review'] = None
     review = _request_review(ctx, cycle, skipped + needs, 'verify') if (skipped or needs) \
         else None
@@ -548,13 +707,17 @@ def _open(ctx, scan):
     hits = _findings(ctx, scan)
 
     def is_repeat(cands):
-        return any(c.key in unresolved for c in cands)
+        return any(c.key in unresolved or unresolved.intersection(c.legacy_keys)
+                   for c in cands)
 
     hits.sort(key=lambda h: (_rank(h[0]), not is_repeat(h[1]), -len(h[1])))
-    errors = [(r, c[:shown_cap]) for r, c in hits if r['severity'] == 'error']
-    errors = errors[:cfg.limit('max_error_rules')]
-    warns = [(r, c[:shown_cap]) for r, c in hits if r['severity'] == 'warn']
-    warns = warns[:cfg.limit('max_warn_rules')]
+    all_errors = [(r, c) for r, c in hits if r['severity'] == 'error']
+    all_warns = [(r, c) for r, c in hits if r['severity'] == 'warn']
+    errors = [(r, c[:shown_cap]) for r, c in all_errors][:cfg.limit('max_error_rules')]
+    warns = [(r, c[:shown_cap]) for r, c in all_warns][:cfg.limit('max_warn_rules')]
+    # what the budget left out is counted in the block, never just dropped (R3)
+    more = {r['id']: len(c) - shown_cap for r, c in all_errors + all_warns if len(c) > shown_cap}
+    hidden_rules = (len(all_errors) - len(errors), len(all_warns) - len(warns))
     infos = [(r, c) for r, c in hits if r['severity'] == 'info']
     repeats = {r['id'] for r, c in errors + warns if is_repeat(c)}
     all_pending = list(scan.triage.pending) if scan.triage else []
@@ -625,7 +788,8 @@ def _open(ctx, scan):
 
     return _block(report.hook_reason(result.lint_blocking, result.lint_notes, errors, warns,
                                      repeats, review=review, warnings=scan_warnings,
-                                     lint_count=lint_count, info_count=len(infos)))
+                                     lint_count=lint_count, info_count=len(infos),
+                                     more=more, hidden_rules=hidden_rules))
 
 
 def _block(reason):

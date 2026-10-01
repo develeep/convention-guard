@@ -147,12 +147,18 @@ def case_bash_changes_are_collected_precisely(tmp):
 def case_cap_holds(tmp):
     repo, data = laravel(tmp)
     write(repo, '.claude/convention-guard/config.yaml',
-          'mode: fix\nonce_per_session: false\nlimits:\n  max_consecutive_blocks: 2\n')
+          'mode: fix\nonce_per_session: false\nlimits:\n  max_consecutive_blocks: 2\n'
+          '  max_verify_attempts: 9\n')
     commit(repo, 'config')
     session = Session(repo, data, 'cap')
     rel = 'app/Svc/A.php'
-    decisions = [session.turn(rel, HDR + 'class A { public function f() { dd(%d); } }\n' % i,
-                              'p%d' % i)['decision'] for i in range(5)]
+    # one request: the agent keeps answering our block without fixing (R4 --
+    # the cap is the loop guard inside a request, not across requests)
+    decisions = [session.turn(rel, HDR + 'class A { public function f() { dd(0); } }\n',
+                              'p0')['decision']]
+    for _ in range(4):
+        session.touch(rel)
+        decisions.append(session.stop('p0', stop_hook_active=True)['decision'])
     check('after the cap, the loop stays stopped while findings remain',
           decisions == ['block', 'block', None, None, None], decisions)
 

@@ -42,6 +42,13 @@ def case_schema():
                  rule_yaml(detect={'when_file_added': True}), 'must_contain_in_file')
     expect_error('when_changed needs require_changed',
                  rule_yaml(detect={'when_changed': ['routes/**']}), 'require_changed')
+    paired = {'when_changed': ['routes/**'], 'require_changed': ['tests/**']}
+    expect_error('paired rules take no applies_to.files (R23h)',
+                 rule_yaml(applies_to={'stacks': ['php'], 'files': ['routes/api.php']},
+                           detect=paired), 'when_changed')
+    check('paired rules still take exclude',
+          rulelib.normalize(rule_yaml(applies_to={'stacks': ['php'], 'exclude': ['x/**']},
+                                      detect=paired), 'x.yaml', 'local')['kind'] == 'paired')
     expect_error('a bad regex names the field', rule_yaml(detect={'when_line_added': '('}),
                  'when_line_added')
     expect_error('semantic_review needs an instruction',
@@ -276,8 +283,69 @@ def case_stack_parse_errors():
               detected)
 
 
+def case_globs():
+    """R22 -- every glob form a rule author reaches for either matches or is refused."""
+    print('case_globs:')
+    for glob, path, want in (
+            ('**/{*.test.ts,*.spec.ts}', 'src/a.test.ts', True),
+            ('**/{*.test.ts,*.spec.ts}', 'src/a.ts', False),
+            ('**/*.{ts,{js,jsx}}', 'a/b.jsx', True),
+            ('**/[Tt]ests/**', 'src/Tests/a.php', True),
+            ('**/[Tt]ests/**', 'src/Rests/a.php', False),
+            ('**/[!_]*.php', 'app/_a.php', False),
+            ('**/[!_]*.php', 'app/a.php', True),
+            ('[a-c]/x', 'b/x', True),
+            ('[a', '[a', True),                       # unclosed: literal
+            ('{a,b', '{a,b', True),
+            ('**/*.php', 'app/A.PHP', False),         # case-sensitive, like git
+            ('vendor/', 'vendor/a.php', True),        # config forms: a directory
+            ('/vendor/**', 'vendor/a.php', True),     # and the repo root
+            ('./app/*.php', 'app/a.php', True),
+            ('**/*.php', 'app/a.php', True),
+            ('app/**', 'app/x/y.php', True),
+            ('*.php', 'app/a.php', False)):
+        check('%s ~ %s is %s' % (glob, path, want), rulelib.match_any([glob], path) == want)
+    for field, applies, detect in (
+            ('applies_to.files', {'stacks': ['*'], 'files': ['vendor/']}, None),
+            ('applies_to.exclude', {'stacks': ['*'], 'exclude': ['/legacy/**']}, None),
+            ('detect.when_changed', None,
+             {'when_changed': ['routes/'], 'require_changed': ['tests/**']}),
+            ('detect.require_changed', None,
+             {'when_changed': ['routes/**'], 'require_changed': ['/tests/**']})):
+        extra = {}
+        if applies:
+            extra['applies_to'] = applies
+        if detect:
+            extra['detect'] = detect
+        expect_error('a rule glob with a leading or trailing / is refused (%s)' % field,
+                     rule_yaml(**extra), field)
+
+
+def case_version_constraints():
+    """R23g -- a version constraint means what it says, or the rule does not load."""
+    print('case_version_constraints:')
+    stacks = ['laravel']
+    for constraint, have, want in (('>=10 <12', '11', True), ('>=10 <12', '12', False),
+                                   ('>=10 <12', '9', False), ('>= 10', '10', True),
+                                   ('10', '10', True), ('<11', '10', True),
+                                   ({'laravel': '>=10'}, '9', False)):
+        check('%r with %s is %s' % (constraint, have, want),
+              stacklib.version_ok(constraint, {'laravel': have}, stacks) == want)
+    check('an unknown version never suppresses',
+          stacklib.version_ok('>=10 <12', {}, stacks))
+    ok = rulelib.normalize(rule_yaml(applies_to={'stacks': ['laravel'], 'version': '>=10 <12'}),
+                           'x.yaml', 'local')
+    check('a range loads', ok['version'] == '>=10 <12', ok['version'])
+    for bad in ('^10', '~10', '>=10 || <8', 'latest', {'laravel': '^10'}):
+        expect_error('%r is refused' % (bad,),
+                     rule_yaml(applies_to={'stacks': ['laravel'], 'version': bad}),
+                     'applies_to.version')
+
+
 if __name__ == '__main__':
     case_schema()
+    case_globs()
+    case_version_constraints()
     case_structure_conditions()
     case_definition_hash()
     case_config_layers()

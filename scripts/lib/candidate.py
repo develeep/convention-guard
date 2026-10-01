@@ -6,7 +6,14 @@ the semantic reviewer, or by the team through a dismissal.
 
 Identity is (rule, file, code fingerprint), deliberately without the line
 number: a suppression or a verdict must survive lines being added above it,
-and must expire the moment the code itself changes.
+and must expire the moment the code itself changes. The fingerprint is of the
+whole line (or whole match), not the snippet clipped for display -- otherwise
+a change past the 120th character would keep a dismissal alive (R11).
+
+3.2 and earlier hashed the clipped snippet, and read a UTF-8 BOM into line 1.
+Records written then -- dismissals, an open cycle -- are still honoured
+through `legacy_hashes`; it only differs from `code_hash` for lines past the
+clip, file matches, and line 1.
 """
 
 import hashlib
@@ -30,16 +37,27 @@ def clip(text, limit=SNIPPET_LIMIT):
     return text[:limit] + ('…' if len(text) > limit else '')
 
 
-class Candidate:
-    __slots__ = ('rule_id', 'file', 'line', 'snippet', 'code_hash', 'context_hash',
-                 'review_hash')
+def legacy_snippets(text, lineno):
+    """What 3.2 hashed for a line: the clipped snippet, with the BOM it read
+    into line 1 (R6)."""
+    return (clip(text), clip('\ufeff' + text)) if lineno == 1 else (clip(text),)
 
-    def __init__(self, rule_id, file, line, snippet, context_hash=None):
+
+class Candidate:
+    __slots__ = ('rule_id', 'file', 'line', 'snippet', 'code_hash', 'legacy_hashes',
+                 'context_hash', 'review_hash')
+
+    def __init__(self, rule_id, file, line, snippet, context_hash=None, code=None,
+                 legacy=()):
+        """`code` is what the fingerprint covers (the snippet when omitted);
+        `legacy` the texts 3.2 would have hashed instead."""
         self.rule_id = rule_id
         self.file = file
         self.line = int(line)
         self.snippet = snippet
-        self.code_hash = fingerprint(snippet)
+        self.code_hash = fingerprint(snippet if code is None else code)
+        hashes = (fingerprint(old) for old in legacy)
+        self.legacy_hashes = tuple(sorted({h for h in hashes if h != self.code_hash}))
         self.context_hash = context_hash
         # set by semantic.annotate(): rule definition + primary + related context
         self.review_hash = None
@@ -48,6 +66,11 @@ class Candidate:
     def key(self):
         """rule:file:hash -- what dismissals and the verification cycle match on."""
         return '%s:%s:%s' % (self.rule_id, self.file, self.code_hash)
+
+    @property
+    def legacy_keys(self):
+        """The keys 3.2 gave this candidate, where they differ from `key`."""
+        return tuple('%s:%s:%s' % (self.rule_id, self.file, h) for h in self.legacy_hashes)
 
     @property
     def review_key(self):

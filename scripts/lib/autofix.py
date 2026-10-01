@@ -28,11 +28,27 @@ class Fix:
 
 
 def _read_lines(root, relpath):
-    path = os.path.join(root, relpath)
-    with open(path, 'r', encoding='utf-8', newline='') as fh:
-        text = fh.read()
-    newline = '\r\n' if '\r\n' in text else '\n'
-    return text.replace('\r\n', '\n').split('\n'), newline
+    """([line text], [line ending]) from the bytes, or None when the file is not
+    UTF-8 -- a file we cannot read is never written. Lines split on `\\n` only,
+    as git counts them, and each keeps its own ending: a mixed file stays
+    mixed (R16)."""
+    with open(os.path.join(root, relpath), 'rb') as fh:
+        data = fh.read()
+    chunks = data.split(b'\n')
+    lines, ends = [], []
+    for index, chunk in enumerate(chunks):
+        last = index == len(chunks) - 1
+        if last and not chunk:
+            break
+        end = b'' if last else b'\n'
+        if not last and chunk.endswith(b'\r'):
+            chunk, end = chunk[:-1], b'\r\n'
+        try:
+            lines.append(chunk.decode('utf-8'))
+        except UnicodeDecodeError:
+            return None
+        ends.append(end)
+    return lines, ends
 
 
 def plan(root, hits):
@@ -45,14 +61,17 @@ def plan(root, hits):
         for cand in cands:
             if cand.file not in cache:
                 try:
-                    cache[cand.file] = _read_lines(root, cand.file)[0]
+                    read = _read_lines(root, cand.file)
                 except OSError:
-                    cache[cand.file] = None
+                    read = None
+                cache[cand.file] = read[0] if read else None
             lines = cache[cand.file]
             if not lines or cand.line > len(lines):
                 continue
             before = lines[cand.line - 1]
-            if clip(before) != cand.snippet:
+            # detection reads past a BOM (gitdiff.read_text); the write keeps it
+            seen = before.lstrip('\ufeff') if cand.line == 1 else before
+            if clip(seen) != cand.snippet:
                 continue            # the line changed since detection
             after = spec['compiled'].sub(spec['with'], before)
             if after == before or rule['compiled_when'].search(after):
@@ -69,9 +88,12 @@ def apply(root, fixes):
         by_file.setdefault(fix.file, []).append(fix)
     for relpath, file_fixes in by_file.items():
         try:
-            lines, newline = _read_lines(root, relpath)
+            read = _read_lines(root, relpath)
         except OSError:
             continue
+        if read is None:
+            continue            # not UTF-8: never written
+        lines, ends = read
         changed = []
         for fix in file_fixes:
             if fix.line <= len(lines) and lines[fix.line - 1] == fix.before:
@@ -79,8 +101,8 @@ def apply(root, fixes):
                 changed.append(fix)
         if not changed:
             continue
-        with open(os.path.join(root, relpath), 'w', encoding='utf-8', newline='') as fh:
-            fh.write(newline.join(lines))
+        with open(os.path.join(root, relpath), 'wb') as fh:
+            fh.write(b''.join(line.encode('utf-8') + end for line, end in zip(lines, ends)))
         applied += changed
     return applied
 
