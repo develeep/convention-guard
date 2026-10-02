@@ -6,7 +6,7 @@
     python3 readiness.py --all           # + 레포 전수조사 error 건수
     python3 readiness.py --json
 
-Each line is one item of docs/production-readiness.md, by its id. The engine
+Each line is one item of docs/guide/ko/production-readiness.md, by its id. The engine
 behaviours that need a live Stop hook (block, verify, loop caps, dismissals,
 semantic review, failure modes) are proven by the plugin's own test suites run
 in a throwaway sandbox -- the same assertions, no real turns, nothing written
@@ -146,7 +146,7 @@ def check_no_deps(rep, root, script_dir, base):
     rep.add('A4', 'FAIL' if broken else 'PASS',
             '설치 없이 규칙 %d개를 내장 파서로 읽음' % len(info.get('rules') or [])
             + (' — 오류 %d: %s' % (len(broken), broken[0].get('text')) if broken else ''),
-            'config.yaml·로컬 규칙의 YAML 문법을 단순하게 (docs/rules.md)' if broken else '')
+            'config.yaml·로컬 규칙의 YAML 문법을 단순하게 (docs/guide/ko/rules.md)' if broken else '')
 
 
 def check_skills(rep, root_dir):
@@ -195,7 +195,7 @@ def check_linters(rep, info, cfg):
             rep.add('C4', 'PASS', '%s — 변경 줄만 차단 (parse: %s)' % (linter['cmd'], linter['parse']))
         else:
             rep.add('C4', 'WARN', '%s — 출력을 읽지 못해 무관한 기존 에러로도 차단' % linter['cmd'],
-                    'stacks/*.yaml 에 parse: 추가 (docs/configuration.md 린터 위임)')
+                    'stacks/*.yaml 에 parse: 추가 (docs/guide/ko/configuration.md 린터 위임)')
 
 
 def check_layers(rep, root):
@@ -349,7 +349,7 @@ def check_ci(rep, root):
             hits.append((os.path.relpath(path, root), text))
     if not hits:
         rep.add('K1', 'MANUAL', 'CI 에 scan.py 가 없습니다 — 훅은 로컬 안전망, 강제는 CI',
-                'docs/production-readiness.md K 절의 명령을 CI 에 넣으세요')
+                'docs/guide/ko/production-readiness.md K 절의 명령을 CI 에 넣으세요')
         return
     for rel, text in hits:
         problems = []

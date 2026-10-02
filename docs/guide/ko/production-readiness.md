@@ -1,5 +1,7 @@
 # 실 서비스 도입 체크리스트
 
+[README](../../../README.md) · **한국어** · [English](../en/production-readiness.md)
+
 팀 레포에 convention-guard 를 실제로 켜기 전에 "모든 기능이 의도대로 동작하는가"를
 확인하는 절차입니다. 각 항목은 **왜 / 확인 / 기대 / 실패하면** 으로 되어 있고,
 확인 방법이 셋 중 하나로 표시됩니다.
@@ -161,7 +163,7 @@ python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude/plugin
 - [ ] **D3. 레거시가 걸리지 않는다** [샌드박스][수동]
   - 왜: 앵커가 "추가된 줄 / 새 파일 / 변경 집합"이라 손대지 않은 코드는 책임 밖이어야 합니다.
   - 샌드박스: `tests/rules/test_rule_scenarios.py` — 모든 비-`when_line_added` 규칙에 "새 코드는 걸림 / 레거시는 조용함" 시나리오.
-  - 수동: 레거시 위반이 많은 파일에서 관계없는 한 줄만 고치고 `scan.py` → 기존 위반이 안 나와야 합니다. 나오면 그 규칙의 앵커가 `file_regex` 인지 보세요 (docs/rules.md 앵커 표).
+  - 수동: 레거시 위반이 많은 파일에서 관계없는 한 줄만 고치고 `scan.py` → 기존 위반이 안 나와야 합니다. 나오면 그 규칙의 앵커가 `file_regex` 인지 보세요 ([rules.md](rules.md#앵커-무엇이-이번-변경의-책임인가) 앵커 표).
 
 - [ ] **D4. 주석·문자열 안의 코드가 지적되지 않는다 (구조 조건)** [샌드박스]
   - 기대: `not_in: [comment, string]` 규칙에서 주석·문자열 속 매치는 제외, 진짜 코드만 (`tests/structure/test_detect_conditions.py`, `test_conditions.py`).
@@ -236,7 +238,7 @@ python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude/plugin
   - 실패하면: `linters.timeout` 을 줄이거나 무거운 린터는 CI 로.
 
 - [ ] **I2. 규칙 수를 늘려도 비용이 선형으로 커지지 않는다** [수동, 개발 체크아웃]
-  - 근거: `python3 tests/perf/run.py` — 4.0 기준(WSL2, 3.12) 게이트에 걸리는 것 없는 60개 파일 Stop 57ms, 수집 훅 1회 25~30ms, 1,000줄 파일 분석 4~7ms. 목표는 [design-4.0.md](design-4.0.md) §7.
+  - 근거: `python3 tests/perf/run.py` — 4.0 기준(WSL2, 3.12) 게이트에 걸리는 것 없는 60개 파일 Stop 57ms, 수집 훅 1회 25~30ms, 1,000줄 파일 분석 4~7ms. 목표는 [design-4.0.md](../../design-4.0.md) §7.
 
 ---
 

@@ -1,5 +1,7 @@
 # 의미 판정 (Semantic Review)
 
+[README](../../../README.md) · **한국어** · [English](../en/semantic-review.md)
+
 ## 목차
 - 왜 필요한가
 - 왜 전부 맡기지 않는가
@@ -126,4 +128,4 @@ semantic_review:
 
 - 판정은 후보가 있는 턴에만, 캐시에 없는 코드에만 발생합니다. 게이트가 넓으면 비용이 커지므로 `log_report.py` 의 정밀도(리뷰어가 VIOLATION 으로 판정한 비율)가 낮은 규칙은 게이트를 좁힙니다. `VALID` 가 많으면 게이트가 넓은 것이고, `FALSE_POSITIVE` 가 많으면 게이트가 엉뚱한 코드를 잡는 것이라 조치가 다릅니다
 - 메인 에이전트가 판정 요청을 무시할 수 있습니다. 그 경우 한 번 더 요청하고, 로그에 `review_skipped` 로 남습니다
-- `scan.py --review` 는 로컬 캐시에 의존하므로 CI 게이트에 쓰지 않습니다
+- `scan.py --review` 의 판정은 로컬 판정 캐시에 의존합니다. CI 에는 캐시도 리뷰어도 없으므로 CI 에서 판정을 기대하지 마세요. 대신 `--review --fail-on-pending` 을 붙이면 판정이 남은 후보가 종료 코드 1 이 되어 "판정 못 함"이 통과로 읽히지 않습니다 ([cli.md](cli.md#ci-에-넣기))

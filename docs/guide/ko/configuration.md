@@ -1,5 +1,7 @@
 # 설정
 
+[README](../../../README.md) · **한국어** · [English](../en/configuration.md)
+
 ## 목차
 - 우선순위와 위치
 - 전체 키
@@ -106,7 +108,7 @@ lint:
 
 | 키 | 효과 |
 |---|---|
-| `report_only` | `true` → `mode: report` (레포 config 에 mode 가 없을 때) |
+| `report_only` | `true` → `mode: report`, `false` → `mode: fix`. 고르지 않으면 플러그인 기본값(`report`). 레포 config 에 `mode` 가 있으면 그쪽이 이깁니다 |
 | `semantic_review` | `semantic_review.enabled` |
 | `log_dir` | `firings.jsonl` 위치 (레포 경로는 고르지 마세요 — git 에 잡힘) |
 

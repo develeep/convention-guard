@@ -48,7 +48,7 @@ claude --plugin-dir /root/convention-guard        # 임시 레포에서 실제 �
 - `session_start.py` (SessionStart, async): 구조 엔진이 없으면 설치한다. Stop 도 엔진이 필요한데 없으면 백그라운드 설치를 시작한다.
 - **`pipeline.run` 하나를 `scan.py`, `dismiss.py`, `review.py` 가 모두 쓴다.** 각 진입점은 ChangeScope 를 만드는 방식(훅: 원장 / CLI: working tree·staged·range·files·all)만 다르다.
 - 파이프라인 순서: stacks → rules(프리셋 → disable → 적용 필터: 스택·버전·supersede·files 글롭) → linters(변경 줄에 걸린 것만) → `detect.py`(앵커별 정규식 게이트) → 구조 조건 → 기각 적용.
-- **앵커** (`when_line_added` 등): 추가된 줄, 새 파일, 변경 집합처럼 "이번 변경의 책임"을 정의한다. 앵커 종류는 [docs/rules.md](docs/rules.md)에 있다.
+- **앵커** (`when_line_added` 등): 추가된 줄, 새 파일, 변경 집합처럼 "이번 변경의 책임"을 정의한다. 앵커 종류는 [docs/guide/ko/rules.md](docs/guide/ko/rules.md)에 있다.
 - **구조 엔진 `scripts/lib/structure/`**: tree-sitter 트리를 언어별 노드 대응표(`nodes.py`)로 읽어 주석·문자열(그 안의 코드는 코드)·함수·루프(콜백 반복 포함)·catch 범위를 만든다(`treesitter.py`, Blade 는 `blade.py`). `not_in`·`in_scope`·`block_empty` 를 ACCEPT/REJECT/UNKNOWN 으로 평가한다. **필터일 뿐**이어서 후보의 스니펫·줄 번호·지문을 바꾸지 않는다. 첫 읽기 오류 뒤의 매치와 엔진이 없을 때는 UNKNOWN. 노드 이름은 `nodes.py` 에만 둔다.
 - **후보 키 = `규칙:파일:코드 지문`.** 줄이 밀려도 같은 후보로 본다. 기각(`dismissed.yaml`, `version: 4`)과 검증 사이클(`decide.classify`: fixed/dismissed/still/new)이 이 키에 의존한다.
 - 의미 판정(`semantic.py`, `batch.py`, `context.py`, `agents/convention-reviewer.md`): 후보가 있고 캐시된 판정이 없을 때만 함수 하나 분량의 컨텍스트 팩을 서브에이전트에 넘긴다. 배치 참조는 `<db 경로>#<id>`.
@@ -61,6 +61,7 @@ claude --plugin-dir /root/convention-guard        # 임시 레포에서 실제 �
 - **엔진**: 패리티 골든이 바뀌면 모든 사용자의 지적 결과가 바뀐다. 의도한 변화인지 확인한 뒤 `--update` 로 갱신하고, 같은 커밋에 넣고, 커밋 메시지에 diff 를 설명한다. 사이클 전이를 바꾸면 `tests/unit/test_decide.py` 에 행을, 턴 동작은 `tests/integration/test_hook_cycle.py` 에 시나리오를 추가한다. 원장을 바꾸면 `tests/unit/test_ledger.py` 와 `tests/integration/test_ledger_scenarios.py`.
 - **구조 엔진**: 판정이 틀린 사례는 `tests/structure/cases/<언어>.yaml` 에 먼저 추가한다. 문법 버전을 올리면 `scripts/lib/engine/install.py` 의 `PINS` → `python3 scripts/engine.py lock` → `test_nodes.py`·`test_accuracy.py`. 엔진이 필요한 테스트 사례는 `helpers.needs_engine()` 으로 묶는다.
 - **스킬·에이전트**: `tests/skills/test_skill_structure.py` 가 frontmatter, 500줄 미만 본문, 참조 깊이 1단계, 참조한 스크립트의 실재, 스킬당 evals 3개 이상(`tests/skills/evals/<스킬>.json`)을 강제한다. 스킬 안의 경로는 `${CLAUDE_PLUGIN_ROOT}` 로 쓴다. evals 는 자동 실행되지 않는다.
+- **문서**: 사용자 문서는 `README.md`·`README.en.md` 와 `docs/guide/ko/`·`docs/guide/en/` (같은 파일 이름, 같은 내용). 한쪽을 고치면 다른 언어판도 같은 커밋에서 고친다. 플러그인을 고치는 사람이 읽는 문서(구조·개발·설계·기록)는 `docs/` 에 둔다.
 - **릴리스** ([docs/development.md](docs/development.md#릴리스)): 엔진 있음/없음 두 실행 + 하한 Python 3.10 실행이 통과해야 한다 → `python3 scripts/engine.py verify-lock` → `python3 tests/perf/run.py` 로 목표 값 기록 → 실제 `claude -p --plugin-dir` 세션 한 사이클 → `.claude-plugin/plugin.json` 과 `marketplace.json` 의 `version` 을 **둘 다** 올린다. 하위 호환이 끊기면 릴리스 커밋 본문에 밝힌다 (이관 도구는 만들지 않는다). 커밋 제목 형식: `release: X.Y.Z — <한 줄>`.
 
 ## Git

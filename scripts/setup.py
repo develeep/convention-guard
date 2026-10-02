@@ -282,7 +282,7 @@ def draft_config(root):
     hints = [d for d in EXCLUDE_HINTS if os.path.isdir(os.path.join(root, d))]
 
     out = ['# convention-guard 팀 설정 — setup.py init 이 만든 초안입니다.',
-           '# 플러그인 기본값과 다른 키만 남기세요. 전체 키: docs/configuration.md',
+           '# 플러그인 기본값과 다른 키만 남기세요. 전체 키: docs/guide/ko/configuration.md',
            '#',
            '# 감지된 스택   : %s' % (', '.join(stacks.ids) or '(없음 — stacks 로 지정하세요)'),
            '# auto 프리셋   : %s' % (', '.join(ruleset.presets) or '-'),

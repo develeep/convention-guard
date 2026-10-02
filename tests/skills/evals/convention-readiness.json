@@ -37,7 +37,7 @@
     "expected_behavior": [
       "D1 fail 이 레포 로컬 규칙 파일이므로 rule-add 의 검증 루프(픽스처 → 정규식)로 고치자고 제안한다",
       "D2 warn 의 죽은 규칙을 applies_to.files 가 레포 구조와 안 맞는 것으로 설명한다",
-      "항목 설명이 필요할 때 docs/production-readiness.md 전체가 아니라 해당 id 만 grep 해서 읽는다"
+      "항목 설명이 필요할 때 docs/guide/ko/production-readiness.md 전체가 아니라 해당 id 만 grep 해서 읽는다"
     ]
   }
 ]

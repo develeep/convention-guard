@@ -1,6 +1,6 @@
 ---
 name: convention-readiness
-description: convention-guard 를 팀 레포에 실제로 켜도 되는지 도입 체크리스트(docs/production-readiness.md) 전 항목을 점검합니다. 스크립트 한 번으로 Python·설치 범위·훅 배선·userConfig·설정 계층·개인 규칙·기각 기록·규칙 픽스처와 도달 범위·탐지량·성능·보안·CI 를 판정하고, 차단·재검증·의미 판정·장애 모드는 플러그인 테스트를 샌드박스에서 돌려 확인한 뒤, fail·warn 을 고칠 방법과 사람이 확인할 항목만 보고합니다. "도입 점검해줘", "실서비스에 켜도 돼?", "도입 체크리스트 돌려줘", "플러그인이 제대로 동작하는지 확인", 업데이트 직후, 팀원 머신 점검, fix 모드로 올리기 전에 사용합니다 (설정을 새로 잡는 것은 convention-setup, 코드 위반 검사는 convention-check).
+description: convention-guard 를 팀 레포에 실제로 켜도 되는지 도입 체크리스트(docs/guide/ko/production-readiness.md) 전 항목을 점검합니다. 스크립트 한 번으로 Python·설치 범위·훅 배선·userConfig·설정 계층·개인 규칙·기각 기록·규칙 픽스처와 도달 범위·탐지량·성능·보안·CI 를 판정하고, 차단·재검증·의미 판정·장애 모드는 플러그인 테스트를 샌드박스에서 돌려 확인한 뒤, fail·warn 을 고칠 방법과 사람이 확인할 항목만 보고합니다. "도입 점검해줘", "실서비스에 켜도 돼?", "도입 체크리스트 돌려줘", "플러그인이 제대로 동작하는지 확인", 업데이트 직후, 팀원 머신 점검, fix 모드로 올리기 전에 사용합니다 (설정을 새로 잡는 것은 convention-setup, 코드 위반 검사는 convention-check).
 ---
 
 # 도입 점검
@@ -40,7 +40,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/readiness.py"
 출력 한 줄 = 체크리스트 항목 id 하나(`✖ fail    B5  …`), 그 아래 `= 조치:` 줄이 고칠 방법입니다. `= 조치:` 만으로 원인이 분명하지 않을 때만 그 항목을 찾아 읽습니다 — 문서 전체를 읽지 않습니다.
 
 ```bash
-grep -n -A8 '\*\*B5\.' "${CLAUDE_PLUGIN_ROOT}/docs/production-readiness.md"
+grep -n -A8 '\*\*B5\.' "${CLAUDE_PLUGIN_ROOT}/docs/guide/ko/production-readiness.md"
 ```
 
 `F`·`G`·`H` 처럼 숫자 없는 id 는 절 전체입니다 — `'^## F\.'` 로 찾습니다.
@@ -79,7 +79,7 @@ manual 항목은 항상 "사람이 확인할 것"으로 따로 적습니다. 출
 - B2 user 범위에서만 켜짐 — 팀원 적용은 .claude/settings.json 커밋 후 (사용자 보류)
 - D2 core/laravel-migration-needs-down 가 닿는 파일 없음 — 아직 마이그레이션 없음, 의도됨
 사람이 확인할 것:
-- K1 CI 에 scan.py 없음 — docs/production-readiness.md K 절
+- K1 CI 에 scan.py 없음 — docs/guide/ko/production-readiness.md K 절
 - A2 팀원 중 Windows 네이티브 사용자
 - 로그 확인 시: CLAUDE_PLUGIN_DATA="<B4 경로>" python3 .../log_report.py --repo .
 다음: report 로 2~3주 → rule-tune
