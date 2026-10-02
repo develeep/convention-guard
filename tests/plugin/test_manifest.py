@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from helpers import ROOT, check, finish  # noqa: E402
 from lib import ledger, stop as stoplib  # noqa: E402
 
-HOOK_KEYS = {'type', 'command', 'timeout', 'statusMessage'}
+HOOK_KEYS = {'type', 'command', 'timeout', 'statusMessage', 'async'}
 SCRIPT_RE = re.compile(r'\$\{CLAUDE_PLUGIN_ROOT\}/([\w/.-]+\.py)')
 
 
@@ -36,7 +36,8 @@ def case_hooks():
     config = load('hooks', 'hooks.json')
     events = config.get('hooks') or {}
     check('declares the ledger hooks and Stop',
-          set(events) == {'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop'},
+          set(events) == {'SessionStart', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure',
+                          'Stop'},
           sorted(events))
 
     stop_timeout = None

@@ -75,6 +75,10 @@ def main():
     args = parser.parse_args()
 
     failures, warnings, checked, rules = [], [], 0, 0
+    # without the engine, a rule whose answer depends on structure keeps every
+    # match (UNKNOWN) -- its match fixtures must still hit, the rest are judged
+    # in the run with the engine (design §4.6)
+    engine, unread = fixtures.engine_ready(), 0
     presets, preset_notes = rulelib.load_presets(ROOT)
     failures += [text for _, text in preset_notes]
 
@@ -107,6 +111,13 @@ def main():
         if not shouldnt:
             warnings.append('%s: tests.no_match 픽스처 없음 (오탐 확인 불가)' % rel)
         hit = matcher(rule)
+        blind = not engine and fixtures.structure_dependent(rule)
+        if blind and rule['kind'] in ('absent', 'requires'):
+            unread += len(should) + len(shouldnt)
+            continue
+        if blind:
+            unread += len(shouldnt)
+            shouldnt = []
         for sample in should:
             checked += 1
             if not hit(sample):
@@ -131,6 +142,8 @@ def main():
                 if fix['compiled'].sub(fix['with'], sample) != sample:
                     failures.append('%s: fix.auto 가 정상 코드를 바꿈 — %r' % (rel, sample))
 
+    if unread:
+        print('엔진 없음: 구조에 기댄 사례 %d개는 엔진 있음 실행에서 판정합니다' % unread)
     for note in warnings:
         print('WARN %s' % note)
     for note in failures:

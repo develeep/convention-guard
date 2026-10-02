@@ -1,0 +1,97 @@
+# 구조 정확도 사례 — Blade
+cases:
+  - name: Blade 주석
+    lang: blade
+    code: |
+      {{-- dd($x) --}}
+      <p>x</p>
+    at: dd($x)
+    kind: comment
+  - name: 출력식은 코드
+    lang: blade
+    code: |
+      <p>{{ dd($x) }}</p>
+    at: dd($x)
+    kind: code
+  - name: 이스케이프하지 않는 출력식
+    lang: blade
+    code: |
+      <p>{!! dd($x) !!}</p>
+    at: dd($x)
+    kind: code
+  - name: 출력식 안의 문자열
+    lang: blade
+    code: |
+      <p>{{ 'dd()' }}</p>
+    at: dd()
+    kind: string
+  - name: HTML 텍스트
+    lang: blade
+    code: |
+      <p>call dd() here</p>
+    at: dd()
+    kind: string
+  - name: "@foreach 본문"
+    lang: blade
+    code: |
+      @foreach ($users as $user)
+        <li>{{ $user->name }}</li>
+      @endforeach
+    at: $user->name
+    kind: code
+    loop: true
+  - name: "@foreach 의 반복 대상은 한 번"
+    lang: blade
+    code: |
+      @foreach ($users as $user)
+        <li>{{ $user->name }}</li>
+      @endforeach
+    at: $users
+    loop: false
+  - name: "@php 블록"
+    lang: blade
+    code: |
+      @php
+        dd($x);
+      @endphp
+    at: dd($x)
+    kind: code
+  - name: "@php 블록 안의 PHP 주석"
+    lang: blade
+    code: |
+      @php
+        // dd($x)
+      @endphp
+    at: dd($x)
+    kind: comment
+  - name: 지시문 인자 안의 문자열
+    lang: blade
+    code: |
+      @if (check('dd()'))
+        <p>x</p>
+      @endif
+    at: dd()
+    kind: string
+  - name: "@forelse 본문"
+    lang: blade
+    code: |
+      @forelse ($rows as $row)
+        {{ $row->total() }}
+      @empty
+        <p>none</p>
+      @endforelse
+    at: $row->total()
+    loop: true
+  - name: "<?php 섬"
+    lang: blade
+    code: |
+      <p>x</p>
+      <?php dd($y); ?>
+    at: dd($y)
+    kind: code
+  - name: "@@ 로 이스케이프한 지시문은 글자"
+    lang: blade
+    code: |
+      <p>@@foreach dd()</p>
+    at: dd()
+    kind: string

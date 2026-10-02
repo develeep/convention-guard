@@ -27,8 +27,8 @@ import re
 
 from . import structure
 from .rules.select import match_any
+from .structure import nodes
 from .structure.model import Span
-from .structure.native.langs import definition as language_definition
 
 SNIPPET_RADIUS = 5
 # A function longer than this is shown as its head, the part around the
@@ -167,8 +167,8 @@ def _function_region(text, lang, lineno):
     analysed = structure.analyze(text, lang)
     if not analysed.ok:
         return None
-    langdef = language_definition(lang)
-    kinds = langdef.pack_scopes if langdef else ('function',)
+    row = nodes.row(lang)
+    kinds = row['pack'] if row else ('function',)
     node, parent = None, None
     for scope in analysed.scopes_at(lineno):
         # a callback handed to an iteration call (a loop wrapping a function
@@ -187,11 +187,10 @@ def _imports(text, lines, lang):
     With the language's own pattern and a structure the layer could read, a
     statement is one that starts in code (not a docstring or a comment), at
     the top level (a trait `use` inside a class is not an import), and runs
-    on until the brackets it opens close (Go's `import (`, a multi-line JS
-    import). Otherwise the generic prefixes, line by line, as before.
+    on until the brackets it opens close (a multi-line JS import or PHP
+    group use). Otherwise the generic prefixes, line by line, as before.
     """
-    langdef = language_definition(lang) if lang else None
-    pattern = langdef.import_pattern if langdef else None
+    pattern = nodes.IMPORT_PATTERNS.get(lang) if lang else None
     analysed = structure.analyze(text, lang) if pattern is not None else None
     if analysed is None or not analysed.ok or not analysed.scope_supported:
         return [(i, line) for i, line in enumerate(lines[:IMPORT_SCAN_LINES])
@@ -244,7 +243,10 @@ def build(scope, cand, review, list_files=None):
         radius = FALLBACK_RADIUS if 'current_function' in wanted else SNIPPET_RADIUS
         a, b = max(0, idx - radius), min(len(lines) - 1, idx + radius)
         pack.primary = '\n'.join(lines[a:b + 1])
-        pack.add('snippet', '후보 주변 (%d-%d줄)' % (a + 1, b + 1),
+        unread = ''
+        if 'current_function' in wanted and lang and not structure.analyze(text, lang).ok:
+            unread = ', 함수 경계 미확인'      # the reviewer should know it is a window
+        pack.add('snippet', '후보 주변 (%d-%d줄%s)' % (a + 1, b + 1, unread),
                  numbered(lines[a:b + 1], a + 1), b - a + 1)
 
     def room():

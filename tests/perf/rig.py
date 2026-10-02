@@ -109,7 +109,7 @@ TRIGGERS = {
 }
 
 
-def change_set(dest, files=60, seed=7):
+def change_set(dest, files=60, seed=7, gated=False):
     """A git repo with `files` changed but uncommitted -- what a turn looks like.
 
     The shape follows the baseline the performance note in
@@ -126,15 +126,14 @@ def change_set(dest, files=60, seed=7):
     for index in range(files):
         language = 'php' if index % 3 else 'js'
         name = 'app/Gen%02d.%s' % (index, 'php' if language == 'php' else 'js')
-        committed[name] = corpus.make_file(language, seed=seed + index, lines=120,
-                                           density='normal', broken=0.0)
+        committed[name] = corpus.make_valid(language, seed=seed + index, lines=120,
+                                            gated=gated)
     make_repo(dest, committed)
 
     for index in range(files):
         language = 'php' if index % 3 else 'js'
         name = 'app/Gen%02d.%s' % (index, 'php' if language == 'php' else 'js')
-        body = corpus.make_file(language, seed=seed + 1000 + index, lines=120,
-                                density='normal', broken=0.0)
+        body = corpus.make_valid(language, seed=seed + 1000 + index, lines=120, gated=gated)
         # a few real violations per file, including ones a structure condition
         # is supposed to filter (a commented and a quoted occurrence)
         body += '\n'.join(rng.sample(TRIGGERS[language], len(TRIGGERS[language]))) + '\n'

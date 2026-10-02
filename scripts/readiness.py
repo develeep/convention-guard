@@ -119,6 +119,12 @@ def check_env(rep, root):
                 'python3 = %s (%s — 이 셸 기준. Claude Code 가 훅을 띄우는 PATH 가 다르면 다를 수 있음)'
                 % (version, exe),
                 '' if ok else 'Python 3.10 이상을 python3 로 잡아 주세요')
+    from lib.engine import loader
+    engine = loader.get()
+    rep.add('A5', 'PASS' if engine.ok else 'WARN',
+            '구조 엔진: %s' % (engine.path if engine.ok else '없음 — %s' % engine.describe()),
+            '' if engine.ok else 'scripts/engine.py ensure 로 설치하세요 (그 전까지 구조 조건이 있는 '
+                                 '후보는 확인 없이 올라옵니다)')
     if os.name == 'nt':
         rep.add('A2', 'WARN', 'Windows 네이티브입니다 — hooks.json 의 python3 호출이 검증되지 '
                               '않은 경로입니다', 'WSL 에서 쓰거나 scan.py + CI 로 운영하세요')
@@ -302,6 +308,9 @@ def check_legacy_volume(rep, root, script_dir, base):
 
 # ---------------------------------------------------------------- J. 보안 · K. CI
 
+ENGINE_INSTALLER = 'scripts/lib/engine/install.py'
+
+
 def plugin_sources(root_dir):
     return [p for p in glob.glob(os.path.join(root_dir, 'scripts', '**', '*.py'), recursive=True)
             if '__pycache__' not in p]
@@ -316,11 +325,12 @@ def check_security(rep, root, root_dir):
         rel = os.path.relpath(path, root_dir)
         if 'shell=True' in text and not rel.endswith('readiness.py'):
             shell.append(rel)
-        if net_re.search(text):
+        # the structure engine installer, and only it, fetches pinned wheels
+        if net_re.search(text) and rel.replace(os.sep, '/') != ENGINE_INSTALLER:
             network.append(rel)
     rep.add('J1', 'FAIL' if shell else 'PASS', 'shell=True 사용: %s' % (', '.join(shell) or '없음'))
     rep.add('J2', 'FAIL' if network else 'PASS', '네트워크 모듈 import: %s'
-            % (', '.join(network) or '없음'))
+            % (', '.join(network) or '구조 엔진 설치기만 (files.pythonhosted.org, sha256 고정)'))
     artifact = re.compile(r'(firings\.jsonl|convention-guard\.db)')
     _, status, _ = run(['git', 'status', '--porcelain', '--untracked-files=all'], root)
     leaked = [l[3:] for l in status.splitlines() if artifact.search(l)]

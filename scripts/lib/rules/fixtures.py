@@ -12,11 +12,12 @@ from ..structure import conditions
 from ..structure.model import REJECT, Span
 from .select import match_any
 
-# A fixture is a fragment, not a file: a PHP snippet has no `<?php`, so the
-# structure layer would read all of it as template text and find neither
-# comments nor strings. The prologue makes the fragment a file. It is part of
-# the synthesised text, so detection and analysis share one coordinate system
-# (DR-25, DR-26). `tests.lang_prefix: false` opts out.
+# A PHP fixture usually has no `<?php`, and the parser would read all of it as
+# template text. The prologue makes the fragment a file -- unless it already
+# opens a tag itself. It is part of the synthesised text, so detection and
+# analysis share one coordinate system. `tests.lang_prefix: false` opts out.
+# A fixture of a rule with structure conditions has to be code the parser can
+# read: a method needs its class, a catch its try.
 PROLOGUE = {'php': '<?php\n'}
 
 
@@ -45,7 +46,8 @@ def fixture_language(rule):
 def synthesise(rule, sample):
     """(text, language) -- the fragment as a file."""
     language = fixture_language(rule)
-    if not language or rule['tests'].get('lang_prefix', True) is False:
+    if not language or rule['tests'].get('lang_prefix', True) is False \
+            or str(sample).lstrip().startswith('<?'):
         return str(sample), language
     return PROLOGUE.get(language, '') + str(sample), language
 
@@ -65,6 +67,22 @@ def has_requirement(rule, sample):
     found, _reason = conditions.requirement_present(
         rule, text, lambda: structure.analyze(text, language))
     return found
+
+
+def structure_dependent(rule):
+    """Does what this rule reports depend on reading structure? Its structure
+    conditions do, and so does a requirement, which must not sit in a comment."""
+    if conditions.has_conditions(rule):
+        return True
+    if rule['kind'] in ('absent', 'requires'):
+        detect = rule.get('detect') or {}
+        return bool(conditions._as_list(detect.get('must_not_in',
+                                                   conditions.DEFAULT_MUST_NOT_IN)))
+    return False
+
+
+def engine_ready():
+    return structure.engine().ok
 
 
 def matcher(rule):

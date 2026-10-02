@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""The public door: analyze(), language_of(), the cache and the backends.
+"""The public door: analyze(), language_of(), the cache, and the engine behind it.
 
-Contracts from `component-methods.md` §1 and `business-logic-model.md` §1:
-one call builds everything, nothing raises, and the same text answers the
-same way every time.
+One call builds everything, nothing raises, the same text answers the same
+way every time -- and without the engine the answer is "could not read",
+never a guess (design §4.6).
 """
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from helpers import check, finish  # noqa: E402
+from helpers import check, finish, needs_engine  # noqa: E402
 from lib import structure  # noqa: E402
-from lib.structure import backend as backendlib  # noqa: E402
+from lib.engine import loader  # noqa: E402
 
 PHP = '<?php\nfunction f() {\n    $s = "x"; // c\n}\n'
 
@@ -22,21 +22,24 @@ def case_analyze():
     fs = structure.analyze(PHP, 'php')
     check('a clean file is ok', fs.ok and fs.reason is None, str(fs.reason))
     check('it records the language and backend',
-          fs.language == 'php' and fs.backend == 'native')
-    check('masking is filled in', len(fs.strings) == 1 and len(fs.comments) == 1)
-    check('the scope tree is built in the same call (Q7=A)',
+          fs.language == 'php' and fs.backend == 'tree-sitter', (fs.language, fs.backend))
+    check('literal text and comments are found', len(fs.strings) == 1 and len(fs.comments) == 1,
+          (fs.strings, fs.comments))
+    check('the scope tree is built in the same call',
           fs.root.children and fs.root.children[0].kind == 'function')
-    check('a brace language supports scopes', fs.scope_supported is True)
+    check('scopes are supported', fs.scope_supported is True)
     check('the text is carried for block_empty', fs.text == PHP)
+    check('a clean file has no error regions', fs.errors == ())
 
-    blade = structure.analyze("<p>It's x</p>\n", 'blade')
-    check('blade is masked but not scoped',
-          blade.ok and blade.scope_supported is False and blade.root.children == ())
+    blade = structure.analyze("<p>It's x</p>\n@foreach ($a as $b)\n{{ $b }}\n@endforeach\n",
+                              'blade')
+    check('blade is read: its loop is a scope',
+          blade.ok and [n.kind for n in blade.root.children] == ['loop'], blade.root)
 
     broken = structure.analyze('<?php\n$a = "oops;\n', 'php')
-    check('an unterminated string is a failure value, not an exception',
-          broken.ok is False and broken.reason == 'unterminated_string:2', str(broken.reason))
-    check('a failed analysis still answers coordinates', broken.line_of(0) == 1)
+    check('a file that does not parse is still a value, with its error regions',
+          broken.ok and broken.errors, broken.errors)
+    check('and still answers coordinates', broken.line_of(0) == 1)
 
 
 def case_unsupported():
@@ -50,22 +53,43 @@ def case_unsupported():
 
 def case_never_raises():
     print('case_never_raises:')
-    original = backendlib.resolve
+    from lib.structure import treesitter
+    original = treesitter.analyze
 
-    def explode(_language):
+    def explode(*_args):
         raise RuntimeError('boom')
 
-    backendlib.resolve = explode
+    treesitter.analyze = explode
     try:
         structure.reset_cache()
         fs = structure.analyze(PHP, 'php')
     finally:
-        backendlib.resolve = original
+        treesitter.analyze = original
         structure.reset_cache()
-    check('an internal error becomes a value (NR-14)',
+    check('an internal error becomes a value',
           fs.ok is False and fs.reason == 'internal_error:RuntimeError', str(fs.reason))
     check('the message never leaks into the reason', 'boom' not in (fs.reason or ''))
     check('language_of never raises', structure.language_of(None) is None)
+
+
+def case_engine_missing():
+    print('case_engine_missing:')
+    old = os.environ.get('CONVENTION_GUARD_NO_ENGINE')
+    os.environ['CONVENTION_GUARD_NO_ENGINE'] = '1'
+    loader.reset()
+    structure.reset_cache()
+    try:
+        fs = structure.analyze(PHP, 'php')
+    finally:
+        if old is None:
+            os.environ.pop('CONVENTION_GUARD_NO_ENGINE', None)
+        else:
+            os.environ['CONVENTION_GUARD_NO_ENGINE'] = old
+        loader.reset()
+        structure.reset_cache()
+    check('without the engine a file is not read, and says why',
+          fs.ok is False and fs.reason == 'engine_missing:disabled', fs.reason)
+    check('no scope tree is pretended', fs.scope_supported is False and fs.root.children == ())
 
 
 def case_cache():
@@ -84,48 +108,27 @@ def case_cache():
     structure.reset_cache()
     for i in range(structure.CACHE_MAX_ENTRIES + 5):
         structure.analyze('<?php\n$a = %d;\n' % i, 'php')
-    check('the cache is bounded (NR-13)',
+    check('the cache is bounded',
           structure.cache_size() == structure.CACHE_MAX_ENTRIES, str(structure.cache_size()))
     structure.reset_cache()
 
 
-def case_backends():
-    print('case_backends:')
-    check('the native backend is registered on import',
-          backendlib.resolve('php') is not None)
-    check('it answers for every language',
-          all(backendlib.resolve(name) is not None
-              for name in ('php', 'js', 'go', 'java', 'rust', 'c', 'py', 'blade')))
-    check('an unknown language resolves to nothing', backendlib.resolve('zig') is None)
-
-    class Fake:
-        name = 'fake'
-
-        def supports(self, language):
-            return language == 'php'
-
-        def analyze(self, text, language):
-            raise AssertionError('not reached')
-
-    backendlib.register(Fake(), ['php'])
-    check('an explicit registration wins', backendlib.resolve('php').name == 'fake')
-    backendlib.reset_backends()
-    check('reset_backends restores the default',
-          backendlib.resolve('php').name == 'native')
-
-
 def case_language_of():
     print('case_language_of:')
-    check('the facade re-exports the mapping',
-          structure.language_of('a/b.blade.php') == 'blade'
-          and structure.language_of('a/b.php') == 'php'
-          and structure.language_of('a/b.txt') is None)
+    for name, want in (('a/b.blade.php', 'blade'), ('a/b.php', 'php'), ('a/b.tsx', 'tsx'),
+                       ('a/b.ts', 'ts'), ('a/b.jsx', 'js'), ('a/b.mjs', 'js'), ('a/b.py', 'py'),
+                       ('a/b.txt', None), ('a/b.go', None), ('.php', None)):
+        check('language_of(%r) is %r' % (name, want), structure.language_of(name) == want,
+              structure.language_of(name))
 
 
 def main():
-    for case in (case_analyze, case_unsupported, case_never_raises, case_cache,
-                 case_backends, case_language_of):
-        case()
+    case_unsupported()
+    case_language_of()
+    case_engine_missing()
+    if needs_engine('structure facade'):
+        for case in (case_analyze, case_never_raises, case_cache):
+            case()
     return finish('structure facade')
 
 

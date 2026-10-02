@@ -37,7 +37,7 @@ CORPUS = os.path.join(HERE, 'corpus', 'fp')
 SCAN_PATH = {
     'laravel-n-plus-one': 'app/Http/Controllers/OrderController.php',
 }
-STACKS = detect.Stacks(tags=['*', 'php', 'laravel', 'js', 'ts', 'go'])
+STACKS = detect.Stacks(tags=['*', 'php', 'laravel', 'js', 'ts', 'python'])
 
 
 class _Scope:

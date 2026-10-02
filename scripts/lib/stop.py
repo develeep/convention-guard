@@ -189,6 +189,7 @@ def on_stop(payload):
                                log.log_path()),
         now=time.time())
     decision = decide.decide(state, obs, shell.cfg)
+    _install_engine_if_missing(shell.scan)
 
     if decision.batch:          # before the state, so no state names a missing batch
         semantic.save_batch(*decision.batch)
@@ -198,6 +199,20 @@ def on_stop(payload):
         shell.event(record)
     out = render(decision.action)
     return with_notes(with_autofix_note(out, shell.autofixed), shell.scan, shell.ledger.issues)
+
+
+def _install_engine_if_missing(scan):
+    """The engine was needed and is not there: start installing it in the
+    background (SessionStart may not have run). This Stop does not wait."""
+    unchecked = getattr(getattr(scan, 'result', None), 'unchecked', None)
+    if not unchecked:
+        return
+    reasons = {unchecked.reason(f) for f in unchecked.files()}
+    if reasons & {'engine_missing:not_installed', 'engine_missing:failed'}:
+        import os
+        from .engine import install
+        install.kick(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                  'engine.py'))
 
 
 # ---------------------------------------------------------------- notices

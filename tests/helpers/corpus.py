@@ -126,3 +126,56 @@ def prologue(language):
 
 def make_file(language, seed=0, lines=40, density='normal', broken=0.25):
     return prologue(language) + make_source(language, seed, lines, density, broken)
+
+
+# ---------------------------------------------------------------- valid code
+
+_VALID = {
+    'php': {
+        'head': '<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Gen;\n\nclass Gen%(n)d\n{\n',
+        'tail': '}\n',
+        'method': '    public function step%(m)d(array $rows): int\n    {\n%(body)s        return $total;\n    }\n\n',
+        'indent': '        ',
+        'stmts': ['$total = %(num)d;', '$label = "row {$total} of %(num)d";',
+                  "$name = 'plain %(num)d';", '// keep the count in step',
+                  '/* a block comment */',
+                  'for ($i = 0; $i < count($rows); $i++) {\n            $total += $i;\n        }',
+                  'if ($total > %(num)d) {\n            $total -= 1;\n        } elseif ($total < 0) {\n            $total = 0;\n        }',
+                  'try {\n            $total = intdiv($total, 2);\n        } catch (\\Throwable $e) {\n            $total = 0;\n        }',
+                  '$text = <<<EOT\n        line {$total}\n        EOT;'],
+    },
+    'js': {
+        'head': 'export class Gen%(n)d {\n',
+        'tail': '}\n',
+        'method': '  step%(m)d(rows) {\n%(body)s    return total;\n  }\n\n',
+        'indent': '    ',
+        'stmts': ['let total = %(num)d;', 'const label = `row ${total} of %(num)d`;',
+                  "const name = 'plain %(num)d';", '// keep the count in step',
+                  '/* a block comment */', 'const re = /ab+c/g;',
+                  'for (let i = 0; i < rows.length; i++) {\n      total += i;\n    }',
+                  'if (total > %(num)d) {\n      total -= 1;\n    }',
+                  'try {\n      total = Math.floor(total / 2);\n    } catch (err) {\n      total = 0;\n    }'],
+    },
+}
+
+
+def make_valid(language, seed=0, lines=120, gated=False):
+    """Code a parser reads without an error. No bundled rule gates on it --
+    what "nothing to report" has to be measured on -- unless `gated`, which
+    adds catch blocks (non-empty: a structure condition clears them)."""
+    spec = _VALID[language]
+    stmts = [s for s in spec['stmts'] if gated or 'catch' not in s]
+    rng = random.Random(seed)
+    out = [spec['head'] % {'n': seed}]
+    count, method = 0, 0
+    while count < lines:
+        body = []
+        for _ in range(8):
+            stmt = rng.choice(stmts) % {'num': rng.randint(1, 99)}
+            body.append(spec['indent'] + stmt + '\n')
+        chunk = spec['method'] % {'m': method, 'body': ''.join(body)}
+        out.append(chunk)
+        count += chunk.count('\n')
+        method += 1
+    out.append(spec['tail'])
+    return ''.join(out)

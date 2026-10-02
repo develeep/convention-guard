@@ -1,0 +1,37 @@
+id: py-no-debug-output
+title: 디버그 출력 잔여물
+severity: warn
+applies_to:
+  stacks: [python]
+  files: ["**/*.py"]
+  exclude:
+    - "**/tests/**"
+    - "**/test_*.py"
+    - "**/*_test.py"
+    - "**/scripts/**"
+    - "**/conftest.py"
+    - "**/manage.py"
+    - "**/__main__.py"
+detect:
+  when_line_added: '(?<![\w.])(print|breakpoint|pdb\.set_trace|ipdb\.set_trace)\s*\('
+  # 주석·문자열(f-string 의 글자 부분 포함) 안의 매치는 위반이 아닙니다
+  not_in: [comment, string]
+message: |
+  디버그 출력이 남아 있습니다. 지우거나 logging 으로 남기세요.
+tests:
+  match:
+    - '    print(user)'
+    - '    breakpoint()'
+    - 'import pdb; pdb.set_trace()'
+    # 앞의 문자열 매치가 같은 줄의 진짜 호출을 가리지 않습니다
+    - "msg = 'print(x)'; print(msg)"
+    # f-string 안의 식은 코드입니다
+    - 'label = f"{print(user)}"'
+  no_match:
+    - '    logger.info(user)'
+    - '    self.print(report)'
+    - |
+      def show(user):
+          # print(user)
+          hint = "print(user) writes to stdout"
+          return f"{hint}: print() is not called here"

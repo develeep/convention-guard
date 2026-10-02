@@ -40,12 +40,15 @@ tests:
     - '        $names = $users->map(fn ($u) => $u->profile->name);'
   no_match:
     - '        $total = array_sum($amounts);'
-    # 3.0 구조 조건: 주석·문자열 안의 매치는 위반이 아닙니다
+    # 구조 조건: 주석·문자열 안의 매치는 위반이 아닙니다 (구조 조건이 있는 사례는 완결된 코드로)
     - |
-      public function index($orders)
+      class OrderController
       {
-          // foreach ($archived as $order) { echo $order->user->name; }
-          $doc = "foreach (\$rows as \$row) is the N+1 shape";
+          public function index($orders)
+          {
+              // foreach ($archived as $order) { echo $order->user->name; }
+              $doc = "foreach (\$rows as \$row) is the N+1 shape";
       
-          return $doc;
+              return $doc;
+          }
       }

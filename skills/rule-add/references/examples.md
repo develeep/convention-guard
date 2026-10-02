@@ -112,11 +112,12 @@ detect:
   block_empty: true
 message: |
   에러를 삼키지 마세요. 로거로 남기거나, 의도적이면 이유를 주석으로 남기세요.
+# 구조 조건이 있으면 사례는 파서가 읽을 수 있는 완결된 코드로 씁니다
 tests:
   match:
-    - "} catch (e) {\n}\n"
+    - "try {\n  load();\n} catch (e) {\n}\n"
   no_match:
-    - "} catch (e) {\n  // 파싱 실패는 기본값\n}\n"
+    - "try {\n  load();\n} catch (e) {\n  // 파싱 실패는 기본값\n}\n"
 ```
 
 ## 의미 판정

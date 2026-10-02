@@ -32,6 +32,23 @@ def check(name, condition, detail=''):
         FAILED.append(name)
 
 
+def needs_engine(label):
+    """True when the structure engine is here. Without it, a run that asked for
+    no engine (CONVENTION_GUARD_NO_ENGINE=1) skips what needs one -- that run
+    checks the engine-missing behaviour instead -- and any other run fails:
+    a suite that quietly skipped the engine would read as a pass."""
+    from lib.engine import loader
+    engine = loader.get()
+    if engine.ok:
+        return True
+    if os.environ.get('CONVENTION_GUARD_NO_ENGINE'):
+        print('  skip %s: 엔진 없음 실행 — 엔진이 필요한 사례는 엔진 있음 실행에서 봅니다' % label)
+        return False
+    check('구조 엔진이 있다 (python3 scripts/engine.py ensure --dir .engine)', False,
+          engine.describe())
+    return False
+
+
 def finish(label):
     """Print the summary line and return the process exit code."""
     if FAILED:

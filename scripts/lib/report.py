@@ -293,6 +293,11 @@ def render_text(data, steps, style=fmt.PLAIN, fix_diff='', unchecked=None,
 
 # ---------------------------------------------------------------- notices
 
+ENGINE_MISSING = {'disabled': '꺼짐', 'unsupported': '미지원 플랫폼', 'installing': '설치 중',
+                  'failed': '설치 실패', 'not_installed': '설치 전',
+                  'import_failed': '불러오기 실패'}
+
+
 def unchecked_note(unchecked, limit=None, short=False):
     """'구조 미확인 2개 파일 — a.php, b.php (...)', or None when there is none.
     short: the systemMessage form, '구조 미확인 2개 파일 (a.php, b.php)'.
@@ -305,6 +310,15 @@ def unchecked_note(unchecked, limit=None, short=False):
         return None
     shown, folded = unchecked.summary(limit)
     listed = ', '.join(shown) + (' 외 %d개' % folded if folded else '')
+    missing = sorted({(unchecked.reason(f) or '').split(':', 1)[1] for f in unchecked.files()
+                      if (unchecked.reason(f) or '').startswith('engine_missing:')})
+    if missing:
+        # the whole layer is missing, not one file: say what to do about it
+        why = ENGINE_MISSING.get(missing[0], missing[0])
+        if short:
+            return '구조 엔진 없음 (%s) — 구조 미확인 %d개 파일 (%s)' % (why, len(unchecked), listed)
+        return ('구조 엔진 없음 (%s) — 구조 미확인 %d개 파일 — %s (구조 조건을 적용하지 못해 후보를 '
+                '그대로 올렸습니다. 설치는 scripts/engine.py ensure)' % (why, len(unchecked), listed))
     if short:
         return '구조 미확인 %d개 파일 (%s)' % (len(unchecked), listed)
     return ('구조 미확인 %d개 파일 — %s (구조 조건을 적용하지 못해 후보를 그대로 올렸습니다)'

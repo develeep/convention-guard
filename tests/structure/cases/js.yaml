@@ -1,0 +1,179 @@
+# 구조 정확도 사례 — JavaScript / JSX (.js .jsx .mjs)
+# at: 판정할 텍스트 (nth: 몇 번째, 기본 1). kind: code | comment | string
+# loop / function: 그 위치가 루프·함수의 본문 안인가 (적지 않으면 보지 않음)
+cases:
+  - name: 따옴표를 품은 정규식 리터럴 뒤의 코드
+    lang: js
+    code: |
+      const re = /it's "quoted"/g; run();
+    at: run()
+    kind: code
+  - name: 정규식 리터럴의 내용
+    lang: js
+    code: |
+      const re = /dd\(/g;
+    at: dd\(
+    kind: string
+  - name: 나눗셈은 정규식이 아니다
+    lang: js
+    code: |
+      const r = a / b / c; run();
+    at: run()
+    kind: code
+  - name: 템플릿 리터럴의 글자
+    lang: js
+    code: |
+      const s = `call dd() here`;
+    at: dd()
+    kind: string
+  - name: 템플릿 리터럴의 식
+    lang: js
+    code: |
+      const s = `x ${dd()} y`;
+    at: dd()
+    kind: code
+  - name: 중첩 템플릿 안의 식
+    lang: js
+    code: |
+      const s = `a ${`b ${dd()}`}`;
+    at: dd()
+    kind: code
+  - name: 중첩 템플릿 안의 글자
+    lang: js
+    code: |
+      const s = `a ${`b dd() c`}`;
+    at: dd()
+    kind: string
+  - name: 한 줄 주석
+    lang: js
+    code: |
+      // dd()
+      run();
+    at: dd()
+    kind: comment
+  - name: 여러 줄 주석
+    lang: js
+    code: |
+      /*
+       * dd()
+       */
+      run();
+    at: dd()
+    kind: comment
+  - name: 이스케이프한 따옴표가 있는 문자열
+    lang: js
+    code: |
+      const s = "a \" dd()";
+    at: dd()
+    kind: string
+  - name: 같은 줄 문자열 뒤의 코드
+    lang: js
+    code: |
+      const s = "dd()"; dd();
+    at: dd()
+    nth: 2
+    kind: code
+  - name: forEach 콜백은 반복이자 함수
+    lang: js
+    code: |
+      items.forEach((x) => {
+        dd(x);
+      });
+    at: dd(x)
+    kind: code
+    loop: true
+    function: true
+  - name: 중괄호 없는 map 화살표 함수
+    lang: js
+    code: |
+      const ys = xs.map(x => dd(x));
+    at: dd(x)
+    loop: true
+    function: true
+  - name: for...of 의 반복 대상은 한 번 실행된다
+    lang: js
+    code: |
+      for (const x of load()) {
+        use(x);
+      }
+    at: load()
+    loop: false
+  - name: for...of 본문
+    lang: js
+    code: |
+      for (const x of load()) {
+        use(x);
+      }
+    at: use(x)
+    loop: true
+    function: false
+  - name: while 본문
+    lang: js
+    code: |
+      while (more()) {
+        step();
+      }
+    at: step()
+    loop: true
+  - name: 반복이 아닌 콜백은 함수일 뿐
+    lang: js
+    code: |
+      setTimeout(() => {
+        dd();
+      }, 10);
+    at: dd()
+    loop: false
+    function: true
+  - name: 최상위 코드는 함수 밖
+    lang: js
+    code: |
+      function f() {}
+      run();
+    at: run()
+    function: false
+  - name: 클래스 메서드 안
+    lang: js
+    code: |
+      class A {
+        m() {
+          return dd();
+        }
+      }
+    at: dd()
+    function: true
+    loop: false
+  - name: JSX 텍스트는 글자
+    lang: js
+    code: |
+      const el = <p>call dd() now</p>;
+    at: dd()
+    kind: string
+  - name: JSX 식은 코드
+    lang: js
+    code: |
+      const el = <p>{dd()}</p>;
+    at: dd()
+    kind: code
+  - name: JSX 속성 문자열
+    lang: js
+    code: |
+      const el = <a title="dd()">x</a>;
+    at: dd()
+    kind: string
+  - name: React 컴포넌트의 훅
+    lang: js
+    code: |
+      export default function Page() {
+        const [n, setN] = useState(0);
+        return <div onClick={() => setN(n + 1)}>{n}</div>;
+      }
+    at: useState
+    kind: code
+    function: true
+  - name: Next 의 'use client' 지시어는 문자열
+    lang: js
+    code: |
+      'use client';
+      export default function C() { return null; }
+    at: use client
+    kind: string

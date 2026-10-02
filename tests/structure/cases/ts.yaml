@@ -1,0 +1,96 @@
+# 구조 정확도 사례 — TypeScript / TSX / Nest
+cases:
+  - name: 문자열 리터럴 타입
+    lang: ts
+    code: |
+      type T = 'dd()' | 'other';
+    at: dd()
+    kind: string
+  - name: 제네릭 호출의 인자
+    lang: ts
+    code: |
+      const x = foo<string>(dd());
+    at: dd()
+    kind: code
+  - name: 타입 주석이 있는 화살표 함수 뒤의 코드
+    lang: ts
+    code: |
+      const g = (x: number): number => x * 2; run();
+    at: run()
+    kind: code
+    function: false
+  - name: Nest 컨트롤러 메서드 (데코레이터)
+    lang: ts
+    code: |
+      @Controller('users')
+      export class UsersController {
+        @Get()
+        findAll(@Res() res: Response) {
+          return res.send(dd());
+        }
+      }
+    at: dd()
+    kind: code
+    function: true
+  - name: Nest 데코레이터 인자 문자열
+    lang: ts
+    code: |
+      @Controller('dd()')
+      export class C {}
+    at: dd()
+    kind: string
+  - name: 비동기 메서드 안 for...of
+    lang: ts
+    code: |
+      export class S {
+        async run(ids: string[]): Promise<void> {
+          for (const id of ids) {
+            await this.repo.find(id);
+          }
+        }
+      }
+    at: this.repo.find
+    loop: true
+    function: true
+  - name: 빈 catch 옆의 정규식 리터럴
+    lang: ts
+    code: |
+      export class A {
+        public async run(): Promise<void> {
+          try {
+            let c = 'x';
+            c = c.replaceAll(/'/g, "''");
+          } catch (error) {
+            dd(error);
+          }
+        }
+      }
+    at: dd(error)
+    kind: code
+    function: true
+  - name: TSX 제네릭 화살표 (<T,>)
+    lang: tsx
+    code: |
+      const C = <T,>(p: T) => <p>{dd(p)}</p>;
+    at: dd(p)
+    kind: code
+    function: true
+  - name: TSX 중괄호 없는 화살표가 돌려주는 map
+    lang: tsx
+    code: |
+      const L = (xs: string[]) => xs.map((x) => <li key={x}>{dd(x)}</li>);
+    at: dd(x)
+    kind: code
+    loop: true
+  - name: TSX 텍스트
+    lang: tsx
+    code: |
+      export const H = () => <h1>dd() heading</h1>;
+    at: dd()
+    kind: string
+  - name: TSX 템플릿 리터럴 className
+    lang: tsx
+    code: |
+      const el = <div className={`a ${dd()} b`} />;
+    at: dd()
+    kind: code

@@ -1,0 +1,132 @@
+# 구조 정확도 사례 — Python
+cases:
+  - name: f-string 안의 식
+    lang: py
+    code: |
+      s = f"a {dd(x)} b"
+    at: dd(x)
+    kind: code
+  - name: f-string 의 글자
+    lang: py
+    code: |
+      s = f"a dd() b"
+    at: dd()
+    kind: string
+  - name: 3.12 f-string 안의 같은 따옴표
+    lang: py
+    code: |
+      s = f"{d["k"]} {dd()}"
+    at: dd()
+    kind: code
+  - name: 중첩 f-string 안의 식
+    lang: py
+    code: |
+      s = f"{f'{dd()}'}"
+    at: dd()
+    kind: code
+  - name: 삼중 따옴표 문자열
+    lang: py
+    code: |
+      s = """
+      dd()
+      """
+    at: dd()
+    kind: string
+  - name: 함수 안의 docstring
+    lang: py
+    code: |
+      def f():
+          """dd() explains"""
+          return 1
+    at: dd()
+    kind: string
+    function: true
+  - name: "# 주석"
+    lang: py
+    code: |
+      # dd()
+      run()
+    at: dd()
+    kind: comment
+  - name: 문자열 안의 # 는 주석이 아니다
+    lang: py
+    code: |
+      s = "#"; dd()
+    at: dd()
+    kind: code
+  - name: bytes 와 raw 문자열
+    lang: py
+    code: |
+      b = b"dd()" + r"\d"
+    at: dd()
+    kind: string
+  - name: lambda 는 함수
+    lang: py
+    code: |
+      f = lambda x: dd(x)
+    at: dd(x)
+    function: true
+    loop: false
+  - name: 컴프리헨션은 반복
+    lang: py
+    code: |
+      ys = [dd(x) for x in xs]
+    at: dd(x)
+    loop: true
+  - name: for 본문
+    lang: py
+    code: |
+      for x in xs:
+          dd(x)
+    at: dd(x)
+    loop: true
+    function: false
+  - name: while 본문
+    lang: py
+    code: |
+      while more():
+          step()
+    at: step()
+    loop: true
+  - name: map 에 넘긴 lambda 는 반복
+    lang: py
+    code: |
+      ys = list(map(lambda x: dd(x), xs))
+    at: dd(x)
+    loop: true
+    function: true
+  - name: 데코레이터가 붙은 함수
+    lang: py
+    code: |
+      @app.route("/")
+      def index():
+          return dd()
+    at: dd()
+    function: true
+  - name: 클래스 메서드
+    lang: py
+    code: |
+      class K:
+          def m(self):
+              return dd()
+    at: dd()
+    function: true
+  - name: except 본문
+    lang: py
+    code: |
+      try:
+          run()
+      except Exception:
+          dd()
+    at: dd()
+    kind: code
+    function: false
+  - name: async for 본문
+    lang: py
+    code: |
+      async def g():
+          async for x in y:
+              dd(x)
+    at: dd(x)
+    loop: true
+    function: true

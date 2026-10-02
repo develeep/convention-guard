@@ -1,0 +1,204 @@
+# 구조 정확도 사례 — PHP / Laravel
+cases:
+  - name: "#[ 는 속성이지 주석이 아니다"
+    lang: php
+    code: |
+      <?php
+      #[Route('/x')]
+      function f() {}
+    at: Route
+    kind: code
+  - name: "# 는 주석"
+    lang: php
+    code: |
+      <?php
+      # dd()
+      run();
+    at: dd()
+    kind: comment
+  - name: "// 주석은 ?> 에서 끝나고 뒤는 템플릿 텍스트"
+    lang: php
+    code: |
+      <?php
+      // note ?> <b>dd()</b>
+    at: dd()
+    kind: string
+  - name: "?> 뒤의 HTML"
+    lang: php
+    code: |
+      <?php echo 1; ?>
+      <p>dd() here</p>
+    at: dd()
+    kind: string
+  - name: "?> 다음 <?php 안은 다시 코드"
+    lang: php
+    code: |
+      <?php echo 1; ?>
+      <p>x</p>
+      <?php dd(); ?>
+    at: dd()
+    kind: code
+  - name: heredoc 의 글자
+    lang: php
+    code: |
+      <?php
+      $s = <<<EOT
+        call dd() here
+        EOT;
+    at: dd()
+    kind: string
+  - name: heredoc 안의 보간식
+    lang: php
+    code: |
+      <?php
+      $s = <<<EOT
+        {$o->dd()}
+        EOT;
+    at: dd()
+    kind: code
+  - name: nowdoc 은 보간 없이 글자
+    lang: php
+    code: |
+      <?php
+      $s = <<<'EOT'
+        {$o->dd()}
+        EOT;
+    at: dd()
+    kind: string
+  - name: 큰따옴표 보간식
+    lang: php
+    code: |
+      <?php
+      $s = "x {$a->dd()} y";
+    at: dd()
+    kind: code
+  - name: 큰따옴표의 글자
+    lang: php
+    code: |
+      <?php
+      $s = "x dd() y";
+    at: dd()
+    kind: string
+  - name: 작은따옴표는 보간하지 않는다
+    lang: php
+    code: |
+      <?php
+      $s = 'x {$a->dd()} y';
+    at: dd()
+    kind: string
+  - name: 블록 주석
+    lang: php
+    code: |
+      <?php
+      /* dd() */
+      run();
+    at: dd()
+    kind: comment
+  - name: use 가 있는 클로저
+    lang: php
+    code: |
+      <?php
+      $f = function ($x) use ($y) {
+          dd($x);
+      };
+    at: dd($x)
+    kind: code
+    function: true
+    loop: false
+  - name: "fn() => 화살표 함수"
+    lang: php
+    code: |
+      <?php
+      $g = fn($x) => dd($x);
+    at: dd($x)
+    function: true
+    loop: false
+  - name: array_map 에 넘긴 fn 은 반복
+    lang: php
+    code: |
+      <?php
+      $m = array_map(fn($v) => dd($v), $rows);
+    at: dd($v)
+    loop: true
+    function: true
+  - name: "->each(function) 는 반복"
+    lang: php
+    code: |
+      <?php
+      $users->each(function ($u) {
+          dd($u);
+      });
+    at: dd($u)
+    loop: true
+    function: true
+  - name: foreach 본문
+    lang: php
+    code: |
+      <?php
+      foreach ($rows as $row) {
+          dd($row);
+      }
+    at: dd($row)
+    loop: true
+    function: false
+  - name: foreach 의 반복 대상은 한 번
+    lang: php
+    code: |
+      <?php
+      foreach (load() as $row) {
+          use_it($row);
+      }
+    at: load()
+    loop: false
+  - name: Laravel 컨트롤러의 반복 안 관계 접근
+    lang: php
+    code: |
+      <?php
+
+      namespace App\Http\Controllers;
+
+      class OrderController extends Controller
+      {
+          public function index(Request $request)
+          {
+              $orders = Order::with('items')->get();
+              foreach ($orders as $order) {
+                  $order->items->count();
+              }
+              return $orders;
+          }
+      }
+    at: $order->items->count()
+    kind: code
+    loop: true
+    function: true
+  - name: Laravel 마이그레이션의 Schema::create 콜백은 반복이 아니다
+    lang: php
+    code: |
+      <?php
+      return new class extends Migration {
+          public function up(): void
+          {
+              Schema::create('orders', function (Blueprint $table) {
+                  $table->id();
+              });
+          }
+      };
+    at: $table->id()
+    function: true
+    loop: false
+  - name: "->map(fn) 은 반복"
+    lang: php
+    code: |
+      <?php
+      $names = $users->map(fn ($u) => $u->profile->name);
+    at: $u->profile->name
+    loop: true
+    function: true
+  - name: 문자열 안의 // 는 주석이 아니다
+    lang: php
+    code: |
+      <?php
+      $url = "http://example.com"; dd($url);
+    at: dd($url)
+    kind: code

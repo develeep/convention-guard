@@ -1,0 +1,26 @@
+id: py-no-bare-except
+title: 맨 except 금지
+severity: warn
+applies_to:
+  stacks: [python]
+  files: ["**/*.py"]
+detect:
+  when_line_added: '(?<![\w.])except\s*:'
+  not_in: [comment, string]
+message: |
+  맨 except 는 KeyboardInterrupt 와 SystemExit 까지 삼킵니다. 잡을 예외를 적으세요
+  (모르면 except Exception:).
+tests:
+  match:
+    - "try:\n    run()\nexcept:\n    log()\n"
+    - "try:\n    run()\nexcept :\n    pass\n"
+  no_match:
+    - "try:\n    run()\nexcept Exception:\n    log()\n"
+    - "try:\n    run()\nexcept (ValueError, KeyError) as exc:\n    log(exc)\n"
+    # 구조 조건: 주석·문자열 안의 매치는 위반이 아닙니다
+    - |
+      def explain():
+          # except: is a bare except
+          return """
+          except:
+          """

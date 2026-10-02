@@ -3,36 +3,32 @@
 
 `dismissed.yaml` is committed and its keys come from detection, so a result
 that shifts with the interpreter's hash seed would give one teammate a
-dismissal that does not work for another (NFR-02.3, US-05).
+dismissal that does not work for another.
 
-Two checks, because neither is enough alone: a static one that catches the
-usual suspects in this package, and a dynamic one that runs the analysis under
-two different hash seeds and compares -- which also covers whatever the
-static check cannot see.
-
-A third check keeps `langs.py` the only file that knows a language by name
-(NR-18): scanning or scoping must branch on the definition, never on 'php'.
-A fourth keeps it the only file that knows a language's *grammar*: no
-keyword spelled out in an engine regex or word set (R23k).
+- a static check for the usual suspects (hash(), id(), clocks, randomness,
+  the environment, iterating a set) in the structure package
+- a dynamic one: the same files analysed under two hash seeds
+- node names live in nodes.py only: the walk and the conditions branch on
+  the table, never on a grammar's spelling
+- detection itself repeats exactly
 """
 import ast
 import json
 import os
-import re
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
-from helpers import ROOT, check, finish  # noqa: E402
-from lib.structure.native.langs import LANGUAGES  # noqa: E402
+from helpers import ROOT, check, finish, needs_engine  # noqa: E402
+from lib.structure import nodes  # noqa: E402
 
 PACKAGE = os.path.join(ROOT, 'scripts', 'lib', 'structure')
 FORBIDDEN_CALLS = {'hash', 'id'}
 FORBIDDEN_MODULES = {'random', 'time', 'datetime', 'uuid', 'socket'}
-LANGUAGE_FREE = ('native/mask.py', 'native/scopes.py', 'conditions.py', 'model.py',
-                 'backend.py')
+# words a condition or a scope kind is called by, which are also node names
+VOCABULARY = set(nodes.KINDS) | {'comment', 'string', 'class', 'file', 'text', 'ERROR'}
 
 
 def sources():
@@ -75,62 +71,27 @@ def case_no_unstable_apis():
           not findings, '; '.join(findings))
 
 
-def case_languages_live_in_one_file():
-    print('case_languages_live_in_one_file:')
-    names = sorted(LANGUAGES)
+def case_node_names_live_in_nodes():
+    print('case_node_names_live_in_nodes:')
+    names = set()
+    for row, _grammar in nodes.LANGUAGES.values():
+        for key, value in row.items():
+            if key in ('iteration_methods', 'iteration_functions', 'pack', 'imports'):
+                continue                    # method names and kinds, not node names
+            if isinstance(value, tuple):
+                names.update(v for v in value if isinstance(v, str))
+            elif isinstance(value, dict):
+                names.update(value)
+    names = {n for n in names if n.isidentifier()} - VOCABULARY
     findings = []
     for relpath, text in sources():
-        if relpath.replace(os.sep, '/') not in LANGUAGE_FREE:
-            continue
-        tree = ast.parse(text, relpath)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and node.value in names:
-                findings.append('%s:%d %r' % (relpath, node.lineno, node.value))
-    check('only langs.py names a language (NR-18)', not findings, '; '.join(findings))
-
-
-# What a regex literal may contain without it being grammar: the syntax of
-# the regex itself. Group names, escapes and character classes go first; a
-# word left over (`def`, `class`, `return`) is a language's grammar and
-# belongs in langs.py (R23k).
-_REGEX_SYNTAX = re.compile(r'\(\?P?<[^>]*>|\(\?P=\w+\)|\\.|\[(?:\\.|[^\]\\])*\]')
-_WORD = re.compile(r'[A-Za-z]{2,}')
-
-
-def _string_parts(node):
-    """The string constants an expression is built from."""
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return [node.value]
-    if isinstance(node, ast.BinOp):
-        return _string_parts(node.left) + _string_parts(node.right)
-    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
-        return [part for elt in node.elts for part in _string_parts(elt)]
-    return []
-
-
-def case_grammar_lives_in_langs():
-    print('case_grammar_lives_in_langs:')
-    findings = []
-    for relpath, text in sources():
-        if relpath.replace(os.sep, '/') not in LANGUAGE_FREE:
+        if relpath == 'nodes.py':
             continue
         for node in ast.walk(ast.parse(text, relpath)):
-            if not (isinstance(node, ast.Call) and node.args):
-                continue
-            func = node.func
-            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, 'id', '')
-            if name == 'compile':
-                strip = _REGEX_SYNTAX
-            elif name == 'frozenset':
-                strip = None
-            else:
-                continue
-            for part in _string_parts(node.args[0]):
-                words = _WORD.findall(strip.sub(' ', part) if strip else part)
-                if words:
-                    findings.append('%s:%d %s' % (relpath, node.lineno, ','.join(words)))
-    check('no keyword of a language is spelled out in the engine (R23k)',
-          not findings, '; '.join(findings))
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                    and node.value in names:
+                findings.append('%s:%d %r' % (relpath, node.lineno, node.value))
+    check('only nodes.py spells a node name', not findings, '; '.join(findings))
 
 
 DUMP = r'''
@@ -145,13 +106,13 @@ def shape(node):
             [shape(child) for child in node.children]]
 
 out = []
-for language in corpus.LANGUAGES:
+for language in ('php', 'js', 'py', 'blade'):
     for seed in (1, 7, 13):
         text = corpus.make_file(language, seed=seed, lines=60)
         fs = structure.analyze(text, language)
         out.append([language, seed, fs.ok, fs.reason,
                     [list(s) for s in fs.comments], [list(s) for s in fs.strings],
-                    shape(fs.root)])
+                    [list(s) for s in fs.errors], shape(fs.root)])
 print(json.dumps(out, ensure_ascii=False))
 '''
 
@@ -181,7 +142,7 @@ def _first_difference(left, right):
 
 
 def case_detection_is_deterministic():
-    """Same change, same rule -> same candidates and the same notice (DR-30)."""
+    """Same change, same rule -> same candidates and the same notice."""
     print('case_detection_is_deterministic:')
     from lib import detect, report
     from lib.rules import schema
@@ -236,11 +197,11 @@ def case_detection_is_deterministic():
 
 
 def main():
-    for case in (case_no_unstable_apis, case_languages_live_in_one_file,
-                 case_grammar_lives_in_langs,
-                 case_hash_seed_does_not_change_the_answer,
-                 case_detection_is_deterministic):
-        case()
+    case_no_unstable_apis()
+    case_node_names_live_in_nodes()
+    if needs_engine('structure determinism'):
+        case_hash_seed_does_not_change_the_answer()
+        case_detection_is_deterministic()
     return finish('structure determinism')
 
 

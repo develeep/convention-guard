@@ -49,8 +49,14 @@ def requirement_present(rule, text, analyse):
         structure = analyse()
         if not structure.ok:
             return True, structure.reason
-        return any(_not_in(excluded, structure, Span(m.start(), m.end())) != REJECT
-                   for m in pattern.finditer(text)), None
+        unread = False
+        for m in pattern.finditer(text):
+            span = Span(m.start(), m.end())
+            if structure.in_error(span):
+                unread = True               # counts as there, and is said
+            elif _not_in(excluded, structure, span) != REJECT:
+                return True, None
+        return (True, 'parse_error') if unread else (False, None)
     except Exception:                       # noqa: BLE001 -- NR-14, never raise
         return True, 'internal_error:Requirement'
 
@@ -66,6 +72,8 @@ def evaluate(rule, structure, span):
 def _evaluate(rule, structure, span):
     if not structure.ok:
         return UNKNOWN                      # the spans below it are untrusted (SR-27)
+    if structure.in_error(span):
+        return UNKNOWN                      # the parser could not read around it
     detect = (rule or {}).get('detect') or {}
     verdicts = []
     if detect.get('not_in'):

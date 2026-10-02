@@ -12,7 +12,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from helpers import check, finish  # noqa: E402
+from helpers import check, finish, needs_engine  # noqa: E402
 from lib import context  # noqa: E402
 from lib.candidate import Candidate  # noqa: E402
 
@@ -97,12 +97,11 @@ IMPORTS = {'context': ['current_function', 'imports'], 'max_context_lines': 150}
 def case_imports_are_imports():
     """R21 / SEM r9 -- the import section holds the imports, all of them, and nothing else."""
     print('case_imports_are_imports:')
-    go = ('package store\n\nimport (\n\t"context"\n\t"database/sql"\n)\n\n'
-          'func Load(ctx context.Context) {\n\tpanic(1)\n}\n')
-    pack = pack_for({'pkg/store.go': go}, 'pkg/store.go', 9, IMPORTS)
-    got = text_of(pack, 'imports')
-    check('a Go import block is read to its closing paren',
-          '"context"' in got and '"database/sql"' in got and ')' in got, got)
+    group = ('<?php\n\nuse App\\{\n    Order,\n    User,\n};\n\n'
+             'function load()\n{\n    return 1;\n}\n')
+    got = text_of(pack_for({'app/load.php': group}, 'app/load.php', 11, IMPORTS), 'imports')
+    check('a PHP group use is read to its closing brace',
+          'Order,' in got and 'User,' in got and '};' in got, got)
 
     php = ('<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\n'
            'class Order extends Model\n{\n    use SoftDeletes;\n\n'
@@ -202,8 +201,8 @@ def case_long_function_is_elided():
     check('centred on the candidate', '$x170 = 170;' in body and '$x29 = 29;' in body, body[:300])
 
 
-def case_typescript_and_go():
-    print('case_typescript_and_go:')
+def case_typescript():
+    print('case_typescript:')
     ts = ("import { db } from './db';\n\n"
           "export async function listUsers(limit: number): Promise<User[]> {\n"
           "  const users = await db.user.findMany({ take: limit });\n"
@@ -219,21 +218,6 @@ def case_typescript_and_go():
     check('a TypeScript function is found', 'listUsers' in body and 'return users' in body, body)
     check('and ends at its closing brace', 'other()' not in body, body)
 
-    go = ('package store\n\n'
-          'func (s *Store) Fetch(\n'
-          '\tctx context.Context,\n'
-          '\tid string,\n'
-          ') error {\n'
-          '\tfor _, x := range s.items {\n'
-          '\t\t_ = x\n'
-          '\t}\n'
-          '\treturn nil\n'
-          '}\n')
-    pack = pack_for({'pkg/store.go': go}, 'pkg/store.go', 7,
-                    {'context': ['current_function'], 'max_context_lines': 80})
-    body = text_of(pack, 'current_function')
-    check('a Go method with a multi-line signature is found',
-          'func (s *Store) Fetch(' in body and 'return nil' in body, body)
 
 
 def case_js_methods_and_callbacks():
@@ -282,13 +266,41 @@ def case_python_and_fallback():
           pack.sections)
 
 
+def case_without_engine():
+    """No engine: the pack is a window around the candidate, and says so."""
+    print('case_without_engine:')
+    import os as _os
+    from lib import structure
+    from lib.engine import loader
+    old = _os.environ.get('CONVENTION_GUARD_NO_ENGINE')
+    _os.environ['CONVENTION_GUARD_NO_ENGINE'] = '1'
+    loader.reset()
+    structure.reset_cache()
+    try:
+        php = '<?php\nclass A\n{\n    public function f()\n    {\n        return 1;\n    }\n}\n'
+        pack = pack_for({'app/A.php': php}, 'app/A.php', 6,
+                        {'context': ['current_function'], 'max_context_lines': 80})
+    finally:
+        if old is None:
+            _os.environ.pop('CONVENTION_GUARD_NO_ENGINE', None)
+        else:
+            _os.environ['CONVENTION_GUARD_NO_ENGINE'] = old
+        loader.reset()
+        structure.reset_cache()
+    titles = [s['title'] for s in pack.sections]
+    check('the window says the function boundary is unknown',
+          any('함수 경계 미확인' in t for t in titles), titles)
+
+
 if __name__ == '__main__':
-    case_php_method()
-    case_imports_are_imports()
-    case_python_blocks()
-    case_closure_inside_method()
-    case_long_function_is_elided()
-    case_typescript_and_go()
-    case_js_methods_and_callbacks()
-    case_python_and_fallback()
+    case_without_engine()
+    if needs_engine('컨텍스트 팩'):
+        case_php_method()
+        case_imports_are_imports()
+        case_python_blocks()
+        case_closure_inside_method()
+        case_long_function_is_elided()
+        case_typescript()
+        case_js_methods_and_callbacks()
+        case_python_and_fallback()
     sys.exit(finish('컨텍스트 팩'))

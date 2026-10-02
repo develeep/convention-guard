@@ -18,7 +18,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from helpers import ROOT, check, finish  # noqa: E402
+from helpers import ROOT, check, finish, needs_engine  # noqa: E402
 from lib import context, semantic  # noqa: E402
 from lib.candidate import Candidate, VALID  # noqa: E402
 from lib.rules import schema  # noqa: E402
@@ -264,7 +264,8 @@ def case_cache_writes():
 if __name__ == '__main__':
     case_rule_definition()
     case_cache_writes()
-    case_related_context_is_whole()
-    case_context()
+    if needs_engine('판정 캐시 키'):
+        case_related_context_is_whole()
+        case_context()
     case_cache_roundtrip()
     sys.exit(finish('판정 캐시 키'))

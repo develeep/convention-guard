@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from helpers import check, finish  # noqa: E402
+from helpers import check, finish, needs_engine  # noqa: E402
 from lib import structure  # noqa: E402
 from lib.structure import conditions  # noqa: E402
 from lib.structure.model import ACCEPT, REJECT, UNKNOWN, Span  # noqa: E402
@@ -130,7 +130,7 @@ def case_block_empty_with_regex():
              '            throw new Error(error.message);\n', REJECT),
             ('an empty catch next to a regex is accepted', '', ACCEPT)):
         text = body % inner
-        fs = structure.analyze(text, 'js')
+        fs = structure.analyze(text, 'ts')      # what language_of gives a .ts file
         start = text.index('catch')
         span = Span(start, text.index('}', text.index('{', start)) + 1)
         check('the file parses (%s)' % label, fs.ok, fs.reason)
@@ -143,7 +143,7 @@ def case_unknown():
     broken = PHP + '$a = "oops;\ndd(1);\n'
     fs = structure.analyze(broken, 'php')
     span = Span(broken.index('dd(1)'), broken.index('dd(1)') + 5)
-    check('a failed analysis makes every condition unknown (SR-27)',
+    check('a match in a literal the parser could not close is unknown (SR-27)',
           conditions.evaluate(rule(not_in=['comment']), fs, span) == UNKNOWN)
     check('so does block_empty',
           conditions.evaluate(rule(block_empty=True), fs, span) == UNKNOWN)
@@ -151,12 +151,18 @@ def case_unknown():
     blade = "<p>x</p>\n<?php dd(1); ?>\n"
     fs = structure.analyze(blade, 'blade')
     span = Span(blade.index('dd(1)'), blade.index('dd(1)') + 5)
-    check('blade masks, so not_in still decides (CQ2=B)',
+    check('blade: not_in decides in its PHP',
           conditions.evaluate(rule(not_in=['comment']), fs, span) == ACCEPT)
-    check('blade has no scopes, so in_scope cannot decide',
-          conditions.evaluate(rule(in_scope='function'), fs, span) == UNKNOWN)
-    check('nor can block_empty',
-          conditions.evaluate(rule(block_empty=True), fs, span) == UNKNOWN)
+    check('and so does in_scope: top level is in no function',
+          conditions.evaluate(rule(in_scope='function'), fs, span) == REJECT)
+    check('and block_empty: no block around it',
+          conditions.evaluate(rule(block_empty=True), fs, span) == REJECT)
+
+    missing = structure.FileStructure.failed('engine_missing:disabled', text=broken,
+                                             language='php')
+    check('without the engine every condition is unknown (design 4.6)',
+          all(conditions.evaluate(rule(**kw), missing, span) == UNKNOWN for kw in
+              ({'not_in': ['comment']}, {'in_scope': 'loop'}, {'block_empty': True})))
 
 
 def case_combining():
@@ -182,16 +188,20 @@ def case_never_raises():
     print('case_never_raises:')
     fs = structure.analyze(PHP + 'dd(1);\n', 'php')
     check('an unknown condition value does not crash',
-          conditions.evaluate(rule(in_scope='nonsense'), fs, Span(6, 11)) == REJECT)
+          conditions.evaluate(rule(in_scope='nonsense'), fs, Span(6, 11))
+          == (REJECT if fs.ok else UNKNOWN))
     check('a broken rule shape becomes unknown',
           conditions.evaluate({'detect': {'not_in': 7}}, fs, Span(6, 11)) in
           (UNKNOWN, ACCEPT))
 
 
 def main():
-    for case in (case_gate, case_not_in, case_in_scope, case_block_empty,
-                 case_block_empty_with_regex, case_unknown, case_combining, case_never_raises):
-        case()
+    case_gate()
+    case_never_raises()
+    if needs_engine('structure.conditions'):
+        for case in (case_not_in, case_in_scope, case_block_empty, case_block_empty_with_regex,
+                     case_unknown, case_combining):
+            case()
     return finish('structure.conditions')
 
 

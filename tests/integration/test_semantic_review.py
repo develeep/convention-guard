@@ -23,7 +23,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import (LARAVEL_COMPOSER, Session, check, finish, isolated_env,  # noqa: E402
-                     make_repo, run_script, store_rows, tempdir)
+                     make_repo, needs_engine, run_script, store_rows, tempdir)
 
 CTRL = 'app/Http/Controllers/OrderController.php'
 HEAD = ('<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Http\\Controllers;\n\n'
@@ -332,8 +332,16 @@ CASES = [case_no_candidate_no_ai, case_violation_fix_rejudge, case_valid_is_cach
          case_one_question_shows_every_candidate]
 
 
+# one question per function needs the function: these read the pack's structure
+ENGINE_CASES = {'case_violation_fix_rejudge', 'case_deferred_batches_continue',
+                'case_verdicts_stay_distinct', 'case_one_question_shows_every_candidate'}
+
+
 def main():
+    engine = needs_engine('의미 판정 (함수 단위 질문)')
     for case in CASES:
+        if case.__name__ in ENGINE_CASES and not engine:
+            continue
         print('%s:' % case.__name__)
         with tempdir() as repo, tempdir() as data:
             make_repo(repo, repo_files())

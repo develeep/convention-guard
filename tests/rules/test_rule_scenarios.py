@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 from helpers import ROOT, check, finish, make_repo, tempdir, write  # noqa: E402
 from lib import detect, rules as rulelib  # noqa: E402
+from lib.rules import fixtures  # noqa: E402
 from lib.scope import ChangeScope  # noqa: E402
 from lib.yamlio import read as read_yaml  # noqa: E402
 
@@ -62,6 +63,7 @@ def run_case(rule, stacks, case):
 def main():
     rules = core_rules()
     covered = {}
+    engine, unread = fixtures.engine_ready(), 0
     for dirpath, _dirs, files in os.walk(SCENARIOS):
         for name in sorted(files):
             if not name.endswith('.yaml'):
@@ -74,14 +76,20 @@ def main():
                 check('%s exists' % rid, False, path)
                 continue
             kinds = set()
+            blind = not engine and fixtures.structure_dependent(rules[rid])
             for case in spec.get('cases') or []:
-                got = run_case(rules[rid], spec.get('stacks') or ['*'], case)
                 want = sorted(case.get('expect') or [])
+                kinds.add('legacy' if case.get('before') and not want else 'other')
+                if blind:
+                    unread += 1     # judged in the run with the engine
+                    continue
+                got = run_case(rules[rid], spec.get('stacks') or ['*'], case)
                 check('%s — %s' % (rid, case.get('name')), got == want,
                       'want=%r got=%r' % (want, got))
-                kinds.add('legacy' if case.get('before') and not want else 'other')
             covered[rid] = kinds
 
+    if unread:
+        print('엔진 없음: 구조에 기댄 시나리오 %d개는 엔진 있음 실행에서 판정합니다' % unread)
     print('coverage:')
     for rid, rule in sorted(rules.items()):
         if rule['kind'] not in ANCHORED:

@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from helpers import check, finish, fixtures, tempdir  # noqa: E402
+from helpers import check, finish, fixtures, needs_engine, tempdir  # noqa: E402
 from lib import detect, report, stop, structure  # noqa: E402
 from lib.rules import fixtures as rulefixtures, schema  # noqa: E402
 
@@ -135,8 +135,7 @@ def case_unknown_is_recorded():
     check('and is recorded as unchecked', unchecked.files() == ('a.php',),
           str(unchecked.files()))
     check('with the reason from the structure layer',
-          unchecked.reason('a.php').startswith('unterminated_string'),
-          unchecked.reason('a.php'))
+          unchecked.reason('a.php') == 'parse_error', unchecked.reason('a.php'))
 
     scope = FakeScope({'notes.txt': 'dd(1)\n'})
     unchecked = detect.Unchecked()
@@ -150,9 +149,8 @@ def case_unknown_is_recorded():
     unchecked = detect.Unchecked()
     found = scan(rule(when_line_added=r'dd\(', in_scope='function'), scope,
                  unchecked=unchecked)
-    check('blade has no scopes, so in_scope is unchecked (CQ2=B)',
-          len(found) == 1 and unchecked.reason('v.blade.php') == 'no_scope:blade',
-          str(unchecked.reason('v.blade.php')))
+    check('blade PHP has scopes: a top-level call is in no function',
+          found == [] and not unchecked, (found, unchecked.files()))
 
 
 def case_stale_line():
@@ -247,7 +245,7 @@ def case_requirement_outside_comments():
     check('a file that will not parse keeps the plain answer',
           found == [], str([c.line for c in found]))
     check('and is reported as unchecked',
-          (unchecked.reason('a.php') or '').startswith('unterminated_string'),
+          unchecked.reason('a.php') == 'parse_error',
           str(unchecked.reason('a.php')))
 
     scope = FakeScope({'a.php': PHP + 'run();\n'})
@@ -436,14 +434,47 @@ def case_run_passes_the_collector():
     check('and threads the collector through', unchecked.files() == ('a.php',))
 
 
+def case_engine_missing():
+    """Without the engine a condition cannot decide: the match is kept and the
+    file is named with why (design §4.6)."""
+    print('case_engine_missing:')
+    import os as _os
+    from lib.engine import loader
+    old = _os.environ.get('CONVENTION_GUARD_NO_ENGINE')
+    _os.environ['CONVENTION_GUARD_NO_ENGINE'] = '1'
+    loader.reset()
+    structure.reset_cache()
+    try:
+        scope = FakeScope({'a.php': PHP + '// dd(1)\ndd(2);\n'})
+        unchecked = detect.Unchecked()
+        found = scan(rule(when_line_added=r'dd\(', not_in=['comment']), scope,
+                     unchecked=unchecked)
+    finally:
+        if old is None:
+            _os.environ.pop('CONVENTION_GUARD_NO_ENGINE', None)
+        else:
+            _os.environ['CONVENTION_GUARD_NO_ENGINE'] = old
+        loader.reset()
+        structure.reset_cache()
+    check('both matches are kept, the commented one too', len(found) == 2,
+          [c.line for c in found])
+    check('and the file is named with why', unchecked.reason('a.php') == 'engine_missing:disabled',
+          unchecked.reason('a.php'))
+    check('the notice says the engine is missing',
+          '구조 엔진 없음 (꺼짐)' in (report.unchecked_note(unchecked, short=True) or ''),
+          report.unchecked_note(unchecked, short=True))
+
+
 def main():
-    for case in (case_gate, case_not_in_line, case_in_scope_and_block_empty,
-                 case_unknown_is_recorded, case_stale_line, case_cap,
-                 case_every_match_on_the_line, case_requirement_outside_comments, case_unchecked_collector,
-                 case_notice, case_notice_is_attached,
+    for case in (case_gate, case_unchecked_collector, case_notice, case_notice_is_attached,
                  case_layer_failure_is_survivable, case_run_passes_the_collector,
-                 case_unchecked_ratio):
+                 case_engine_missing):
         case()
+    if needs_engine('detect + structure conditions'):
+        for case in (case_not_in_line, case_in_scope_and_block_empty, case_unknown_is_recorded,
+                     case_stale_line, case_cap, case_every_match_on_the_line,
+                     case_requirement_outside_comments, case_unchecked_ratio):
+            case()
     return finish('detect + structure conditions')
 
 

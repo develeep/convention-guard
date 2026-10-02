@@ -2,10 +2,10 @@
 """The performance harness still runs.
 
 No timing is asserted -- a machine-dependent threshold in the per-turn suite
-would fail for reasons that have nothing to do with the code. This only keeps
-`tests/perf/run.py` from rotting between the U1 spike and the U2 re-measure
-(NR-25).
+would fail for reasons that have nothing to do with the code (design §7 keeps
+the numbers as targets). This only keeps `tests/perf/run.py` from rotting.
 """
+import json
 import os
 import subprocess
 import sys
@@ -20,43 +20,23 @@ def case_harness_runs():
     with tempdir() as tmp:
         out = os.path.join(tmp, 'perf.json')
         proc = subprocess.run(
-            [sys.executable, os.path.join(ROOT, 'tests', 'perf', 'run.py'),
-             '--corpus', 'synthetic', '--max-lines', '100', '--json', out],
+            [sys.executable, os.path.join(ROOT, 'tests', 'perf', 'run.py'), '--quick',
+             '--json', out],
             capture_output=True, text=True, cwd=ROOT,
             env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
-        check('the harness exits cleanly', proc.returncode == 0,
-              proc.stderr.strip()[-300:])
+        check('the harness exits cleanly', proc.returncode == 0, proc.stderr.strip()[-300:])
         check('it writes a result file', os.path.exists(out))
-        if os.path.exists(out):
-            import json
-            payload = json.load(open(out, encoding='utf-8'))
-            check('the result carries the fields U2 compares against',
-                  {'stage', 'env', 'budget', 'rows'} <= set(payload),
-                  str(sorted(payload)))
-            check('the environment is recorded',
-                  {'python', 'platform', 'baseline_commit'} <= set(payload['env']))
-
-
-def case_end_to_end_stage_exists():
-    """The gate B path imports and parses; it is not run here (minutes long)."""
-    print('case_end_to_end_stage_exists:')
-    proc = subprocess.run(
-        [sys.executable, '-c',
-         'import sys; sys.path.insert(0, %r); import rig, run; '
-         'print(hasattr(run, "end_to_end_rows"), hasattr(rig, "rules_with_conditions"))'
-         % os.path.join(ROOT, 'tests', 'perf')],
-        capture_output=True, text=True, cwd=ROOT,
-        env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
-    check('the end_to_end stage and its rig import cleanly',
-          proc.returncode == 0 and 'True True' in proc.stdout,
-          (proc.stdout + proc.stderr).strip()[-300:])
-
-
-def main():
-    case_harness_runs()
-    case_end_to_end_stage_exists()
-    return finish('perf harness smoke')
+        if not os.path.exists(out):
+            return
+        payload = json.load(open(out, encoding='utf-8'))
+        check('the four numbers are there',
+              {'stop', 'edit_pre', 'edit_post', 'bash_pre', 'bash_post', 'gate'}
+              <= set(payload['rows']), sorted(payload['rows']))
+        check('the environment is recorded', {'python', 'platform', 'commit'} <= set(payload['env']))
+        check('the gate turn found its candidate', 'php-no-debug-output' in payload['gate_output']
+              or 'error' in payload['gate_output'], payload['gate_output'])
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    case_harness_runs()
+    sys.exit(finish('perf harness smoke'))

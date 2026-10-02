@@ -88,7 +88,7 @@ def _trimmed(match):
             match.end() - (len(text) - len(text.rstrip())))
 
 
-def _window(rule, relpath, body, match, start, end):
+def _window(rule, relpath, body, match, start, end, unchecked=None):
     """The lines a change has to touch for this file match to be its doing.
 
     The match itself, except for `block_empty`: what it judges is the block,
@@ -101,6 +101,9 @@ def _window(rule, relpath, body, match, start, end):
     try:
         analysed = structure.analyze(body, structure.language_of(relpath))
         if not analysed.ok or not analysed.scope_supported:
+            # where the block ends is unknown, so a change inside it could be
+            # missed: the file is named, never passed in silence (design §4.6)
+            _note(unchecked, relpath, analysed.reason or 'no_scope')
             return start, end
         node = structure_conditions.judged_block(analysed, Span(match.start(), match.end()))
     except Exception:       # noqa: BLE001 -- as in judge(): the hook outlives the layer
@@ -150,6 +153,8 @@ def _verdict(rule, relpath, lineno, span, source, unchecked):
 
 
 def _why_unknown(rule, analysed):
+    if analysed.errors:
+        return 'parse_error'
     if not analysed.scope_supported:
         return 'no_scope:%s' % (analysed.language or 'unknown')
     return analysed.reason or 'internal_error:Unknown'
@@ -267,7 +272,7 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
                 start = body.count('\n', 0, lo) + 1
                 end = body.count('\n', 0, hi) + 1
                 if not is_new:
-                    first, last = _window(rule, relpath, body, match, start, end)
+                    first, last = _window(rule, relpath, body, match, start, end, unchecked)
                     # an added line inside, or a removal between two lines inside
                     if not (any(first <= n <= last for n in touched_lines)
                             or any(first <= n < last for n in seams)):

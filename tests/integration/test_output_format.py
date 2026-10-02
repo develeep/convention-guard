@@ -21,7 +21,7 @@ from helpers import (LARAVEL_COMPOSER, SCRIPTS, Session, check, finish,  # noqa:
                      isolated_env, make_repo, run_script, tempdir, write)
 from helpers import outfmt  # noqa: E402
 from helpers.fixtures import laravel_repo  # noqa: E402
-from lib import report  # noqa: E402
+from lib import report, structure  # noqa: E402
 import test_autofix as taf  # noqa: E402
 import test_semantic_review as tsr  # noqa: E402
 
@@ -97,8 +97,10 @@ def case_hook_notices(tmp):
     repo = php_repo(tmp, 'mode: report\n', 'report')
     s = Session(repo, os.path.join(tmp, 'data-r'), 'rep')
     rec = s.turn(A, body(), 'p1')
-    check('report 알림 모양', rec['summary'] == 'convention-guard ✖ 기록 — error 1 · 차단 안 함: mode=report',
-          repr(rec['summary']))
+    shape = 'convention-guard ✖ 기록 — error 1 · 차단 안 함: mode=report'
+    if not structure.engine().ok:     # the condition could not be applied: said after it
+        shape += ' · 구조 엔진 없음 (꺼짐) — 구조 미확인 1개 파일 (%s)' % A
+    check('report 알림 모양', rec['summary'] == shape, repr(rec['summary']))
     repo = php_repo(tmp, 'mode: nope\n', 'bad')
     s = Session(repo, os.path.join(tmp, 'data-b'), 'bad')
     bad = s.turn(A, body(), 'p1')
@@ -109,7 +111,8 @@ def case_hook_notices(tmp):
     s = Session(repo, os.path.join(tmp, 'data-u'), 'unck')
     joined = s.turn(A, broken, 'p1')
     check('노트 결합: 접두사 한 번, · 로 이음',
-          joined['summary'].count('convention-guard') == 1 and ' · 구조 미확인 1개 파일' in joined['summary'],
+          joined['summary'].count('convention-guard') == 1 and ' · 구조 ' in joined['summary']
+          and '구조 미확인 1개 파일' in joined['summary'],
           repr(joined['summary']))
 
 

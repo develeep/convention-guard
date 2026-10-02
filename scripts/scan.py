@@ -14,7 +14,8 @@ turning the hook on.
     python3 scan.py --fail-on warn         # CI 종료 코드 기준
 
 Exit codes: 0 pass, 1 findings at or above --fail-on (or, with
---fail-on-pending, candidates nobody judged), 2 unable to inspect.
+--fail-on-pending, candidates nobody judged), 2 unable to inspect (with
+--require-engine: also when the structure engine was missing).
 """
 
 import argparse
@@ -78,6 +79,9 @@ def parse_args(argv=None):
     parser.add_argument('--fail-on-pending', action='store_true',
                         help='--review 에서 판정이 남은 후보가 있으면 종료 코드 1. '
                              '리뷰어를 돌릴 수 없는 CI 가 "판정 못 함"을 통과로 읽지 않게 합니다')
+    parser.add_argument('--require-engine', action='store_true',
+                        help='구조 엔진이 없어 구조 조건을 확인하지 못했으면 종료 코드 2. '
+                             'CI 에서 "확인 못 함" 을 통과로 읽지 않게 합니다 (먼저 engine.py ensure)')
     parser.add_argument('--cwd', help='레포 경로 (기본: 현재 디렉터리)')
     return parser.parse_args(argv)
 
@@ -168,8 +172,14 @@ def main(argv=None):
     threshold = RANK[args.severity]
     shown = [h for h in hits if RANK.get(h[0]['severity'], 9) <= threshold]
 
+    unread = [f for f in result.unchecked.files()
+              if (result.unchecked.reason(f) or '').startswith('engine_missing:')]
     if load_errors:
         code = EXIT_UNINSPECTABLE
+    elif args.require_engine and unread:
+        code = EXIT_UNINSPECTABLE
+        fmt.eprint('error', '구조 엔진이 없어 %d개 파일의 구조 조건을 확인하지 못했습니다 — '
+                   'engine.py ensure 로 설치한 뒤 다시 실행하세요' % len(unread))
     elif args.fail_on_pending and review and (review['candidates'] or review['deferred']):
         code = EXIT_FINDINGS
     elif args.fail_on == 'never':

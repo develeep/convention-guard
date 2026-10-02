@@ -44,6 +44,10 @@ def main():
     # store: give the whole run its own data dir, never this machine's
     data = tempfile.mkdtemp(prefix='cg-tests-')
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', CLAUDE_PLUGIN_DATA=data)
+    # the development engine (python3 scripts/engine.py ensure --dir .engine)
+    local = os.path.join(ROOT, '.engine')
+    if 'CONVENTION_GUARD_ENGINE_DIR' not in env and os.path.isdir(local):
+        env['CONVENTION_GUARD_ENGINE_DIR'] = local
     try:
         return _run(args, env)
     finally:

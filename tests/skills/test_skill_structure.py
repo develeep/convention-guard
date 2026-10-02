@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 from helpers import ROOT, check, finish  # noqa: E402
 from lib import rules as rulelib  # noqa: E402
+from lib.rules import fixtures  # noqa: E402
 from lib.yamlio import load as yaml_load  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'rules'))
@@ -172,8 +173,11 @@ def check_example_rules():
             check('example %s loads' % rid, False, exc)
             continue
         hit = matcher(rule)
+        blind = not fixtures.engine_ready() and fixtures.structure_dependent(rule)
+        if blind and rule['kind'] in ('absent', 'requires'):
+            continue        # judged in the run with the engine
         ok = all(hit(s) for s in rule['tests'].get('match') or []) and \
-            not any(hit(s) for s in rule['tests'].get('no_match') or [])
+            (blind or not any(hit(s) for s in rule['tests'].get('no_match') or []))
         check('example %s passes its own fixtures' % rid, ok)
 
 

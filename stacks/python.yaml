@@ -1,0 +1,5 @@
+id: python
+tags: [python]
+detect:
+  # 이 중 하나라도 레포 루트에 있으면 Python 레포로 봅니다
+  file: [pyproject.toml, requirements.txt, setup.py, setup.cfg, Pipfile]

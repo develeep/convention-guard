@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import (LARAVEL_COMPOSER, Session, check, commit, finish, git,  # noqa: E402
                      make_repo, run_script, store_rows, tempdir, write)
+from lib import structure  # noqa: E402
 from lib.candidate import clip, fingerprint  # noqa: E402
 
 HDR = '<?php\ndeclare(strict_types=1);\nnamespace App;\n'
@@ -276,7 +277,12 @@ def case_deletion_only_turn(repo, data):
     commit(repo, 'legacy catch')
     s = Session(repo, data, 'deletion')
     result = s.turn(rel, catch % '', 'p1')
-    check('the emptied catch is reported', 'warn 1' in (result.get('summary') or ''), result)
+    if structure.engine().ok:
+        check('the emptied catch is reported', 'warn 1' in (result.get('summary') or ''), result)
+    else:
+        # where the block ends is unknown without the engine: named, not passed
+        check('without the engine the file is named instead',
+              '구조 엔진 없음' in (result.get('summary') or ''), result)
 
 
 def case_too_large_is_said(repo, data):

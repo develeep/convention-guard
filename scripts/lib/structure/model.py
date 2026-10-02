@@ -99,17 +99,19 @@ class FileStructure:
     still hold what was found before the failure, for diagnosis, but condition
     evaluation stops at `ok` and returns UNKNOWN without reading them.
 
-    `scope_supported` is a different thing: the language declares whether it
-    offers a scope tree at all. Blade is masked but not scoped, so `not_in`
-    works there while `in_scope` cannot (CQ2=B).
+    `scope_supported` is a different thing: whether a scope tree was built
+    at all. `errors` are the regions the parser could not read. A parser
+    reads left to right, so what it misread can change how everything after
+    it reads (an unclosed quote): a match at or after the first error is
+    UNKNOWN, a match before it is judged.
     """
 
     __slots__ = ('text', 'ok', 'reason', 'language', 'backend',
-                 'scope_supported', 'comments', 'strings', 'root', '_starts')
+                 'scope_supported', 'comments', 'strings', 'errors', 'root', '_starts')
 
     def __init__(self, text, ok=True, reason=None, language='', backend='',
                  scope_supported=True, comments=(), strings=(), root=None,
-                 starts=None):
+                 starts=None, errors=()):
         self.text = text
         self.ok = ok
         self.reason = reason
@@ -118,6 +120,7 @@ class FileStructure:
         self.scope_supported = scope_supported
         self.comments = tuple(comments)
         self.strings = tuple(strings)
+        self.errors = tuple(errors)
         self.root = root if root is not None else _empty_root(text)
         self._starts = starts if starts is not None else line_starts(text)
 
@@ -161,6 +164,10 @@ class FileStructure:
 
     def in_string(self, span):
         return self._inside(self.strings, span)
+
+    def in_error(self, span):
+        """Is the match at or after the first region the parser could not read?"""
+        return bool(self.errors) and max(span.end, span.start + 1) > self.errors[0].start
 
     @staticmethod
     def _inside(spans, span):
