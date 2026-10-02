@@ -1,11 +1,11 @@
-# 개발·테스트 전용 의존성. 플러그인 실행 경로(scripts/**, 훅, 스킬)는
-# 표준 라이브러리만 쓰므로 사용자는 아무것도 설치하지 않는다 (CON-01).
+# 개발·테스트 전용 의존성. 사용자는 이것을 설치하지 않는다: 플러그인 실행 경로는
+# 표준 라이브러리 + 플러그인이 스스로 설치하는 구조 엔진(tree-sitter, scripts/engine.py)이다.
 #
 #     python3 -m pip install -r requirements-dev.txt
 #
 hypothesis>=6.0
 coverage>=7.0
 
-# tests/unit/test_yaml_parity.py 는 PyYAML 이 없으면 조용히 건너뜁니다. 개발
-# 환경에 없으면 miniyaml 이 갈라진 것을 아무도 못 봅니다 (실제로 U3 에서 그랬음).
+# 플러그인은 내장 miniyaml 만 쓴다. PyYAML 은 tests/unit/test_yaml_parity.py 가 miniyaml 의
+# 정답지로 쓴다 — 없으면 그 비교를 건너뛰므로 개발 환경에는 둔다.
 PyYAML>=6.0

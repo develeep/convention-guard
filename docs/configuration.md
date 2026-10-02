@@ -8,6 +8,7 @@
 - limits
 - 린터 위임
 - userConfig
+- 환경 변수
 - 설정 오류
 
 ## 우선순위와 위치
@@ -31,13 +32,11 @@
 | `disable` | `[]` | 끌 규칙 id |
 | `severity` | `{}` | 규칙별 강도. `core/php-line-too-long: warn` |
 | `exclude` | `[]` | 검사하지 않을 경로 글롭. (400KB 넘는 파일과 앞 8KB 에 NUL 이 있는 바이너리는 설정과 관계없이 건너뛰고, 큰 파일은 "큰 파일 미검사"로 알립니다) 규칙과 같은 문법이고, 여기서는 `legacy/` 를 `legacy/**` 로, 앞의 `/` 를 레포 루트로 읽습니다 |
-| `scope.base_ref` | `''` | `auto` 면 기본 브랜치 merge-base 대비 변경도 합침 (세션 중 커밋한 변경 포함) |
 | `limits.max_error_rules` | 4 | 한 번에 보여줄 error 규칙 수 |
 | `limits.max_warn_rules` | 3 | 차단할 때 함께 보낼 warn 규칙 수 |
 | `limits.max_locations_per_rule` | 3 | 규칙당 위치 수 |
 | `limits.max_consecutive_blocks` | 3 | 한 요청 안의 연속 차단 상한. 새 요청이 시작되거나 차단할 것이 없는 턴에서 초기화 |
 | `limits.max_verify_attempts` | 1 | 검증에서 남은/새 위반으로 다시 차단하는 횟수 |
-| `collect.edit_tools` | `[]` | 파일을 쓰는 MCP 도구 이름(예: `mcp__filesystem__write_file`). 내장 Write/Edit/MultiEdit/NotebookEdit/Bash 는 항상 수집 |
 | `linters.enabled` | `true` | 스택별 린터 위임 |
 | `linters.timeout` | 90 | 린터 명령 하나당 초 |
 | `semantic_review.enabled` | `false` | 의미 판정 |
@@ -63,8 +62,8 @@
 `auto` 는 `common`, `security`, 그리고 감지된 스택 태그와 겹치는 프리셋입니다. `architecture`, `performance` 는 명시해야 켜집니다. 목록: [rules.md](rules.md#프리셋)
 
 ```yaml
-presets: [auto, performance]      # auto + N+1 의미 판정
-presets: [laravel, security]      # psr12 스타일 규칙은 빼고 싶을 때
+presets: [auto, architecture]     # auto + 계층 경계 의미 판정
+presets: [laravel, security]      # 고른 것만 (common·php·psr12 는 빠짐)
 ```
 
 ## limits
@@ -93,12 +92,11 @@ lint:
 |---|---|
 | `eslint-json` | `eslint --format=json` |
 | `phpstan-json` | `phpstan --error-format=json` |
-| `golangci-json` | `golangci-lint --out-format=json` |
 | `unix` | `file:line[:col]: message` |
 | `github` | `::error file=...,line=...` |
 | `diff` | 유니파이드 diff (`pint --test -v`, `php-cs-fixer --diff`) |
 
-파싱된 위치가 **변경된 줄**이면 차단하고, 같은 파일의 다른 줄이면 참고로만 전달합니다. `parse` 가 없거나 출력을 읽지 못하면 출력 전체로 차단합니다(진짜 실패를 버리는 것이 더 나쁘기 때문). `{dirs}` 는 변경 파일의 패키지 디렉터리로 바뀝니다 (`go vet {dirs}`).
+파싱된 위치가 **변경된 줄**이면 차단하고, 같은 파일의 다른 줄이면 참고로만 전달합니다. `parse` 가 없거나 출력을 읽지 못하면 출력 전체로 차단합니다(진짜 실패를 버리는 것이 더 나쁘기 때문). `{dirs}` 는 변경 파일의 디렉터리 목록으로 바뀝니다.
 
 `detect_stack.py` 가 린터마다 `= 참고: parse … — 변경 줄만 차단` / `= 참고: 출력 파싱 불가 — 전체 출력으로 차단` / `= 참고: 설치 안 됨 — 건너뜀` 을 보여줍니다.
 
@@ -112,6 +110,20 @@ lint:
 | `semantic_review` | `semantic_review.enabled` |
 | `log_dir` | `firings.jsonl` 위치 (레포 경로는 고르지 마세요 — git 에 잡힘) |
 
+4.0 에는 훅의 검사 범위를 넓히는 설정(3.x 의 `scope.base_ref`)과 수집할 MCP 도구 목록
+(3.x 의 `collect.edit_tools`)이 없습니다. 훅은 편집 사건 원장이 기록한 **에이전트가 쓴 줄**만
+검사하고, 모든 MCP 도구 호출을 관찰합니다. 브랜치 전체를 보려면 `scan.py --range <base>..HEAD`
+를 쓰세요. 남아 있는 옛 키는 "알 수 없는 설정 (무시)" 경고가 됩니다 (훅에서는 검사한 턴의 `검사 경고`).
+
+## 환경 변수
+
+| 변수 | 효과 |
+|---|---|
+| `CLAUDE_PLUGIN_DATA` | 상태 저장소(`convention-guard.db`)와 구조 엔진의 위치. Claude Code 가 훅에 넘깁니다. 없으면 `$XDG_CACHE_HOME/convention-guard`, 그다음 `~/.cache/convention-guard` |
+| `CONVENTION_GUARD_ENGINE_DIR` | 구조 엔진 설치 디렉터리 (기본: `$CLAUDE_PLUGIN_DATA/engine`) |
+| `CONVENTION_GUARD_NO_ENGINE` | 비어 있지 않으면(값과 무관 — `0` 도) 구조 엔진을 쓰지 않습니다 — 모든 구조 조건이 UNKNOWN 이 되고 "구조 엔진 없음 (꺼짐)" 으로 알립니다 |
+| `CONVENTION_GUARD_WHEELS` | 오프라인 설치: `lock.json` 에 적힌 휠을 둔 디렉터리. 다운로드 대신 여기서 설치하고 sha256 검사는 같습니다 |
+
 ## 설정 오류
 
 설정이 잘못되면 추측으로 검사하지 않습니다.
@@ -119,7 +131,7 @@ lint:
 | 상황 | 훅 | scan.py / detect_stack.py |
 |---|---|---|
 | config 파싱 실패, 알 수 없는 mode, 없는 프리셋 | 검사를 건너뛰고 사유를 알림 | 종료 코드 2 |
-| 0.x 키(`block_level`, `max_rules` 등) 또는 0.x 레이아웃 | 같음 — `migrate.py` 안내 | 같음 |
 | `dismissed.yaml` 파싱 실패 | 같음 — 기각을 무시한 채 검사하지 않음 | 같음 |
+| `dismissed.yaml` 에 `version: 4` 가 없음 (4.0 이전 형식) | 경고하고 그 기각은 적용하지 않음 | 같음 — `dismiss.py` 는 그 파일에 덧붙이지 않음 |
 | 규칙 파일 오류 | 같음 | 같음 |
-| 알 수 없는 키 | 경고만 (무시) | 경고 |
+| 알 수 없는 키 | 무시하고, 검사한 턴이면 `검사 경고` 로 알림 | 경고 |

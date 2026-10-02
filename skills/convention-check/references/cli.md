@@ -8,7 +8,7 @@
 | `--staged` | 스테이지된 변경 (본문도 index 에서 읽음) | 추가된 줄만 |
 | `--range A..B` | 리비전 범위 (본문은 B 에서 읽음) | 추가된 줄만 |
 | `--files a b` | 지정 파일 전체 | 파일 전체를 새 파일로 취급 |
-| `--all` | 추적 중인 모든 텍스트 파일 | 파일 전체를 새 파일로 취급 |
+| `--all` | 추적 중인 파일과 무시되지 않은 새 파일, 그중 텍스트 파일 전부 | 파일 전체를 새 파일로 취급 |
 
 `--base-ref <ref>` (워킹 트리 전용): HEAD 대비 변경에 `<ref>` 대비 변경을 합칩니다. 세션 중에 커밋해 버린 변경까지 보려면 `--base-ref auto` (기본 브랜치와의 merge-base).
 
@@ -38,11 +38,14 @@
 ## CI
 
 ```yaml
+- run: python3 plugins/convention-guard/scripts/engine.py ensure
 - run: |
     python3 plugins/convention-guard/scripts/scan.py \
       --range "origin/${{ github.base_ref }}..HEAD" \
-      --fail-on error --no-color
+      --fail-on error --require-engine --no-color
 ```
+
+- `engine.py ensure` 가 구조 엔진(tree-sitter)을 설치합니다. `--require-engine` 은 엔진 없이 구조 조건을 건너뛴 결과를 통과로 읽지 않게 합니다 (종료 코드 2).
 
 - shallow clone 이면 base ref 가 없어 종료 코드 2 가 납니다. `fetch-depth: 0` 이나 base 브랜치 fetch 가 필요합니다.
 - 도입 초기에는 `--fail-on never` 로 리포트만 남기고, 로그를 본 뒤 `error` 로 올립니다.

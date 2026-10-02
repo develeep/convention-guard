@@ -97,7 +97,7 @@ core 규칙은 레포에서 `override: core/<id>` 파일로 좁힙니다 (형식
 ```
 기간: 최근 21일 · 이벤트 1,204건
 손본 규칙:
-- core/next-no-public-secret: 기각 5건(공개 키) → no_match 3개 추가, _KEY 대안 제거 · 전수조사 41→3건
+- core/no-hardcoded-secret: 기각 5건(테스트 픽스처 키) → no_match 3개 추가 · 전수조사 41→3건
 승격: core/laravel-controller-needs-validation warn→error (수정률 86%, 14건)
 보류(데이터 부족): core/nest-no-raw-req-res, core/react-no-index-key
 모드: report 유지 — laravel-no-query-in-blade 수정률 41%

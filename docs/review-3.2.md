@@ -1,5 +1,7 @@
 # convention-guard 탐색·판정 로직 리뷰 (master HEAD `889c2f9`, 3.2.0)
 
+> **3.2 시점의 기록입니다.** 코드 주석의 `(R3)`·`(R12)` 같은 번호가 이 문서를 가리킵니다. 구조·파일 이름은 3.x 기준이라 4.0 과 다릅니다 — 현재 구조는 [architecture.md](architecture.md).
+
 - 분석 대상: `git archive HEAD` 사본. 작업 트리의 커밋되지 않은 변경은 보지 않았습니다. 그 변경에는 `foreign-<session>.jsonl` 기준선, 수정된 `hooks.json`·`scope.py`·`state.py` 가 들어 있습니다.
 - 인용은 전부 `경로:줄` 형식이고 HEAD 사본 기준입니다.
 - 재현 파일은 모두 세션 스크래치패드 `…/scratchpad/` 아래에 있습니다. 경로는 항목마다 적었습니다.

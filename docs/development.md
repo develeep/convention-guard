@@ -2,99 +2,99 @@
 
 ## 목차
 - 원칙
+- 준비
 - 테스트
 - 규칙을 바꿀 때
 - 엔진을 바꿀 때
+- 구조 엔진을 바꿀 때
 - 스킬과 에이전트를 바꿀 때
 - 줄바꿈과 실행
 - 릴리스
 
 ## 원칙
 
-- 배포되는 실행 경로는 외부 의존성 0. PyYAML 이 있으면 쓰고, 없으면 `scripts/lib/miniyaml.py`
-- Python 3.9 호환 (구문·표준 라이브러리)
-- 훅은 절대 에이전트를 깨뜨리지 않습니다. 훅 스크립트는 자기 버그에도 종료 코드 0
-- 결정은 `scripts/lib` 에, 진입점(`scripts/*.py`)은 인자·입출력만
+- 핵심 네 가지: 훅이 위반을 차단하고 수정 → 재검증을 돌린다 · 에이전트가 쓴 줄만 검사한다 · 훅은 자기 버그로 에이전트를 깨뜨리지 않되 읽지 못한 것을 통과로 처리하지 않는다 · 위반 후보가 없으면 AI 호출은 0이다
+- Python 3.10 이상. 실행 경로는 표준 라이브러리 + 플러그인이 스스로 설치하는 구조 엔진(tree-sitter)뿐입니다. YAML 은 내장 `miniyaml` 하나만 씁니다
+- 결정은 `scripts/lib` 에, 진입점(`scripts/*.py`)은 인자·입출력만. Stop 의 결정은 순수 함수 `lib/decide.py` 에 있습니다
+
+## 준비
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt     # hypothesis, coverage, PyYAML (테스트 전용)
+python3 scripts/engine.py ensure --dir .engine              # 개발용 구조 엔진 (.gitignore)
+```
+
+`tests/run_all.py` 는 `.engine/` 이 있으면 `CONVENTION_GUARD_ENGINE_DIR` 로 씁니다. 엔진은 인터프리터마다(cp310, cp312 …) 따로 설치됩니다 — 다른 버전으로 테스트하려면 그 버전으로 `engine.py ensure --dir .engine` 을 한 번 더 돌립니다.
 
 ## 테스트
 
-테스트 전용 의존성(`hypothesis`, `coverage`)이 있어 가상환경을 씁니다. 최근 배포판은 시스템 파이썬에 바로 설치하는 것을 막습니다 (PEP 668).
-
 ```bash
-python3 -m venv .venv                            # 최초 1회
-source .venv/bin/activate
-python3 -m pip install -r requirements-dev.txt
+.venv/bin/python tests/run_all.py                                  # 엔진 있음
+CONVENTION_GUARD_NO_ENGINE=1 .venv/bin/python tests/run_all.py     # 엔진 없음
+.venv/bin/python tests/run_all.py --quiet                          # 실패한 스위트만
+.venv/bin/python tests/structure/test_accuracy.py                  # 스위트 하나 (pytest 아님, 종료 코드가 판정)
+.venv/bin/python tests/run_all.py --repo /path/to/repo             # 그 레포의 로컬 규칙 픽스처까지
 ```
 
-활성화한 뒤에는 평소대로 돌립니다.
+**두 번 돕니다.** 엔진 있음 실행은 모든 판정을, 엔진 없음 실행은 엔진이 없을 때의 약속(구조 조건은 UNKNOWN, 후보는 남고, "구조 엔진 없음" 으로 알림)을 확인합니다. 구조 판정에 기대는 사례는 `helpers.needs_engine()` 로 묶여 있어서, 엔진 없음 실행에서는 건너뛰고 그 개수를 출력합니다. 엔진 없이 **실수로** 돌리면(`CONVENTION_GUARD_NO_ENGINE` 없이 엔진이 없음) 실패합니다.
 
-```bash
-python3 tests/run_all.py                         # 전체 (tests/**/test_*.py 자동 탐색)
-CONVENTION_GUARD_NO_PYYAML=1 python3 tests/run_all.py   # 내장 파서로 한 번 더
-python3 tests/run_all.py --repo /path/to/repo   # 그 레포의 로컬 규칙 픽스처까지
-```
+`run_all.py` 는 실행마다 임시 `CLAUDE_PLUGIN_DATA` 를 줍니다. `helpers.isolated_env` 가 HOME·데이터 디렉터리를 격리하므로 이 머신의 사용자 규칙이나 상태가 결과에 섞이지 않습니다.
 
-활성화 없이 경로로 불러도 됩니다. 스크립트나 CI 에서는 이쪽이 안전합니다.
-
-```bash
-.venv/bin/python tests/run_all.py
-```
-
-`requirements-dev.txt` 는 **테스트 전용**입니다. 설치하지 않으면 속성 기반 테스트 스위트가 실패합니다 -- 건너뛰지 않습니다. 돌지 않은 속성이 통과한 속성처럼 보이면 안 되기 때문입니다. 배포되는 실행 경로(`scripts/**`, 훅, 스킬)는 이 패키지들을 임포트하지 않으므로 **사용자는 아무것도 설치하지 않습니다**.
-
-커버리지는 `tests/run_all.py` 가 스위트를 서브프로세스로 띄우므로 병렬 모드가 필요합니다.
+커버리지는 스위트를 서브프로세스로 띄우므로 병렬 모드가 필요합니다.
 
 ```bash
 export COVERAGE_PROCESS_START=$PWD/.coveragerc COVERAGE_FILE=$PWD/.coverage
 .venv/bin/python -m coverage run --parallel-mode tests/run_all.py
 .venv/bin/python -m coverage combine
-.venv/bin/python -m coverage report --include='*/lib/structure/*'
+.venv/bin/python -m coverage report --include='*/lib/*'
 ```
 
-두 변수가 다 필요합니다. `COVERAGE_PROCESS_START` 가 없으면 자식이 측정을 시작하지
-않고, `COVERAGE_FILE` 이 없으면 통합 테스트의 자식이 **임시 디렉터리**에 측정치를
-남기고 사라집니다. 어느 쪽이든 숫자가 **조용히** 낮게 나옵니다 — U4 에서 63% 로
-보이던 것이 실제로는 92% 였습니다.
-브랜치가 바꾼 줄만 보려면:
+두 변수가 다 필요합니다. 하나라도 없으면 숫자가 **조용히** 낮게 나옵니다.
+
+성능은 매 실행에 끼지 않습니다 (목표이지 실패 조건이 아님 — [design-4.0.md](design-4.0.md) §7).
 
 ```bash
-.venv/bin/python -m coverage json -o coverage.json
-.venv/bin/python tests/helpers/diff_coverage.py coverage.json --base <유닛 시작 커밋>
-```
-
-성능 하네스는 매 실행에 끼지 않습니다 (`tests/run_all.py` 는 `test_*.py` 만 모읍니다). 개발 의존성도 필요 없습니다.
-
-```bash
-python3 tests/perf/run.py --corpus both
+python3 tests/perf/run.py                       # stop / stop_gated / edit·bash pre·post / gate / engine_import / analyze_*
+python3 tests/perf/run.py --json out.json
+python3 tests/perf/fp_reduction.py              # 구조 조건이 걸러 내는 오탐 수
 ```
 
 | 디렉터리 | 내용 |
 |---|---|
-| `tests/unit/` | 설정·프리셋·오버라이드·스키마, PyYAML↔miniyaml 동등성 |
-| `tests/integration/` | 실제 훅 스크립트를 턴 단위로 구동 (검증 사이클, 의미 판정, 자동 수정, 기각, 마이그레이션, CLI 계약, 린터 앵커링, 패리티) |
+| `tests/unit/` | 설정·스키마, `decide()` 전이 표, 원장 `apply()` 표, 저장소, 엔진 설치기, 버전 가드, miniyaml↔PyYAML |
+| `tests/integration/` | 실제 훅 스크립트를 턴 단위로 구동 (검증 사이클, 원장 시나리오, 의미 판정, 자동 수정, 기각, CLI 계약, 린터 앵커링, 출력 형식, 패리티) |
 | `tests/rules/` | 규칙 픽스처, 규칙 시나리오(`scenarios/`) |
-| `tests/semantic/` | 컨텍스트 팩 |
-| `tests/structure/` | 구조 인식 계층 -- 마스킹·스코프·조건 평가·속성·결정성·이관 패리티 |
+| `tests/semantic/` | 컨텍스트 팩, 판정 캐시 키 |
+| `tests/structure/` | 구조 정확도 사례(`cases/*.yaml`), 노드 대응표, 조건 평가, 결정성 |
 | `tests/perf/` | 성능 하네스 (자동 실행 대상 아님) |
 | `tests/skills/` | 스킬·에이전트 구조와 예시 검증, 스킬 평가 시나리오(`evals/`) |
-| `tests/helpers/` | 임시 git 레포, 격리된 환경의 훅 세션 실행기, 픽스처 레포 |
-
-테스트는 pytest 없이 스크립트로 실행되고 종료 코드가 판정입니다. `helpers.isolated_env` 가 HOME·데이터 디렉터리를 격리하므로 이 머신의 사용자 규칙이나 캐시가 결과에 섞이지 않습니다.
+| `tests/helpers/` | 임시 git 레포, 격리된 훅 세션 실행기, 픽스처 레포, 합성 코퍼스 |
 
 ## 규칙을 바꿀 때
 
 1. `tests.no_match` 에 오탐 사례를 먼저 추가하고 실패를 확인
 2. 규칙 수정
-3. `python3 tests/rules/test_rule_fixtures.py`
+3. `.venv/bin/python tests/rules/test_rule_fixtures.py`
 4. 앵커가 `when_line_added` 단독이 아니면 `tests/rules/scenarios/` 시나리오 추가·수정
-5. `python3 tests/integration/test_parity.py` — 결과가 바뀌었으면 의도한 변화인지 확인 후 `--update` 로 골든 갱신하고 **같은 커밋에** 포함
+5. `tests/integration/test_parity.py` — 결과가 바뀌었으면 의도한 변화인지 확인 후 `--update` 로 골든 갱신하고 **같은 커밋에** 포함
 6. 새 core 규칙은 `presets/*.yaml` 에 추가 (안 하면 픽스처 테스트가 실패)
+
+구조 조건이 있는 규칙의 픽스처는 **파서가 읽을 수 있는 완결된 코드**여야 합니다 (`} catch (...) {` 조각이 아니라 `try { … } catch …`, 메서드는 클래스 안에). PHP 조각에는 `<?php` 가 자동으로 붙습니다 (조각이 `<?` 로 시작하면 붙이지 않음).
 
 ## 엔진을 바꿀 때
 
 - 패리티 골든(`tests/integration/golden/parity.json`)이 바뀌면 모든 사용자의 지적 결과가 바뀝니다. 골든 diff 를 커밋 메시지에서 설명하세요
-- Stop 훅 동작 변경은 `test_hook_cycle.py` 에 턴 시나리오로 추가
-- 성능: 60개 파일 변경·후보 0건 Stop 훅이 ~60ms 수준입니다. 파일마다 git 프로세스를 띄우는 변경은 피하세요 (`gitdiff.diff_lines` 는 200개 단위 배치)
+- Stop 의 전이를 바꾸면 `tests/unit/test_decide.py` 에 행을 추가하고, 턴 단위 동작은 `test_hook_cycle.py` 에 시나리오로
+- 원장(줄 출처)을 바꾸면 `tests/unit/test_ledger.py` 표와 `tests/integration/test_ledger_scenarios.py`
+- `decide.py`·`batch.py`·`candidate.py` 는 외부와 닿는 모듈을 임포트하지 않습니다 (`test_decide.case_pure` 가 강제)
+- 수집 훅(`collect.py`)은 매 도구 호출마다 돕니다. 원장 모듈 밖을 임포트하지 마세요
+
+## 구조 엔진을 바꿀 때
+
+- 노드 이름은 `scripts/lib/structure/nodes.py` 에만 둡니다 (`test_determinism` 이 강제)
+- 문법 버전을 올리려면 `scripts/lib/engine/install.py` 의 `PINS` 를 고치고 `python3 scripts/engine.py lock` 으로 `lock.json` 을 다시 만든 뒤, `tests/structure/test_nodes.py`(대응표 이름이 문법에 있는지)와 `test_accuracy.py` 를 돌립니다
+- 판정이 틀린 사례는 `tests/structure/cases/<언어>.yaml` 에 먼저 추가합니다
 
 ## 스킬과 에이전트를 바꿀 때
 
@@ -107,15 +107,21 @@ python3 tests/perf/run.py --corpus both
 - `rule-add/references/examples.md` 의 예시 규칙이 로드되고 자기 픽스처를 통과
 - 스킬마다 평가 시나리오 3개 이상 (`tests/skills/evals/<스킬>.json`)
 
-평가 시나리오는 자동 실행되지 않습니다. 스킬을 바꾸면 해당 시나리오를 Haiku·Sonnet·Opus 로 직접 돌려 `expected_behavior` 를 모두 만족하는지 확인하세요. 스킬 안의 경로는 `${CLAUDE_PLUGIN_ROOT}` 로 씁니다 (플러그인 로드 시 치환됨).
+평가 시나리오는 자동 실행되지 않습니다. 스킬 안의 경로는 `${CLAUDE_PLUGIN_ROOT}` 로 씁니다.
 
 ## 줄바꿈과 실행
 
-`.gitattributes` 가 텍스트 파일을 CRLF 로 체크아웃합니다. 그래서 스크립트는 항상 `python3 <경로>` 로 실행합니다 (shebang 직접 실행은 macOS·Linux 에서 동작하지 않음). YAML 파서 둘 다 CRLF 를 처리하고, 생성·수정하는 파일(`dismissed.yaml`, AGENTS.md, 자동 수정 대상)은 원래 파일의 줄바꿈을 따릅니다.
+`.gitattributes` 가 텍스트 파일을 CRLF 로 체크아웃합니다. 그래서 스크립트는 항상 `python3 <경로>` 로 실행합니다 (shebang 직접 실행은 동작하지 않음). 생성·수정하는 파일(`dismissed.yaml`, AGENTS.md, 자동 수정 대상)은 원래 파일의 줄바꿈을 따릅니다.
 
 ## 릴리스
 
-1. `python3 tests/run_all.py` 와 `CONVENTION_GUARD_NO_PYYAML=1` 실행 모두 통과
-2. `.claude-plugin/plugin.json` 과 `marketplace.json` 의 `version`
-3. 설정·규칙 형식이 바뀌었으면 `scripts/migrate.py` 와 `docs/migration-*.md`
-4. 실제 세션 점검: 임시 레포에서 `claude --plugin-dir <이 레포>` 로 차단 → 수정 → 검증 통과, 의미 판정 요청 → 리뷰어 → 통과
+[design-4.0.md](design-4.0.md) §8.3 의 절차입니다.
+
+1. `python3 scripts/engine.py ensure --dir .engine`
+2. `.venv/bin/python tests/run_all.py` — 엔진 있음
+3. `CONVENTION_GUARD_NO_ENGINE=1 .venv/bin/python tests/run_all.py` — 엔진 없음
+4. 하한 인터프리터: `uv run --no-project --python 3.10 python scripts/engine.py ensure --dir .engine` 후 `uv run --no-project --python 3.10 --with hypothesis --with pyyaml python tests/run_all.py`
+5. `python3 scripts/engine.py verify-lock` — lock 의 모든 휠이 PyPI 와 같은지 (네트워크)
+6. `python3 tests/perf/run.py` — 목표 값 기록
+7. 실제 세션 점검: 임시 레포에서 `claude -p --plugin-dir <이 레포>` 로 위반 → 차단 → 수정 → 재검증 통과
+8. `.claude-plugin/plugin.json` 과 `marketplace.json` 의 `version` 을 **둘 다** 올림. 커밋 제목은 `release: X.Y.Z — <한 줄>`

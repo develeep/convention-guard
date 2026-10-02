@@ -1,5 +1,7 @@
 # review-3.2 수정 진행
 
+> **3.2 시점의 기록입니다.** 코드 주석의 `(R3)`·`(R12)` 같은 번호가 이 문서를 가리킵니다. 구조·파일 이름은 3.x 기준이라 4.0 과 다릅니다 — 현재 구조는 [architecture.md](architecture.md).
+
 - 보고서: `docs/review-3.2.md` (기준 커밋 `889c2f9`, 3.2.0)
 - 브랜치: `fix/review-3.2` (master `889c2f9` 에서 분기)
 - 보관: `stash@{0}` "pre-review-3.2 작업 트리" (foreign 기준선 미커밋 작업 + docs/design-review.md, skills-lock.json)

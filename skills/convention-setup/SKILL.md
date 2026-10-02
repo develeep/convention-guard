@@ -34,7 +34,7 @@ description: 레포에 convention-guard 를 처음부터 도입합니다. 스택
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/detect_stack.py"
 ```
 
-- `stacks` 가 비었다: 마커 파일(`composer.json`, `package.json`)이 루트에 없는 레포입니다. 3단계에서 `stacks:` 로 지정합니다.
+- `stacks` 가 비었다: 마커 파일(`composer.json`, `package.json`, `pyproject.toml`, `requirements.txt`)이 루트에 없는 레포입니다. 3단계에서 `stacks:` 로 지정합니다.
 - 린터 아래 `= 참고: 출력 파싱 불가 — 전체 출력으로 차단`: 이번 변경과 무관한 기존 에러로도 차단됩니다. `${CLAUDE_PLUGIN_ROOT}/stacks/*.yaml` 에 `parse:` 가 필요하다고 사용자에게 알리세요 (`${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` 의 린터 절).
 - stderr 의 `convention-guard: error:` 노트는 반드시 해결하고 넘어갑니다 (이때 종료 코드 2).
 
@@ -47,7 +47,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" init            # 1단계에서
 
 초안은 `mode: report` 입니다. 도입 초기에는 차단 없이 기록만 쌓는 것이 기본값입니다.
 
-`init` 이 종료 코드 2 로 `.claude/convention-rules` 가 있다고 멈추면, 그 디렉터리를 치울지 사용자에게 알리고 멈춥니다.
+`init` 이 종료 코드 1 로 "이미 있습니다" 하고 멈추면 config.yaml 이 이미 있는 것입니다. 1단계에서 덮어쓰기로 정하지 않았다면 사용자에게 알리고 멈춥니다.
 
 ### 4. 측정 → 조정 → 재측정
 

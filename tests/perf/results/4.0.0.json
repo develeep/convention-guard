@@ -1,0 +1,31 @@
+{
+ "stage": "perf-4.0",
+ "files": 60,
+ "env": {
+  "python": "3.12.3",
+  "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "commit": "9b11bf8"
+ },
+ "targets": {
+  "stop": 60.0,
+  "edit_pre": 25.0,
+  "edit_post": 25.0,
+  "bash_pre": 35.0,
+  "bash_post": 35.0
+ },
+ "rows": {
+  "stop": 53.5,
+  "edit_pre": 24.7,
+  "edit_post": 24.8,
+  "bash_pre": 27.2,
+  "bash_post": 27.2,
+  "stop_gated": 115.0,
+  "gate": 64.7,
+  "engine": true,
+  "engine_import": 19.1,
+  "analyze_php_1000": 7.3,
+  "analyze_js_1000": 5.8,
+  "analyze_py_1000": 4.2
+ },
+ "gate_output": "{\"systemMessage\": \"convention-guard ✖ 기록 — error 1 · 차단 안 함: mode=report\"}\n"
+}

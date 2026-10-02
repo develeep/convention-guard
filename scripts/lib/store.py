@@ -86,21 +86,38 @@ def connect(db_path=None):
     conn = _connections.get(target)
     if conn is not None:
         return conn
-    try:
-        conn = sqlite3.connect(target, timeout=BUSY_MS / 1000.0, isolation_level=None)
-        conn.execute('PRAGMA busy_timeout=%d' % BUSY_MS)
-        # WAL lets readers and the one writer overlap. A file system that
-        # cannot do it (some network mounts) answers with another mode; the
-        # default journal is slower, not wrong.
-        conn.execute('PRAGMA journal_mode=WAL')
-        conn.execute('PRAGMA synchronous=NORMAL')
-        fresh = _prepare(conn)
-    except sqlite3.Error as exc:
-        raise StoreError('상태 저장소를 열 수 없습니다 (%s): %s' % (target, exc))
+    deadline = time.monotonic() + BUSY_MS / 1000.0
+    while True:
+        conn = None
+        try:
+            conn = sqlite3.connect(target, timeout=BUSY_MS / 1000.0, isolation_level=None)
+            conn.execute('PRAGMA busy_timeout=%d' % BUSY_MS)
+            # WAL lets readers and the one writer overlap. A file system that
+            # cannot do it (some network mounts) answers with another mode; the
+            # default journal is slower, not wrong.
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA synchronous=NORMAL')
+            fresh = _prepare(conn)
+            break
+        except sqlite3.Error as exc:
+            if conn is not None:
+                conn.close()
+            # Many processes opening a new database at once: the switch to
+            # WAL can answer "locked" without waiting (SQLite refuses to wait
+            # where waiting could deadlock). Try again until the same budget.
+            if _locked(exc) and time.monotonic() < deadline:
+                time.sleep(0.01 + (os.getpid() % 7) * 0.005)
+                continue
+            raise StoreError('상태 저장소를 열 수 없습니다 (%s): %s' % (target, exc))
     if fresh:
         _clear_legacy(os.path.dirname(target))
     _connections[target] = conn
     return conn
+
+
+def _locked(exc):
+    text = str(exc).lower()
+    return 'locked' in text or 'busy' in text
 
 
 def close_all():

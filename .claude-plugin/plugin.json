@@ -2,8 +2,8 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "convention-guard",
   "displayName": "Convention Guard",
-  "version": "3.3.0",
-  "description": "AI 에이전트가 작업을 끝낼 때마다 이번 변경분이 팀 컨벤션을 지켰는지 검사하고, 고친 뒤 다시 검증합니다. 변경 앵커 기반 결정론 탐지, 후보가 있을 때만 서브에이전트에 맡기는 의미 판정, 오탐 기각 기록, 자동 수정, 규칙 건강도 튜닝. Laravel·Next·Nest·Go 규칙 번들, 수동 실행과 CI 지원.",
+  "version": "4.0.0",
+  "description": "AI 에이전트가 작업을 끝낼 때마다 에이전트가 쓴 줄이 팀 컨벤션을 지켰는지 검사하고, 고친 뒤 다시 검증합니다. 편집 사건 원장으로 줄의 출처를 기록하고, tree-sitter 로 주석·문자열·구조를 판정하며, 후보가 있을 때만 서브에이전트에 의미 판정을 맡깁니다. 오탐 기각 기록, 자동 수정, 규칙 건강도 튜닝. Laravel·Next·Nest·React·Python 규칙 번들, 수동 실행과 CI 지원.",
   "author": {
     "name": "shlee",
     "email": "seunghoonlee0508@gmail.com"
@@ -22,7 +22,8 @@
     "laravel",
     "nextjs",
     "nestjs",
-    "golang"
+    "python",
+    "tree-sitter"
   ],
   "userConfig": {
     "report_only": {

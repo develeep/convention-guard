@@ -21,6 +21,8 @@
 
 ## 파일 형식
 
+규칙 파일은 내장 YAML 파서(`miniyaml`)로 읽습니다. PyYAML 이 있어도 쓰지 않으므로 기기마다 다르게 읽히는 일이 없습니다. 대신 여러 줄에 걸친 흐름 목록(`[a,\n b]`)은 읽지 못하니 블록 목록(`- a`)으로 쓰세요.
+
 필드 설명과 검증 규칙 전체는 `skills/rule-add/references/schema.md`, 앵커별 완성 예시는 `skills/rule-add/references/examples.md` 에 있습니다. 두 문서의 예시는 테스트가 실제로 로드해 검증합니다.
 
 ```yaml
@@ -54,9 +56,10 @@ tests:
 
 규칙이 레거시 코드에 반응하면 도입 2주 만에 꺼집니다. 그래서 앵커마다 "이번 변경"의 정의가 다릅니다.
 
-"추가된 줄"은 `git diff --diff-algorithm=histogram` 기준입니다. 사용자의 `diff.algorithm` 설정과 관계없이 같은 변경은 같은 줄로 읽습니다.
+"추가된 줄"은 진입점마다 다르게 정해집니다.
 
-파일을 옮기는 것은 쓰는 것이 아닙니다. `git mv`(유사도 70% 이상)는 바뀐 줄만, 내용 그대로의 `mv` 는 아무 줄도 추가하지 않고, 둘 다 새 파일이 아닙니다(옮기면서 고친 untracked 파일은 새 파일로 읽힙니다). 세션 중에 커밋한 새 파일, 커밋이 없던 레포에서 시작한 세션의 파일은 계속 새 파일입니다.
+- **훅**: 편집 사건 원장이 기록한 **에이전트가 쓴 줄**입니다 ([architecture.md](architecture.md#편집-사건-원장)). 사람이 쓴 줄, 원래 있던 줄, 남의 커밋이 들여온 줄은 들지 않습니다. 같은 도구 호출에서 지웠다가 다시 쓴 줄(줄 이동, `mv`)은 쓴 줄이 아니고, 옮겨 온 파일은 새 파일이 아닙니다. 커밋해도 출처는 그대로입니다.
+- **CLI**(`scan.py`): `git diff --diff-algorithm=histogram` 기준입니다. 사용자의 `diff.algorithm` 설정과 관계없이 같은 변경은 같은 줄로 읽습니다. `git mv`(유사도 70% 이상)는 바뀐 줄만, 내용 그대로의 `mv` 는 아무 줄도 추가하지 않습니다.
 
 | detect | kind | 이번 변경의 책임 |
 |---|---|---|
@@ -79,9 +82,9 @@ tests:
 
 `fix.auto` 가 있는 규칙은 `mode: auto-fix` 와 `scan.py --fix` 에서 후보 줄만 자동 수정됩니다. 탐지 이후 줄이 바뀌었거나 수정해도 규칙에 걸리면 적용하지 않습니다. UTF-8 로 읽히지 않는 파일은 고치지 않고, 고친 줄 말고는 줄바꿈(LF·CRLF 섞임 포함)까지 바이트 그대로 둡니다.
 
-## 구조 조건: 매치가 무엇 안에 있는가 (3.0)
+## 구조 조건: 매치가 무엇 안에 있는가
 
-앵커가 "이번 변경의 책임"을 정하고, 구조 조건은 그 매치를 **거릅니다**. 정규식만으로는 주석 안의 `dd(` 와 진짜 `dd(` 를 구분할 수 없습니다.
+앵커가 "이번 변경의 책임"을 정하고, 구조 조건은 그 매치를 **거릅니다**. 정규식만으로는 주석 안의 `dd(` 와 진짜 `dd(` 를 구분할 수 없습니다. 구조는 tree-sitter 구문 트리로 판정합니다 (플러그인이 스스로 설치하는 구조 엔진 — [architecture.md](architecture.md#구조-엔진)).
 
 ```yaml
 detect:
@@ -92,30 +95,33 @@ detect:
 | 조건 | 값 | 의미 | 쓸 수 있는 앵커 |
 |---|---|---|---|
 | `not_in` | `comment`, `string` | 그 구간 안의 매치를 제외 | line / requires / file |
-| `in_scope` | `loop`, `function`, `class`, `catch` | 나열한 스코프의 **본문**에 **모두** 속한 매치만 인정 | line / requires / file |
+| `in_scope` | `loop`, `function`, `class`, `catch` | 나열한 범위의 **본문**에 **모두** 속한 매치만 인정 | line / requires / file |
 | `block_empty` | `true` | 매치를 감싸는 블록 본문이 공백뿐일 때만 인정 | **file 만** |
 
 - 값 하나는 목록 없이 써도 됩니다: `not_in: comment`
+- 정규식이 먼저 돕니다. 구조 조건이 있는 규칙의 매치가 있는 파일만 파싱하고, 매치가 없으면 엔진은 임포트조차 하지 않습니다
 - line·requires 앵커는 줄의 **모든** 매치를 봅니다. 하나라도 조건을 통과하면 그 줄이 후보입니다. 그래서 `$label = "dd("; dd($user);` 는 앞의 문자열 매치가 걸러져도 뒤의 호출로 걸립니다
-- `in_scope` 는 블록 **본문**(중괄호 안, Python 은 헤더 다음 줄부터)만 안으로 봅니다. `for (const x of await load()) {` 의 `await load()` 와 `} b();` 의 `b()` 는 loop 밖입니다. 그래서 트리거가 헤더 줄 자체인 규칙(`foreach (` 를 찾는 규칙)에 `in_scope: loop` 를 붙이면 아무것도 걸리지 않습니다
-- `block_empty` 가 `file_regex` 전용인 이유는 블록이 중첩되면 "어느 블록"인지 모호해지기 때문입니다
-- `block_empty` 규칙은 매치가 아니라 **판정하는 블록 전체**를 변경 창으로 봅니다. 헤더만 잡는 패턴(`catch\s*\([^)]*\)\s*\{`)이어도, 레거시 catch 의 본문을 지우거나 빈 줄로 바꾸면 이번 변경의 책임입니다
-- `block_empty` 에서 **주석은 내용입니다** — 이유를 주석으로 남긴 `catch` 블록은 비어 있지 않습니다
+- `string` 은 리터럴 **텍스트**입니다: 문자열, 템플릿 리터럴, 정규식 리터럴, heredoc/nowdoc, JSX 텍스트와 속성 값, PHP 의 `?>` 뒤 HTML, Blade 의 템플릿 텍스트. 그 안의 코드 — 템플릿의 `${...}`, f-string 의 `{...}`, PHP 의 `"{$a->b()}"`·`$x`, heredoc 보간, JSX 의 `{...}` — 는 코드입니다
+- `comment` 는 `//`, `/* */`, `#`(PHP·Python), Blade `{{-- --}}` 입니다. PHP 의 `#[` 는 속성이고 주석이 아닙니다. PHP 의 `//` 주석은 `?>` 에서 끝납니다
+- `in_scope` 는 블록 **본문**만 안으로 봅니다. `for (const x of await load()) {` 의 `await load()` 는 loop 밖입니다. 그래서 트리거가 헤더 줄 자체인 규칙(`foreach (` 를 찾는 규칙)에 `in_scope: loop` 를 붙이면 아무것도 걸리지 않습니다
+- `loop` 에는 반복 메서드에 넘긴 콜백 본문도 들어갑니다(`xs.map(x => ...)`, `$users->each(function ...)`, `array_map(fn ...)`, `map(lambda ...)`). 반복 메서드인지는 이름 목록으로 판정합니다(`structure/nodes.py`). 반복 메서드의 콜백은 loop 이면서 function 입니다. Python 컴프리헨션도 loop 입니다
+- `function` 에는 메서드, 클로저, 화살표 함수(중괄호 없는 것 포함), PHP `fn`, Python `lambda` 본문이 들어갑니다
+- `block_empty` 가 `file_regex` 전용인 이유는 블록이 중첩되면 "어느 블록"인지 모호해지기 때문입니다. 매치가 아니라 **판정하는 블록 전체**를 변경 창으로 보므로, 레거시 catch 의 본문을 지우거나 빈 줄로 바꾸면 이번 변경의 책임입니다. **주석은 내용입니다** — 이유를 주석으로 남긴 `catch` 블록은 비어 있지 않습니다
 - `when_file_added`(absent)·`when_changed`(paired) 에는 붙일 수 없습니다. 판정할 위치가 없기 때문입니다
-- 블록 종류는 헤더의 **토큰**으로 정합니다. 키워드는 그 블록의 `{` 가 속한 괄호 수준에서만 세고, 멤버 접근 뒤의 이름(`::class`, `n.class`, `p.catch(`)은 키워드가 아닙니다. 그래서 `foreach ([A::class] as $m) {` 는 loop, `if (xs.some(f)) {` 는 branch 입니다
-- `loop` 에는 반복 메서드에 넘긴 콜백 본문도 들어갑니다(`xs.map(x => {`, `$users->each(function ($u) {`, Kotlin `items.forEach {`). 객체 리터럴 인자(`repo.find({`)는 콜백이 아닙니다
-- `function` 에는 메서드와 람다 본문도 들어갑니다(`run(a) {`, `(req, res) => {`, 익명 `function () {`, Go `func() {`, Rust `|x| {`, Java `() -> {`). 반복 메서드의 콜백은 loop 이면서 function 입니다
-- Python 은 표준 `ast` 로 `for`·`while`·컴프리헨션을 loop 로 읽습니다. 실행 중인 인터프리터가 파싱하지 못한 파일(예: 3.9 의 `match`)은 들여쓰기 규칙으로 대신 읽습니다
 
-지원 언어는 PHP, JavaScript/TypeScript(JSX 포함), Go(정밀), Kotlin, Swift, C#, Dart, Java·Scala·Rust·C 계열·Python(이관 수준), Blade(마스킹만)입니다. Vue·Svelte 단일 파일 컴포넌트는 `<script>` 안만 코드로 보고, 템플릿은 텍스트로 봅니다. JSX 의 자식 텍스트와 속성 값은 **문자열**로 봅니다(`not_in: string` 이 제외). `{...}` 안은 코드입니다. `.ts` 파일에는 JSX 가 없습니다(`<T>(x) =>` 는 제네릭). Blade 는 스코프 트리가 없어 `in_scope`·`block_empty` 를 쓰면 "구조 미확인"이 됩니다.
+지원 언어는 JavaScript(JSX), TypeScript, TSX, PHP, Blade, Python 입니다. Blade 는 지시문 블록(`@foreach…@endforeach` 등)이 범위가 되고, 그 안의 PHP 는 PHP 로 읽습니다.
 
-**파일을 읽지 못하면 후보를 그대로 올립니다.** 문법이 깨졌거나 지원하지 않는 언어여서 구조를 확인할 수 없으면 조건을 적용하지 않고 후보를 남긴 뒤, `systemMessage` 로 어느 파일이었는지 알립니다. 검사하지 못한 것이 "깨끗함"으로 보이지 않게 하기 위해서입니다.
+**읽지 못한 것은 통과가 아닙니다.** 다음 경우 조건을 적용하지 않고 후보를 남긴 뒤 `systemMessage` 로 어느 파일이었는지 알립니다.
+
+- 구조 엔진이 없음 — "구조 엔진 없음 (설치 전 / 설치 중 / 설치 실패 / 미지원 플랫폼 / 꺼짐)". CI 에서는 `scripts/engine.py ensure` 로 먼저 설치하고, `scan.py --require-engine` 으로 확인 없이 지나가는 것을 막을 수 있습니다
+- 파일에 파서가 읽지 못한 곳이 있음 — 첫 읽기 오류 지점부터 뒤의 매치는 "구조 미확인"(닫히지 않은 따옴표는 뒤 전체를 바꿉니다). 앞은 정상 판정합니다
+- 지원하지 않는 언어(예: `.yaml` 에 걸린 `not_in: [comment]`)
 
 조건을 **추가하거나 바꾸면** 그 규칙의 의미 판정 캐시가 만료됩니다. 후보를 고르는 기준이 달라졌으므로 저장된 판정은 다른 질문에 대한 답입니다.
 
 ### 픽스처와 구조 조건
 
-`tests.match`/`no_match` 는 파일이 아니라 조각이라, PHP 조각에는 `<?php` 가 없습니다. 픽스처 실행기가 언어별 접두를 자동으로 붙입니다. 태그 밖 동작 자체를 검증하려면 끕니다.
+구조 조건이 있는 규칙의 `tests.match`/`no_match` 는 **파서가 읽을 수 있는 완결된 코드**여야 합니다. `} catch (e) {` 처럼 짝이 없는 조각은 읽기 오류가 되어 판정되지 않습니다 — `try { … } catch (e) { … }` 로, 메서드는 클래스 안에 씁니다. PHP 조각에는 `<?php` 가 자동으로 붙습니다(조각이 `<?` 로 시작하면 붙이지 않음). 태그 밖 동작 자체를 검증하려면 끕니다.
 
 ```yaml
 tests:
@@ -129,7 +135,7 @@ tests:
 |---|---|
 | `tests/rules/test_rule_fixtures.py` | 모든 규칙의 `tests.match`/`no_match`, 자동 수정이 위반을 해소하는지, 프리셋 소속, id↔파일명 |
 | `tests/rules/test_rule_scenarios.py` | 실제 git 변경으로 앵커 동작: 새 코드는 걸리고 **손대지 않은 레거시는 조용함** |
-| `tests/integration/test_parity.py` | 픽스처 레포 4개에서 (규칙, 파일, 줄) 결과 고정 |
+| `tests/integration/test_parity.py` | 픽스처 레포 3개에서 (규칙, 파일, 줄) 결과 고정 |
 
 `when_line_added` 단독이 아닌 규칙은 레거시 무반응 시나리오가 필수입니다(테스트가 강제).
 
@@ -162,15 +168,15 @@ rules:
 | 프리셋 | auto 조건 | 내용 |
 |---|---|---|
 | common | 항상 | 담당자 없는 TODO |
-| security | 항상 | 하드코딩 시크릿, NEXT_PUBLIC 시크릿, 검증 없는 `$request->all()` |
+| security | 항상 | 하드코딩 시크릿, 검증 없는 `$request->all()` |
 | php | php | 디버그 출력, 빈 catch |
 | psr12 | php | PSR-12 스타일 12개 (포맷터가 있으면 9개가 물러남) |
 | laravel | laravel | 검증·마이그레이션·Blade 쿼리·env·라우트 테스트·N+1 |
 | js | js, ts | console, 빈 catch, any |
 | react | react | 인덱스 key |
-| next | next, next-app | 'use client', img, 공개 시크릿 |
+| next | next, next-app | 'use client', img |
 | nest | nest | Req/Res 직접 사용, 컨트롤러의 레포지토리 주입 |
-| go | go | 무시한 에러, panic, context 위치, %w |
+| python | python | 디버그 출력(print·breakpoint·pdb), 맨 except |
 | architecture | 명시 | 계층 경계(의미 판정), 컨트롤러 레포지토리 주입 |
 | performance | 명시 | N+1(의미 판정) |
 

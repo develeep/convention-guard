@@ -134,6 +134,9 @@ class Shell:
         if not scope and not scope.too_large:
             return None         # a file we could not read still has to be named (R20)
         result = pipeline.run(scope, self.cfg, cap=VERIFY_CAP, lint_budget=LINT_BUDGET)
+        # an ignored config key (a 3.x one, a typo) is said like any other
+        # scan warning, or a setting the person relies on goes quietly unread
+        result.notes.extend(note for note in self.cfg.notes if note[0] == 'warn')
         if self.cfg['mode'] == 'auto-fix' and not result.errors and not self.autofixed:
             applied = autofix.apply(self.root, autofix.plan(self.root, result.hits))
             if applied:

@@ -20,7 +20,7 @@ convention-guard 의 출력은 사람과 에이전트가 모두 읽습니다. �
 | 산출물 | 읽는 쪽 | 렌더링 위치 |
 |---|---|---|
 | Stop 훅 `reason` (차단, 재검증 차단) | 에이전트 | `scripts/lib/report.py` `hook_reason`, `verify_reason`, `review_section`, `autofix_section`, `clip_reason` |
-| Stop 훅 `systemMessage` (차단, 재검증, 기록, 오류) | 사용자 | `scripts/lib/hooks.py` |
+| Stop 훅 `systemMessage` (차단, 재검증, 기록, 오류) | 사용자 | `scripts/lib/stop.py` `render`, `with_notes`, `with_autofix_note`, `scripts/lib/report.py` |
 | `scan.py` 텍스트, `--json`, `--fix`, `--review` 안내 | 사람, 에이전트, CI | `scripts/scan.py`, `scripts/lib/report.py` `render_text` |
 | `review.py show / record / summary`, 판정 배치·판정 파일 JSON | 리뷰어 에이전트, 메인 에이전트 | `scripts/review.py`, `scripts/lib/semantic.py`, `scripts/lib/context.py` |
 | `detect_stack.py` 텍스트, `--json` | 사람, 스킬 | `scripts/detect_stack.py` |
@@ -361,7 +361,7 @@ convention-guard ✖ 차단 — error 1 · warn 1
 - 끝내면 같은 범위를 다시 검사해 남은 것과 새로 생긴 것만 알립니다.
 ```
 
-- `systemMessage` 는 `reason` 의 첫 줄과 같습니다(D11). 노트(자동 수정, 구조 미확인, 큰 파일 미검사, 검사되지 않음 — git 이 볼 수 없는 중첩 레포·worktree 안 파일)는 ` · ` 로 뒤에 붙고 `convention-guard` 는 한 번만 나옵니다.
+- `systemMessage` 는 `reason` 의 첫 줄과 같습니다(D11). 노트는 ` · ` 로 뒤에 붙고 `convention-guard` 는 한 번만 나옵니다. 노트: 자동 수정, 구조 미확인 또는 `구조 엔진 없음 (사유) — 구조 미확인 N개 파일`, 큰 파일 미검사, 그리고 수집 훅의 관찰 누락(4.0) — `관찰 누락 N개 파일 — 실행 후 기록 없음 (…, 에이전트 변경으로 보고 검사)`, `관찰 누락 N개 파일 — 실행 전 기록 없음 (…)`, `출처 미확인 변경 N개 파일 — 에이전트 도구 밖에서 바뀜, 검사 안 함 (…)`, `작업 트리 관찰 실패 N회`, `검사되지 않음 N개 파일 (레포 밖: …)`, `git 레포가 아니라 검사하지 않음`, `수집 훅 오류 N회 (…)`.
 - 머리말 속성 순서: `린터 실패 N` → `error N` → `warn N` → `info N`(있을 때) → `판정 대기 N`(있을 때) → `검사 경고 N`(있을 때).
 - 섹션 순서: `■ 자동 수정` → `■ 린터 실패` → `■ 지적` → `■ 참고` → `■ 판정 대기` → `■ 린터 참고` → `■ 검사 경고` → `■ 다음`.
 - 리뷰어가 VIOLATION 으로 판정한 규칙은 `= 참고: 리뷰어 판정 VIOLATION` 을 붙입니다.
@@ -389,7 +389,7 @@ convention-guard ✖ 차단 — error 1 · warn 1
 
 ■ 다음
 - convention-guard:convention-reviewer 에이전트에게 아래 명령 한 줄을 그대로 전달해 판정을 맡기세요. 돌려준 VIOLATION 만 고치세요.
-  $ python3 "…/scripts/review.py" show "…/reviews/s1-….json"
+  $ python3 "…/scripts/review.py" show "…/convention-guard.db#3f2a9c…"
   = 참고: 나머지 2건은 예산 때문에 다음 판정으로 미뤘습니다
 ```
 
@@ -430,7 +430,7 @@ convention-guard ✖ 기록 — error 2 · 차단 안 함: 연속 차단 3회 �
 convention-guard ⚠ 기록 — 판정 대기 1 · 차단 안 함: mode=report
 convention-guard ⚠ 기록 — 검사 경고 1: 린터 ./vendor/bin/phpstan 을 돌리지 못했습니다 (시간 초과)
 convention-guard ⚠ 기록 — warn 1 (core/x) · 자동 수정 2 (app/Svc/A.php) — 편집 전에 다시 읽으세요 · 구조 미확인 1개 파일 (app/Svc/B.php)
-convention-guard ✖ 건너뜀 — 설정 오류: 레포 config.yaml: mode 는 fix 또는 report 입니다
+convention-guard ✖ 건너뜀 — 설정 오류: 레포 config.yaml: mode 는 report / fix / auto-fix 중 하나입니다 (지금: nope)
 convention-guard ✖ 건너뜀 — 내부 오류: <예외 한 줄>
 ```
 
@@ -545,7 +545,7 @@ convention-guard scan — 워킹 트리 · 파일 5개 · 스택 laravel, php ·
 ## 다음
 판정을 모두 적어 한 번에 기록하세요:
 
-(```bash 펜스) python3 "…/scripts/review.py" record "…/reviews/….json" <<'JSON'
+(```bash 펜스) python3 "…/scripts/review.py" record "…/convention-guard.db#3f2a9c…" <<'JSON'
 [{"id": 1, "verdict": "…", "reason": "…"}, …]
 JSON
 ```
@@ -573,7 +573,7 @@ convention-guard review record — 판정 4건 기록 · VIOLATION 2 · VALID 1 
 
 - VIOLATION 이 없으면 `■ 메인 에이전트에게 돌려줄 것` 아래 `✔ 위반 없음` 한 줄입니다.
 - 기록 거부는 stderr `convention-guard: error: 기록하지 않았습니다 — 고친 뒤 전체를 다시 기록하세요` 다음 줄부터 `  - 판정이 빠진 후보: 2, 3, 4` 입니다.
-- `show --json` 은 F15 봉투(`convention-guard/review-show@1`)입니다. 배치 파일, `*.verdicts.json`, 판정 캐시, `firings.jsonl` 은 내부 파일이라 형식을 바꾸지 않습니다.
+- `show --json` 은 F15 봉투(`convention-guard/review-show@1`)입니다. 판정 배치·판정 캐시(상태 저장소 안)와 `firings.jsonl` 은 내부 형식이라 이 명세의 범위 밖입니다.
 
 ### 7. detect_stack.py
 
@@ -585,7 +585,7 @@ convention-guard detect_stack — … · mode fix · 스택 laravel, php
   태그      laravel, php
   버전      laravel 11
   기각      0건 (.claude/convention-guard/dismissed.yaml)
-  프리셋    ✔ architecture, common, laravel, php, psr12, security · ○ go, js, nest, next, performance, react
+  프리셋    ✔ architecture, common, laravel, php, psr12, security · ○ js, nest, next, performance, python, react
 
 ■ 린터
 ✔ ./vendor/bin/pint --test -v {files}
@@ -593,7 +593,7 @@ convention-guard detect_stack — … · mode fix · 스택 laravel, php
 ○ ./vendor/bin/phpstan analyse --no-progress --error-format=raw {files}
   = 참고: 설치 안 됨 — 건너뜀
 
-■ 규칙 — 37개 중 15개 적용
+■ 규칙 — 34개 중 15개 적용
   상태  강도   규칙                                      출처         사유
   ────  ─────  ────────────────────────────────────────  ───────────  ───────────────────────
   ✔ on  error  core/laravel-controller-needs-validation  core
@@ -715,6 +715,7 @@ convention-guard setup emit — 규칙 24개 · 파일 4개
 ## 범위 밖 발견 (제안)
 
 형식이 아니라 동작 문제입니다. 이번 작업에서는 고치지 않고 끝에 제안 목록으로 남깁니다.
+4.0 기준: 1·3 은 migrate 삭제로, 5 는 readiness 의 옛 디렉터리 점검 삭제로 없어졌고, 6 은 4.0 에서 고쳤습니다 (훅의 `검사 경고`).
 
 1. migrate: 흐름 스타일(`no_match: ['…']`) 규칙에 블록 항목을 덧붙여 YAML 이 깨짐 (`lib/migrate.py:564`)
 2. dismiss: 워킹 트리의 다른 파일에 후보가 있으면 파일 전체 폴백을 건너뜀 (`dismiss.py:59`)

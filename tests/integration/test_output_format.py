@@ -106,6 +106,12 @@ def case_hook_notices(tmp):
     bad = s.turn(A, body(), 'p1')
     check('설정 오류 알림 모양', bad['summary'].startswith('convention-guard ✖ 건너뜀 — 설정 오류: '),
           repr(bad['summary']))
+    repo = php_repo(tmp, 'mode: fix\nscope:\n  base_ref: main\n', 'oldkey')
+    s = Session(repo, os.path.join(tmp, 'data-k'), 'oldkey')
+    old = s.turn(A, body('return 2;'), 'p1')
+    check('모르는 설정 키는 훅이 말한다 (H2)',
+          old['summary'].startswith('convention-guard ⚠ 기록 — 검사 경고 1: ')
+          and '알 수 없는 설정 scope (무시)' in old['summary'], repr(old['summary']))
     broken = HDR + 'class A { public function f() { return 1; } }\n$a = "oops;\ndd(1);\n'
     repo = php_repo(tmp, 'mode: fix\nseverity:\n  core/php-no-debug-output: warn\n', 'unck')
     s = Session(repo, os.path.join(tmp, 'data-u'), 'unck')

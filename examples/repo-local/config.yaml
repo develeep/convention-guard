@@ -23,9 +23,6 @@ exclude:
   - "legacy/**"
   - "app/Legacy/**"
 
-scope:
-  base_ref: auto            # 세션 중 커밋한 변경까지 검사
-
 limits:
   max_error_rules: 3
 
