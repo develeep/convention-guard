@@ -3,6 +3,7 @@
 ## 목차
 - 전체 필드
 - detect: 앵커와 조건
+- detect: 구조 조건
 - tests: 픽스처의 의미
 - semantic_review: 의미 판정
 - fix.auto: 자동 수정
@@ -50,6 +51,18 @@ tests:
 
 `flags: i` 로 대소문자 무시. 정규식은 Python `re` 문법이고, YAML 에서는 작은따옴표로 감쌉니다 (안의 `'` 는 `''`).
 
+## detect: 구조 조건
+
+매치가 코드의 어디에 있는지 tree-sitter 로 보고 후보를 거르는 필터입니다. 후보의 줄 번호·지문은 바꾸지 않습니다. `when_file_added`·`when_changed` 에는 붙일 수 없습니다.
+
+| 키 | 값 | 걸리는 때 |
+|---|---|---|
+| `not_in` | `[comment, string]` 중 | 매치가 주석·문자열 밖에 있음 |
+| `in_scope` | `[loop, function, class, catch]` 중 | 매치가 나열한 블록 **모두**의 본문 안에 있음. 블록의 헤더 줄은 안으로 치지 않습니다 |
+| `block_empty: true` | — | (`file_regex` 전용) 매치가 연 블록의 본문이 비었음. 주석은 내용으로 봅니다 |
+
+엔진이 없거나 언어를 읽지 못하면 판정은 UNKNOWN 이고, 후보는 남은 채 "구조 엔진 없음"·"구조 미확인" 으로 보고됩니다.
+
 ## tests: 픽스처의 의미
 
 | 앵커 | 픽스처 하나 = |
@@ -60,6 +73,8 @@ tests:
 | `when_changed` | 변경된 경로 목록 `["routes/api.php", "app/X.php"]` |
 | `file_regex` | 여러 줄 코드 |
 | semantic_review 규칙 | 게이트만 검사 (판정은 리뷰어 몫) |
+
+구조 조건이 있는 규칙의 픽스처는 파서가 읽을 수 있는 완결된 코드여야 합니다 (메서드는 클래스 안에, catch 는 try 와 함께).
 
 ## semantic_review: 의미 판정
 

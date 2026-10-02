@@ -83,7 +83,7 @@ scan.py는 결정론적인 검사를 수행하고, 컨벤션 위반 가능성이
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --review --no-color
 ```
 
-그 `review.py show "<배치 경로>"` 한 줄을 `convention-guard:convention-reviewer` 에이전트에게 그대로 넘기고, 돌아온 VIOLATION 목록만 결과에 넣습니다. 절차와 캐시 동작: [references/semantic.md](references/semantic.md)
+그 `review.py show "<배치 참조>"` 한 줄을 `convention-guard:convention-reviewer` 에이전트에게 그대로 넘기고, 돌아온 VIOLATION 목록만 결과에 넣습니다. 절차와 캐시 동작: [references/semantic.md](references/semantic.md)
 
 ### 5. 오탐은 기각 기록, 위반은 보고
 

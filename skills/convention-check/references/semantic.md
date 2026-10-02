@@ -22,7 +22,7 @@ N+1 이나 계층 경계처럼 정규식으로는 판정할 수 없는 규칙(`s
 python3 "<plugin>/scripts/scan.py" --review --no-color
 ```
 
-출력 끝에 `review.py show "<배치 경로>"` 명령이 나옵니다. 이미 판정된 코드는 캐시에서 바로 반영되어
+출력 끝에 `review.py show "<배치 참조>"` 명령이 나옵니다 (`<저장소 경로>#<id>`). 이미 판정된 코드는 캐시에서 바로 반영되어
 배치에 들어가지 않습니다 (VIOLATION 은 지적 목록에 포함). 후보가 예산을 넘으면 일부는 다음 배치로
 미뤄지며, 그 건수도 함께 출력됩니다. 판정 대기 후보를 CI 에서 실패로 만들려면 `--fail-on-pending`.
 
@@ -56,5 +56,5 @@ python3 "<plugin>/scripts/scan.py" --review --no-color
 
 ## 참고
 
-- 판정 기록 요약: `python3 "<plugin>/scripts/review.py" summary "<배치 경로>"`
+- 판정 기록 요약: `python3 "<plugin>/scripts/review.py" summary "<배치 참조>"` (`show` 에 넘긴 값 그대로)
 - 판정은 이 머신의 캐시(플러그인 데이터 디렉터리)에 남습니다. 팀 결정이 아니므로 레포에 커밋되지 않습니다. 팀이 합의한 예외는 기각 기록으로 남기세요.
