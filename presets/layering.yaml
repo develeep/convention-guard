@@ -1,0 +1,7 @@
+name: layering
+description: "컨트롤러·도메인 계층 상시 의미 판정. 글롭에 든 파일에 코드를 추가할 때마다 리뷰어가 판정하므로 명시적으로 켭니다"
+# 이 태그 중 하나가 감지되면 presets: auto 에서 켜집니다. 비어 있으면 명시해야 켜집니다.
+stacks: []
+rules:
+  - core/thin-controller
+  - core/domain-purity

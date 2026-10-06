@@ -46,6 +46,7 @@ tests:
 | `when_file_added: true` | `must_contain_in_file: '<정규식>'` | 새 파일에 필수 요소가 없음 |
 | `when_changed: [글롭]` | `require_changed: [글롭]` | 변경 집합에 A 는 있고 B 는 없음 |
 | `file_regex: '<정규식>'` | — | 파일 전체에서 매치된 구간이 변경된 줄과 겹침 |
+| `when_code_added: true` | — (`semantic_review`·`applies_to.files` 필수) | 글롭에 든 파일에 글자가 있는 줄을 추가함. 판정 단위(가장 바깥 함수 / 함수 밖 줄을 모은 파일 머리)마다 리뷰어에게 물음 |
 
 `must_contain_in_file` 은 주석 안의 매치를 세지 않습니다. `must_not_in: [comment, string]` 은 문자열도 빼고, `must_not_in: []` 는 주석도 셉니다(기본값 `[comment]` 를 대체).
 
@@ -53,7 +54,7 @@ tests:
 
 ## detect: 구조 조건
 
-매치가 코드의 어디에 있는지 tree-sitter 로 보고 후보를 거르는 필터입니다. 후보의 줄 번호·지문은 바꾸지 않습니다. `when_file_added`·`when_changed` 에는 붙일 수 없습니다.
+매치가 코드의 어디에 있는지 tree-sitter 로 보고 후보를 거르는 필터입니다. 후보의 줄 번호·지문은 바꾸지 않습니다. `when_file_added`·`when_changed`·`when_code_added` 에는 붙일 수 없습니다.
 
 | 키 | 값 | 걸리는 때 |
 |---|---|---|
@@ -73,6 +74,7 @@ tests:
 | `when_changed` | 변경된 경로 목록 `["routes/api.php", "app/X.php"]` |
 | `file_regex` | 여러 줄 코드 |
 | semantic_review 규칙 | 게이트만 검사 (판정은 리뷰어 몫) |
+| `when_code_added` | 판정 단위가 생기는지만 검사: 글자가 있는 줄이면 match, `}` 나 빈 줄만이면 no_match |
 
 구조 조건이 있는 규칙의 픽스처는 파서가 읽을 수 있는 완결된 코드여야 합니다 (메서드는 클래스 안에, catch 는 try 와 함께).
 

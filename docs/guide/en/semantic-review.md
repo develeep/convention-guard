@@ -9,6 +9,7 @@
 - Minimum sufficient context
 - Verdict cache and deduplication
 - Relation to the verification cycle
+- Always-on review by file glob
 - Writing rules
 - Cost and limits
 
@@ -32,13 +33,14 @@ foreach ($orders as $order) {
 | Nondeterminism | Different verdicts for the same code |
 | Failure to converge | A new finding after every fix — the verification loop never ends |
 
-So it judges **only candidates that passed the deterministic gate**, **only code with no recorded verdict**, **with one function's worth of context**.
+So it judges **only candidates that passed the deterministic gate** (for rules with no regex signal, only the units in files under the [file glob](#always-on-review-by-file-glob)), **only code with no recorded verdict**, **with one function's worth of context**.
 
 ## Flow
 
 ```
 Stop
  └ find candidates with the detect of semantic_review rules     0 candidates → done (no AI call)
+   (for when_code_added rules: the units in files under the glob)
     └ per candidate: context pack + context_hash / related_hash
        └ look up verdict cache (rule:file:review_hash)
           ├ VALID / FALSE_POSITIVE → excluded
@@ -53,7 +55,7 @@ Stop
 
 Only one command line and the reviewer's short reply enter the main agent's context. The context pack and the code the reviewer read stay inside the subagent.
 
-Setting: `semantic_review.enabled: true` (repo config or userConfig). A preset with semantic review rules (`architecture`, `performance`, or the N+1 rule in `laravel`) must be active.
+Setting: `semantic_review.enabled: true` (repo config or userConfig). A preset with semantic review rules (`architecture`, `performance`, `layering`, or the N+1 rule in `laravel`) must be active.
 
 ## Minimum sufficient context
 
@@ -103,6 +105,51 @@ The cache and review batches live in the state store (`convention-guard.db`, sql
 | Review request not run (no record) | Requests once more with "실행되지 않았습니다" ("was not run"), after that only records and ends |
 | `max_verify_attempts` exhausted | Records remaining pending candidates as `review_skipped` and ends |
 | `mode: report` | Does not request review (it cannot block). Records `review_skipped` |
+
+## Always-on review by file glob
+
+Some conventions cannot be narrowed by a regex. "No business logic in controllers" has only shapes that normal code has too (`if`, `foreach`), and a layer boundary slips past the gate when the import name (`@/core/OrderStore`) has no word like infra or db in it. Rules like these name a file glob instead of a gate, and judge every time the agent adds code to such a file. Rules with a clear regex signal keep using the gate: it is more accurate and cheaper.
+
+```yaml
+applies_to:
+  stacks: [laravel]
+  files: ["app/Http/Controllers/**/*.php"]      # required
+detect:
+  when_code_added: true
+semantic_review:                                # required
+  context: [imports]
+  instruction: |
+    One question: does this unit bring business logic into the controller?
+    VIOLATION: picks values by branching, computes prices, queries or saves models directly ...
+    VALID: validation, a service call, returning a response. When unsure, VALID.
+```
+
+Ask about one rule only, narrowly. An open question such as "find problems in this diff" raises false positives.
+
+**Judgment units** — one question per unit, not per line.
+
+| Unit | Scope |
+|---|---|
+| function | The outermost function or method around the added lines. Closures and arrow functions fold into the method that holds them |
+| file head | The lines added outside functions (imports, namespace, class declaration, properties), one per file. Shown as the file skeleton with function bodies folded |
+| whole file | When the structure engine is missing or the file could not be read to the end (a syntax error included). Marked `함수 경계 미확인` ("function boundaries unknown") |
+
+- A unit needs at least one added line with a letter or digit in it. A legacy function where only a closing brace or a blank line changed is not judged
+- While the unit's code stays the same, the cached verdict is used. Any line in the unit changing sends it for judgment again
+- Up to 50 units per rule are collected at a time. Past that, it says the units reached the cap and the rest were not judged this time
+- `once_per_session` does not apply to these rules. The verdict cache is what keeps the same code from being asked twice
+
+**Verification scope** — AI judgment is not deterministic. Asking about everything again after every fix finds something new each time, and the cycle never ends. So once a cycle is open:
+
+| Situation | Behavior |
+|---|---|
+| A unit present when the cycle opened is not judged yet (next page) | Asked. Counts toward neither the verify attempts nor the consecutive blocks |
+| A unit the fix changed or wrote (or one already asked whose context, such as imports, changed), and its rule found a VIOLATION in this cycle | Asked again. A block with only first-time questions does not count as a verify attempt; one that asks the same question twice does |
+| Such a unit, and its rule found no VIOLATION | Not asked. Said as "재검증 범위 밖 판정 보류 N" ("held outside the verification scope N"). Judged in the next request |
+| A unit asked again is a VIOLATION, in a file where that rule already found one | Blocks (still). Limited by `max_verify_attempts` |
+| A unit asked again is a VIOLATION, in another file, or the same code this cycle already judged VALID | Not blocked. Said as "보고만 N" ("reported only N"). Raised again in the next request |
+
+The bundled rules are `thin-controller` (Laravel controllers) and `domain-purity` (under `Domain/` and `domain/`) in the `layering` preset. Every turn that adds code to a file under their globs calls the reviewer, so they turn on only when listed: `presets: [auto, layering]`.
 
 ## Writing rules
 

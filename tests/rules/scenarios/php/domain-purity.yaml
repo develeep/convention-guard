@@ -1,0 +1,93 @@
+rule: core/domain-purity
+stacks: [php]
+cases:
+  - name: 도메인 파일에 추가한 메서드가 판정 단위
+    before:
+      app/Domain/Order/OrderRules.php: |
+        <?php
+
+        namespace App\Domain\Order;
+
+        use Illuminate\Support\Facades\DB;
+
+        final class OrderRules
+        {
+            public function legacy(): int
+            {
+                return DB::table('orders')->count();
+            }
+        }
+
+    after:
+      app/Domain/Order/OrderRules.php: |
+        <?php
+
+        namespace App\Domain\Order;
+
+        use Illuminate\Support\Facades\DB;
+
+        final class OrderRules
+        {
+            public function legacy(): int
+            {
+                return DB::table('orders')->count();
+            }
+
+            public function total(array $lines): int
+            {
+                return array_sum($lines);
+            }
+        }
+
+    expect: ["app/Domain/Order/OrderRules.php:14"]
+
+  - name: 레거시 DB 접근만 있는 도메인 파일은 조용함
+    before:
+      app/Domain/Order/OrderRules.php: |
+        <?php
+
+        namespace App\Domain\Order;
+
+        use Illuminate\Support\Facades\DB;
+
+        final class OrderRules
+        {
+            public function legacy(): int
+            {
+                return DB::table('orders')->count();
+            }
+        }
+
+    after:
+      app/Domain/Order/OrderRules.php: |
+        <?php
+
+        namespace App\Domain\Order;
+
+        use Illuminate\Support\Facades\DB;
+
+        final class OrderRules
+        {
+            public function legacy(): int
+            {
+                return DB::table('orders')->count();
+            }
+
+        }
+
+    expect: []
+
+  - name: 도메인 밖 파일은 판정하지 않음
+    before: {}
+    after:
+      app/Infrastructure/DbOrders.php: |
+          <?php
+
+          class DbOrders
+          {
+              public function count(): int
+              {
+                  return DB::table('orders')->count();
+              }
+          }
+    expect: []

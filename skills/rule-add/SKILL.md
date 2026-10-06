@@ -49,6 +49,7 @@ description: 반복되는 리뷰 지적이나 팀 컨벤션 항목을 convention
 | "A 파일을 바꿨으면 B 도" | `when_changed` + `require_changed` |
 | 여러 줄에 걸친 패턴 | `file_regex` (매치가 변경된 줄과 겹칠 때만) |
 | 의미를 봐야 판정 | 위 중 하나를 게이트로 + `semantic_review` |
+| 정규식 신호가 아예 없음 (컨트롤러에 비즈니스 로직 금지 등) | `when_code_added: true` + `applies_to.files` + `semantic_review` (규칙 하나만 묻는 좁은 질문) |
 
 필드 전체·픽스처 의미·의미 판정 컨텍스트: [references/schema.md](references/schema.md)
 

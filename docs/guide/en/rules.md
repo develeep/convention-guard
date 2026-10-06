@@ -71,6 +71,7 @@ If a rule reacts to legacy code, it gets turned off within two weeks of adoption
 | `when_file_added: true` + `must_contain_in_file` | absent | The file is **new** and the required element is missing |
 | `when_changed` + `require_changed` | paired | The change set has A but not B (a file with only deleted lines is also in the change set) |
 | `file_regex` | file | The multi-line match span (excluding leading/trailing whitespace) **overlaps a changed line or has a line deleted inside it** (the whole file for a new file) |
+| `when_code_added: true` (+ `semantic_review` and `applies_to.files` required) | unit | A **line with a word in it** was added to a file under the glob. The function holding it, or the file head gathering the lines outside functions, is the unit judged |
 
 A required element (`must_contain_in_file`) **counts as absent if it is inside a comment**. `// TODO: replace with FormRequest` is not validation. Matches inside strings count by default (`'use client'` is itself a string). To change this, use `must_not_in`. Setting it replaces the default `[comment]`.
 
@@ -79,7 +80,7 @@ A required element (`must_contain_in_file`) **counts as absent if it is inside a
 - A file whose structure could not be read is judged by raw-text match and reported as "구조 미확인" ("structure unverified"). Analysis runs only on files where the required element appears in the raw text
 - A UTF-8 BOM at the start of the file is stripped on read. So first-line patterns like `^\s*'use client'` match in BOM files too
 
-Rules with `semantic_review` find candidates with the same anchor and hand only the verdict to the reviewer: [semantic-review.md](semantic-review.md)
+Rules with `semantic_review` find candidates with the same anchor and hand only the verdict to the reviewer. Conventions with no regex signal (no business logic in controllers, for example) use `when_code_added` to name only the file glob and leave the judgment to the reviewer: [semantic-review.md](semantic-review.md#always-on-review-by-file-glob)
 
 `superseded_by: [pint.json, ...]` turns the rule off if that file exists in the repo. This avoids flagging with a regex what a formatter fixes deterministically.
 
@@ -182,6 +183,7 @@ rules:
 | python | python | Debug output (print, breakpoint, pdb), bare except |
 | architecture | explicit | Layer boundaries (semantic review), repository injection in controllers |
 | performance | explicit | N+1 (semantic review) |
+| layering | explicit | Business logic in controllers, I/O dependencies in the domain layer (always-on review by file glob) |
 
 A rule can belong to several presets. Every core rule must belong to at least one preset (enforced by tests).
 

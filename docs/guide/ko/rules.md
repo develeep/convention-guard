@@ -71,6 +71,7 @@ tests:
 | `when_file_added: true` + `must_contain_in_file` | absent | 파일이 **새것**이고 필수 요소가 없음 |
 | `when_changed` + `require_changed` | paired | 변경 집합에 A 는 있고 B 는 없음 (줄만 지운 파일도 변경 집합에 듭니다) |
 | `file_regex` | file | 여러 줄 매치 구간(앞뒤 공백 제외)이 **변경된 줄과 겹치거나 그 안에서 줄이 지워짐** (새 파일은 전체) |
+| `when_code_added: true` (+ `semantic_review`, `applies_to.files` 필수) | unit | 글롭에 든 파일에 **글자가 있는 줄**을 추가함. 그 줄이 속한 함수, 또는 함수 밖 줄을 모은 파일 머리가 판정 단위 |
 
 필수 요소(`must_contain_in_file`)는 **주석 안에 있으면 없는 것**으로 봅니다. `// TODO: FormRequest 로 교체` 는 검증이 아닙니다. 문자열 안의 매치는 기본으로 셉니다(`'use client'` 는 그 자체가 문자열입니다). 바꾸려면 `must_not_in` 을 씁니다. 쓰면 기본값 `[comment]` 를 대체합니다.
 
@@ -79,7 +80,7 @@ tests:
 - 구조를 읽지 못한 파일은 원문 매치로 판단하고 "구조 미확인"으로 알립니다. 분석은 원문에 필수 요소가 보이는 파일에서만 돕니다
 - 파일 맨 앞의 UTF-8 BOM 은 읽을 때 벗깁니다. 그래서 `^\s*'use client'` 같은 첫 줄 패턴이 BOM 파일에서도 맞습니다
 
-`semantic_review` 가 붙은 규칙은 같은 앵커로 후보를 찾고, 판정만 리뷰어에게 넘깁니다: [semantic-review.md](semantic-review.md)
+`semantic_review` 가 붙은 규칙은 같은 앵커로 후보를 찾고, 판정만 리뷰어에게 넘깁니다. 정규식 신호가 없는 컨벤션(컨트롤러에 비즈니스 로직 금지 등)은 `when_code_added` 로 파일 글롭만 정하고 판정을 리뷰어에게 맡깁니다: [semantic-review.md](semantic-review.md#파일-글롭-상시-판정)
 
 `superseded_by: [pint.json, ...]` 는 그 파일이 레포에 있으면 규칙을 끕니다. 포맷터가 결정적으로 고치는 항목을 정규식으로 중복 지적하지 않기 위해서입니다.
 
@@ -182,6 +183,7 @@ rules:
 | python | python | 디버그 출력(print·breakpoint·pdb), 맨 except |
 | architecture | 명시 | 계층 경계(의미 판정), 컨트롤러 레포지토리 주입 |
 | performance | 명시 | N+1(의미 판정) |
+| layering | 명시 | 컨트롤러에 비즈니스 로직, 도메인 계층의 I/O 의존 (파일 글롭 상시 판정) |
 
 규칙은 여러 프리셋에 속할 수 있습니다. 모든 core 규칙은 최소 하나의 프리셋에 속해야 합니다(테스트가 강제).
 

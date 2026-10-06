@@ -220,6 +220,129 @@ def case_semantic():
     check('report mode asks no reviewer', d.batch is None and d.action.kind == 'notice')
 
 
+THIN = rule('local/thin', kind='unit', review={'instruction': 'thin?'})
+PURE = rule('local/pure', kind='unit', review={'instruction': 'pure?'})
+
+
+def unit(rid, code, file):
+    return Candidate(rid, file, 5, code, code=code)
+
+
+def verdicts(*pairs):
+    return {c.review_key: {'verdict': v} for c, v in pairs}
+
+
+def batch_rules(d):
+    return sorted(item['rule_id'] for item in d.batch[1]['items']) if d.batch else []
+
+
+def case_unit_pages():
+    print('case_unit_pages:')
+    a1, a2 = unit('local/thin', 'f1', 'F.php'), unit('local/thin', 'f2', 'F.php')
+    tight = cfg(limits={'max_consecutive_blocks': 1})
+    tight['semantic_review']['max_candidates'] = 1
+    opened = decide.decide({}, obs(view(pending=[(THIN, a1, Pack()), (THIN, a2, Pack())])), tight)
+    check('a unit rule asks one page at a time', len(opened.batch[1]['items']) == 1,
+          opened.batch)
+    page = decide.decide(opened.state, obs(view(pending=[(THIN, a2, Pack())]), continuing=True,
+                                           cycle_verdicts=verdicts((a1, 'VALID'))), tight)
+    check('the next page of open-time units is asked past the streak cap',
+          page.action.kind == 'block' and batch_rules(page) == ['local/thin'], page.action)
+    check('and does not count toward the streak', page.state['consecutive_blocks'] == 1,
+          page.state)
+
+
+def case_unit_verify_scope():
+    print('case_unit_verify_scope:')
+    a, b = unit('local/thin', 'f1', 'F.php'), unit('local/pure', 'g1', 'G.php')
+    opened = decide.decide({}, obs(view(pending=[(THIN, a, Pack()), (PURE, b, Pack())])), cfg())
+    a2, b2 = unit('local/thin', 'f1 fixed', 'F.php'), unit('local/pure', 'g1 edited', 'G.php')
+    told = verdicts((a, 'VIOLATION'), (b, 'VALID'))
+    d = decide.decide(opened.state, obs(view(pending=[(THIN, a2, Pack()), (PURE, b2, Pack())]),
+                                        continuing=True, cycle_verdicts=told), cfg())
+    check('a rule that found a violation is asked again', d.action.kind == 'block'
+          and batch_rules(d) == ['local/thin'], (d.action, batch_rules(d)))
+    check('a rule that found none is held, not asked',
+          d.action.args.get('held') == 1, d.action.args)
+
+    held = decide.decide(opened.state, obs(view(pending=[(PURE, b2, Pack())]), continuing=True,
+                                           cycle_verdicts=verdicts((a, 'VALID'), (b, 'VALID'))),
+                         cfg())
+    check('held units alone end the cycle without blocking', held.action.kind == 'notice'
+          and held.action.word == '재검증 종료'
+          and '재검증 범위 밖 판정 보류 1' in held.action.parts, held.action)
+    check('and are logged as skipped for the verify scope',
+          [e['reason'] for e in held.events if e['event'] == 'review_skipped'] == ['verify_scope'],
+          held.events)
+
+    c = unit('local/thin', 'h1', 'H.php')
+    asked = decide.decide(opened.state, obs(view(pending=[(THIN, a2, Pack()), (THIN, c, Pack())]),
+                                            continuing=True, cycle_verdicts=told), cfg())
+    check('every changed unit of the violated rule is asked', len(asked.batch[1]['items']) == 2,
+          asked.batch)
+    other = decide.decide(asked.state, obs(view(violations=[(THIN, c, {})]), continuing=True,
+                                           cycle_verdicts=verdicts((a2, 'VALID'),
+                                                                   (c, 'VIOLATION'))), cfg())
+    check('a violation in another file during verification is reported, not blocked',
+          other.action.kind == 'notice' and '보고만 1' in other.action.parts, other.action)
+    check('and logged as reported',
+          [e['outcome'] for e in other.events if e['event'] == 'verify'
+           and e['key'] == c.key] == ['reported'], other.events)
+    same = decide.decide(asked.state, obs(view(violations=[(THIN, a2, {})]), continuing=True,
+                                          cycle_verdicts=verdicts((a2, 'VIOLATION'),
+                                                                  (c, 'VALID'))), cfg())
+    check('a violation again in the file being fixed blocks',
+          same.action.kind == 'block' and a2.key in same.action.args['outcome'].still,
+          same.action)
+
+
+def case_unit_asked_twice():
+    print('case_unit_asked_twice:')
+    a = unit('local/thin', 'f1', 'F.php')
+    opened = decide.decide({}, obs(view(pending=[(THIN, a, Pack())])), cfg())
+    again = decide.decide(opened.state, obs(view(pending=[(THIN, a, Pack())]), continuing=True,
+                                            cycle_verdicts={}), cfg())
+    check('a question asked again in the cycle gets no free block',
+          not (again.action.kind == 'block' and again.state['consecutive_blocks'] == 1),
+          (again.action, again.state))
+
+    c = unit('local/thin', 'g1', 'F.php')
+    opened = decide.decide({}, obs(view(pending=[(THIN, a, Pack()), (THIN, c, Pack())])), cfg())
+    told = verdicts((a, 'VIOLATION'), (c, 'VALID'))
+    a2 = unit('local/thin', 'f1 fixed', 'F.php')
+    c2 = unit('local/thin', 'g1', 'F.php')
+    c2.review_hash = 'importschanged'       # same code, new context: asked again
+    asked = decide.decide(opened.state, obs(view(pending=[(THIN, a2, Pack()),
+                                                          (THIN, c2, Pack())]),
+                                            continuing=True, cycle_verdicts=told), cfg())
+    check('an answered unit whose context changed is a re-ask, not a page',
+          [i['page'] for i in asked.state['cycle']['review']['items'].values()] == [False, False],
+          asked.state['cycle']['review'])
+    flip = decide.decide(asked.state, obs(view(violations=[(THIN, c2, {})]), continuing=True,
+                                          cycle_verdicts=verdicts((a2, 'VALID'),
+                                                                  (c2, 'VIOLATION'))), cfg())
+    check('a unit judged VALID earlier in the cycle that now reads VIOLATION is reported',
+          flip.action.kind == 'notice' and '보고만 1' in flip.action.parts, flip.action)
+
+
+def case_unit_not_quiet():
+    print('case_unit_not_quiet:')
+    a = unit('local/thin', 'f1', 'F.php')
+    d = decide.decide({'fired_rules': ['local/thin']}, obs(view(pending=[(THIN, a, Pack())])),
+                      cfg())
+    check('once_per_session does not silence a unit rule', d.action.kind == 'block'
+          and d.batch is not None, d.action)
+
+
+def case_classify_reports_new_units():
+    print('case_classify_reports_new_units:')
+    cycle = decide.new_cycle('c1', 'p1', {}, [])
+    meta = decide.entry(THIN, unit('local/thin', 'f1', 'F.php'))
+    out = decide.classify(cycle, {'k': meta}, lambda _k: False)
+    check('a new unit finding is reported, not new', list(out.reported) == ['k']
+          and not out.new and not out.blocking(), (out.new, out.reported))
+
+
 def case_pure():
     print('case_pure:')
     allowed = {'copy', 'batch', 'candidate'}
@@ -240,6 +363,8 @@ def case_pure():
 if __name__ == '__main__':
     for case in (case_quiet_paths, case_open, case_r4_cap_is_per_request, case_verify,
                  case_r3_hidden_is_not_a_pass, case_r17_unfinished_linter, case_abandoned,
-                 case_semantic, case_pure):
+                 case_semantic, case_unit_pages, case_unit_verify_scope, case_unit_asked_twice,
+                 case_unit_not_quiet,
+                 case_classify_reports_new_units, case_pure):
         case()
     sys.exit(finish('decide 전이 표'))

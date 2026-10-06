@@ -32,7 +32,7 @@ claude --plugin-dir /root/convention-guard        # 임시 레포에서 실제 �
 
 ## 불변 제약
 
-- **핵심 네 가지**: 훅이 위반을 차단하고 수정 → 재검증을 돌린다 · 에이전트가 쓴 줄에만 반응하고 레거시에는 반응하지 않는다 · 훅은 자기 버그로 에이전트를 깨뜨리지 않되 읽지 못한 것을 통과로 처리하지 않는다 · 위반 후보가 없으면 AI 호출은 0이다.
+- **핵심 네 가지**: 훅이 위반을 차단하고 수정 → 재검증을 돌린다 · 에이전트가 쓴 줄에만 반응하고 레거시에는 반응하지 않는다 · 훅은 자기 버그로 에이전트를 깨뜨리지 않되 읽지 못한 것을 통과로 처리하지 않는다 · 판정할 것이 없으면 AI 호출은 0이다 (판정할 것은 정규식 게이트를 통과한 후보와, `when_code_added` 규칙의 글롭에 든 파일에서 에이전트가 의미 있는 줄을 추가한 판정 단위뿐이다. 캐시에 판정이 있는 것은 다시 묻지 않는다).
 - **훅은 에이전트를 절대 깨뜨리지 않는다.** 훅 스크립트는 자기 버그가 나도 종료 코드 0. 수집 훅은 자기 오류를 원장에 적어 Stop 이 알리게 한다. 구조 계층은 예외 대신 값(ok=False + 사유)으로 답하고, 모르면 후보를 남기고 "구조 미확인"·"구조 엔진 없음"으로 보고한다. 관찰 누락도 이름 붙여 알린다.
 - **Python 3.10 이상.** 실행 경로는 표준 라이브러리 + 플러그인이 스스로 설치하는 구조 엔진(tree-sitter, `scripts/lib/engine/`)뿐이다. YAML 은 내장 `miniyaml` 하나만 쓴다(PyYAML 은 동등성 테스트의 정답지). 네트워크는 엔진 설치기만 쓰고, `lock.json` 의 sha256 으로 고정한다.
 - **진입점(`scripts/*.py`)은 인자와 입출력만 다룬다.** 결정 로직은 `scripts/lib/` 에 둔다. Stop 의 결정은 순수 함수 `lib/decide.py` (I/O 모듈을 임포트하지 않음 — 테스트가 강제).
@@ -48,7 +48,7 @@ claude --plugin-dir /root/convention-guard        # 임시 레포에서 실제 �
 - `session_start.py` (SessionStart, async): 구조 엔진이 없으면 설치한다. Stop 도 엔진이 필요한데 없으면 백그라운드 설치를 시작한다.
 - **`pipeline.run` 하나를 `scan.py`, `dismiss.py`, `review.py` 가 모두 쓴다.** 각 진입점은 ChangeScope 를 만드는 방식(훅: 원장 / CLI: working tree·staged·range·files·all)만 다르다.
 - 파이프라인 순서: stacks → rules(프리셋 → disable → 적용 필터: 스택·버전·supersede·files 글롭) → linters(변경 줄에 걸린 것만) → `detect.py`(앵커별 정규식 게이트) → 구조 조건 → 기각 적용.
-- **앵커** (`when_line_added` 등): 추가된 줄, 새 파일, 변경 집합처럼 "이번 변경의 책임"을 정의한다. 앵커 종류는 [docs/guide/ko/rules.md](docs/guide/ko/rules.md)에 있다.
+- **앵커** (`when_line_added` 등): 추가된 줄, 새 파일, 변경 집합처럼 "이번 변경의 책임"을 정의한다. 앵커 종류는 [docs/guide/ko/rules.md](docs/guide/ko/rules.md)에 있다. 정규식 신호가 없는 규칙은 `when_code_added` 로 파일 글롭만 정하고, 추가된 줄을 판정 단위(가장 바깥 함수 / 파일 머리 / 엔진 없으면 파일 전체, `lib/units.py`)로 묶어 단위마다 리뷰어에게 묻는다. 사이클이 열린 뒤 이 규칙들은 VIOLATION 을 낸 규칙만 다시 묻고, 그 밖의 새 지적은 보고만 한다(`decide.py` 머리말).
 - **구조 엔진 `scripts/lib/structure/`**: tree-sitter 트리를 언어별 노드 대응표(`nodes.py`)로 읽어 주석·문자열(그 안의 코드는 코드)·함수·루프(콜백 반복 포함)·catch 범위를 만든다(`treesitter.py`, Blade 는 `blade.py`). `not_in`·`in_scope`·`block_empty` 를 ACCEPT/REJECT/UNKNOWN 으로 평가한다. **필터일 뿐**이어서 후보의 스니펫·줄 번호·지문을 바꾸지 않는다. 첫 읽기 오류 뒤의 매치와 엔진이 없을 때는 UNKNOWN. 노드 이름은 `nodes.py` 에만 둔다.
 - **후보 키 = `규칙:파일:코드 지문`.** 줄이 밀려도 같은 후보로 본다. 기각(`dismissed.yaml`, `version: 4`)과 검증 사이클(`decide.classify`: fixed/dismissed/still/new)이 이 키에 의존한다.
 - 의미 판정(`semantic.py`, `batch.py`, `context.py`, `agents/convention-reviewer.md`): 후보가 있고 캐시된 판정이 없을 때만 함수 하나 분량의 컨텍스트 팩을 서브에이전트에 넘긴다. 배치 참조는 `<db 경로>#<id>`.

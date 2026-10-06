@@ -7,7 +7,7 @@ structure conditions.
 
 import re
 
-from .. import structure
+from .. import structure, units
 from ..structure import conditions
 from ..structure.model import REJECT, Span
 from .select import match_any
@@ -118,4 +118,8 @@ def _plain_matcher(rule):
                           and not has_requirement(rule, s))
     if kind == 'file':
         return lambda s: bool(rule['compiled_file'].search(str(s)))
+    if kind == 'unit':
+        # what the reviewer is then asked is not a fixture's to answer: a
+        # fragment matches when it would make a judgment unit at all
+        return lambda s: any(units.meaningful(line) for line in str(s).split('\n'))
     return lambda s: bool(rule['compiled_when'].search(str(s)))

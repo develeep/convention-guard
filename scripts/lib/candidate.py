@@ -35,10 +35,11 @@ def clip(text, limit=SNIPPET_LIMIT):
 
 class Candidate:
     __slots__ = ('rule_id', 'file', 'line', 'snippet', 'code_hash', 'context_hash',
-                 'review_hash')
+                 'review_hash', 'unit')
 
-    def __init__(self, rule_id, file, line, snippet, context_hash=None, code=None):
-        """`code` is what the fingerprint covers (the snippet when omitted)."""
+    def __init__(self, rule_id, file, line, snippet, context_hash=None, code=None, unit=None):
+        """`code` is what the fingerprint covers (the snippet when omitted).
+        `unit` is the judgment unit (units.Unit) of a when_code_added rule."""
         self.rule_id = rule_id
         self.file = file
         self.line = int(line)
@@ -47,6 +48,7 @@ class Candidate:
         self.context_hash = context_hash
         # set by semantic.annotate(): rule definition + primary + related context
         self.review_hash = None
+        self.unit = unit
 
     @property
     def key(self):

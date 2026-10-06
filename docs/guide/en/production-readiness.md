@@ -207,7 +207,7 @@ This is the stage before moving to `mode: fix`. **Only error severity blocks.** 
 
 It is **off** by default. All items are [sandbox] — `tests/integration/test_semantic_review.py`, `tests/semantic/*`.
 
-- [ ] **G1. No candidates means zero AI calls** — A turn with no change caught by the gate creates no review batch.
+- [ ] **G1. Nothing to judge means zero AI calls** — A turn with no change caught by the gate and no meaningful added line in a file under a `when_code_added` glob creates no review batch.
 - [ ] **G2. With candidates, it hands over a one-line review command** — `convention-guard:convention-reviewer 에이전트에게 아래 명령 한 줄을 그대로 전달` ("pass the one-line command below as is to the convention-guard:convention-reviewer agent") + `review.py show <batch>`.
 - [ ] **G3. The context pack is "one function's worth"** — Candidate + surroundings + imports + lines this change added. Within `semantic_review.context_budget_lines` and the rule's `max_context_lines`.
 - [ ] **G4. Verdicts are cached** — VALID is not asked again; VIOLATION blocks like a deterministic candidate. Re-reviewed when the function body, related files or the rule change. TTL `verdict_ttl_days` (default 30).

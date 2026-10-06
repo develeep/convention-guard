@@ -1,0 +1,32 @@
+id: thin-controller
+title: 컨트롤러에 비즈니스 로직
+severity: error
+prevent: 컨트롤러 액션은 검증 → 서비스·액션 호출 → 응답만 하세요. 계산·분기 판단·모델 조회와 저장은 app/Services(또는 액션 클래스)에 둡니다.
+applies_to:
+  stacks: [laravel]
+  files: ["app/Http/Controllers/**/*.php"]
+  exclude: ["**/vendor/**"]
+detect:
+  # 정규식 신호가 없는 컨벤션: 이 파일들에 에이전트가 코드를 추가하면 판정 단위
+  # (함수 / 파일 머리)마다 리뷰어가 판정합니다 (units.py)
+  when_code_added: true
+semantic_review:
+  context: [imports]
+  max_context_lines: 120
+  instruction: |
+    질문은 하나입니다: 이 판정 단위가 컨트롤러에 비즈니스 로직이나 데이터 접근을 들여오는가?
+    VIOLATION: 단위의 코드가 도메인 판단이나 데이터 접근을 직접 한다.
+      예) 상태·금액·등급에 따른 분기로 값을 정함, 가격·할인·수수료 계산,
+      Eloquent 모델·DB 를 직접 조회하거나 저장함 (단순 목록 조회도 포함),
+      여러 모델을 함께 쓰는 쓰기 조합이나 트랜잭션, 도메인 데이터를 반복하며 집계·분류.
+    VALID: 요청 받기, 검증, 인가(authorize), 서비스·액션 호출, 리다이렉트, 응답 반환.
+      파일 머리(import·namespace·클래스 선언·생성자 주입)는 VALID 입니다. 사용처에서 판정합니다.
+    이 규칙 외의 문제는 판정하지 않습니다. 판단이 서지 않으면 VALID 입니다.
+message: |
+  컨트롤러 액션에 비즈니스 로직이 있습니다. 판단·계산·조회·쓰기 조합은 app/Services 의 서비스(또는 액션 클래스)로 옮기고
+  컨트롤러는 검증 → 서비스 호출 → 응답만 하세요.
+tests:
+  match:
+    - "        $total = $subtotal - $discount;"
+  no_match:
+    - "    }"

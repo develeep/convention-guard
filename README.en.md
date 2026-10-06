@@ -36,7 +36,7 @@ The `console.log("legacy")` that was already on line 1 of the same file was not 
 - **It looks only at the lines the agent wrote.** On every tool call it compares the content before and after and records where each line came from. It does not react to existing legacy code, lines a person edited alongside, or other people's commits brought in by `git pull`.
 - **Comments and strings are not code.** A commented-out `console.log(` or a `dd(` inside a string is not flagged. The decision is made on a tree-sitter syntax tree, and the plugin installs that engine itself.
 - **A candidate is not a violation.** Regexes only narrow down candidates; the agent that looked at the code makes the call. False positives are recorded as dismissals and are not raised again while that code stays the same.
-- **No candidates, no AI calls.** Only rules that regexes cannot decide, such as N+1 queries or layer boundaries, go to a subagent, and only when there is a candidate with no recorded verdict. The subagent judges from about one function's worth of context.
+- **Nothing to judge, no AI calls.** Only rules that regexes cannot decide, such as N+1 queries or layer boundaries, go to a subagent, and only when there is a candidate with no recorded verdict. The subagent judges from about one function's worth of context. Conventions with no regex signal at all (no business logic in controllers, for example) are judged per function when the agent adds code to the files they name.
 - **It tells you what it missed.** If a collect hook died or the structure could not be read, it says so by name. Something it could not check never looks like a pass.
 
 It ships 34 rules for Laravel·PHP·Blade, Next·React·Nest·JS/TS and Python, and you can add your team's rules in YAML.

@@ -219,6 +219,58 @@ def _depth(line):
     return sum(line.count(c) for c in '([{') - sum(line.count(c) for c in ')]}')
 
 
+def _ranges(linenos):
+    """[3, 4, 5, 9] -> '3-5, 9'"""
+    out, run = [], []
+    for n in sorted(linenos):
+        if run and n != run[-1] + 1:
+            out.append(run)
+            run = []
+        run.append(n)
+    if run:
+        out.append(run)
+    return ', '.join('%d-%d' % (r[0], r[-1]) if len(r) > 1 else str(r[0]) for r in out)
+
+
+def _header(lines, unit, budget):
+    """The file with function bodies folded: (text, shown, cut)."""
+    width = len(str(len(lines)))
+    hidden = {a: b for a, b in unit.hidden}
+    parts, shown, n = [], 0, 1
+    while n <= len(lines) and shown < budget:
+        if n in hidden:
+            parts.append('%s… 함수 본문 %d줄 생략' % (' ' * (width + 2), hidden[n] - n + 1))
+            n = hidden[n] + 1
+            continue
+        parts.append(numbered([lines[n - 1]], n, width))
+        shown += 1
+        n += 1
+    cut = n <= len(lines)
+    if cut:
+        parts.append(cut_marker(len(lines) - n + 1, width))
+    return '\n'.join(parts), shown, cut
+
+
+def _unit_section(pack, lines, unit, idx, budget):
+    """The judgment unit of a when_code_added rule, whole: it is what the
+    reviewer judges. Returns the 0-based region it covers, or None."""
+    added = '추가된 줄 %s' % _ranges(unit.lines)
+    pack.primary = unit.code
+    if unit.kind == 'function':
+        start, end = unit.start - 1, unit.end - 1
+        body, shown, cut = _clip_region(lines, start, end, idx, budget)
+        pack.add('unit', '판정 단위 — 함수 (%d-%d줄, %s)' % (unit.start, unit.end, added),
+                 body, shown, cut)
+        return start, end
+    if unit.kind == 'header':
+        body, shown, cut = _header(lines, unit, budget)
+        pack.add('unit', '판정 단위 — 파일 머리 (함수 밖 줄, %s)' % added, body, shown, cut)
+        return None
+    body, shown, cut = _clip_region(lines, 0, len(lines) - 1, idx, budget)
+    pack.add('unit', '판정 단위 — 파일 전체 (함수 경계 미확인, %s)' % added, body, shown, cut)
+    return 0, len(lines) - 1
+
+
 def build(scope, cand, review, list_files=None):
     """Context pack for one candidate under the rule's `semantic_review` spec."""
     text = scope.text(cand.file)
@@ -231,9 +283,12 @@ def build(scope, cand, review, list_files=None):
     specs = {next(iter(item)): item[next(iter(item))]
              for item in review['context'] if isinstance(item, dict)}
 
+    unit = cand.unit
     region = _function_region(text, lang, cand.line) \
-        if lines and 'current_function' in wanted else None
-    if region:
+        if lines and unit is None and 'current_function' in wanted else None
+    if unit is not None:
+        region = _unit_section(pack, lines, unit, idx, budget) if lines else None
+    elif region:
         body, shown, cut = _clip_region(lines, region[0], region[1], idx,
                                         min(FUNCTION_MAX_LINES, budget))
         pack.primary = '\n'.join(lines[region[0]:region[1] + 1])
@@ -252,7 +307,8 @@ def build(scope, cand, review, list_files=None):
     def room():
         return budget - pack.lines
 
-    if 'imports' in wanted and lines and room() > 0:
+    header = unit is not None and unit.kind == 'header'
+    if 'imports' in wanted and lines and room() > 0 and not header:   # a header shows them
         found = _imports(text, lines, lang)[:min(IMPORT_MAX_LINES, room())]
         if found:
             pack.add('imports', 'import / use',
@@ -292,6 +348,7 @@ def build(scope, cand, review, list_files=None):
                 break
     if 'changed_hunks' in wanted and room() > 0:
         skip = set(range(region[0] + 1, region[1] + 2)) if region else set()
+        skip |= set(unit.lines) if unit is not None else set()
         added = [(n, t) for n, t in scope.lines(cand.file) if n not in skip and n != cand.line]
         added = added[:min(HUNKS_MAX_LINES, room())]
         if added:

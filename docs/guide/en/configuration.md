@@ -61,7 +61,7 @@ For the first 2–3 weeks of adoption, we recommend `report` to collect logs, ch
 
 ## presets
 
-`auto` means `common`, `security`, and the presets that overlap the detected stack tags. `architecture` and `performance` turn on only when listed explicitly. List: [rules.md](rules.md#presets)
+`auto` means `common`, `security`, and the presets that overlap the detected stack tags. `architecture`, `performance` and `layering` turn on only when listed explicitly. List: [rules.md](rules.md#presets)
 
 ```yaml
 presets: [auto, architecture]     # auto + layer-boundary semantic review

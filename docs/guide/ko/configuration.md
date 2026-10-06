@@ -61,7 +61,7 @@
 
 ## presets
 
-`auto` 는 `common`, `security`, 그리고 감지된 스택 태그와 겹치는 프리셋입니다. `architecture`, `performance` 는 명시해야 켜집니다. 목록: [rules.md](rules.md#프리셋)
+`auto` 는 `common`, `security`, 그리고 감지된 스택 태그와 겹치는 프리셋입니다. `architecture`, `performance`, `layering` 은 명시해야 켜집니다. 목록: [rules.md](rules.md#프리셋)
 
 ```yaml
 presets: [auto, architecture]     # auto + 계층 경계 의미 판정

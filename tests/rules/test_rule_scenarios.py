@@ -32,7 +32,7 @@ from lib.scope import ChangeScope  # noqa: E402
 from lib.yamlio import read as read_yaml  # noqa: E402
 
 SCENARIOS = os.path.join(HERE, 'scenarios')
-ANCHORED = ('absent', 'requires', 'paired', 'file')
+ANCHORED = ('absent', 'requires', 'paired', 'file', 'unit')
 
 
 def core_rules():

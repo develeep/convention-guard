@@ -1,0 +1,160 @@
+rule: core/thin-controller
+stacks: [laravel, php]
+cases:
+  - name: 새 액션은 그 함수 하나가 판정 단위
+    before:
+      app/Http/Controllers/OrderController.php: |
+        <?php
+
+        namespace App\Http\Controllers;
+
+        use App\Models\Order;
+
+        class OrderController extends Controller
+        {
+            public function legacy()
+            {
+                if (Order::count() > 10) {
+                    return 1;
+                }
+                return 0;
+            }
+        }
+
+    after:
+      app/Http/Controllers/OrderController.php: |
+        <?php
+
+        namespace App\Http\Controllers;
+
+        use App\Models\Order;
+
+        class OrderController extends Controller
+        {
+            public function legacy()
+            {
+                if (Order::count() > 10) {
+                    return 1;
+                }
+                return 0;
+            }
+
+            public function store()
+            {
+                $total = Order::sum('total');
+                return $total * 2;
+            }
+        }
+
+    expect: ["app/Http/Controllers/OrderController.php:17"]
+
+  - name: 함수 밖에 추가한 use 는 파일 머리 하나
+    before:
+      app/Http/Controllers/OrderController.php: |
+        <?php
+
+        namespace App\Http\Controllers;
+
+        use App\Models\Order;
+
+        class OrderController extends Controller
+        {
+            public function legacy()
+            {
+                if (Order::count() > 10) {
+                    return 1;
+                }
+                return 0;
+            }
+        }
+
+    after:
+      app/Http/Controllers/OrderController.php: |
+        <?php
+
+        namespace App\Http\Controllers;
+
+        use App\Models\Order;
+        use App\Services\OrderService;
+
+        class OrderController extends Controller
+        {
+            public function legacy()
+            {
+                if (Order::count() > 10) {
+                    return 1;
+                }
+                return 0;
+            }
+        }
+
+    expect: ["app/Http/Controllers/OrderController.php:6"]
+
+  - name: 레거시 액션 옆에 닫는 괄호만 추가되면 조용함
+    before:
+      app/Http/Controllers/OrderController.php: |
+        <?php
+
+        namespace App\Http\Controllers;
+
+        use App\Models\Order;
+
+        class OrderController extends Controller
+        {
+            public function legacy()
+            {
+                if (Order::count() > 10) {
+                    return 1;
+                }
+                return 0;
+            }
+
+    after:
+      app/Http/Controllers/OrderController.php: |
+        <?php
+
+        namespace App\Http\Controllers;
+
+        use App\Models\Order;
+
+        class OrderController extends Controller
+        {
+            public function legacy()
+            {
+                if (Order::count() > 10) {
+                    return 1;
+                }
+                return 0;
+            }
+        }
+
+    expect: []
+
+  - name: 글롭 밖 파일만 바뀌면 레거시 컨트롤러는 조용함
+    before:
+      app/Http/Controllers/OrderController.php: |
+        <?php
+
+        namespace App\Http\Controllers;
+
+        use App\Models\Order;
+
+        class OrderController extends Controller
+        {
+            public function legacy()
+            {
+                if (Order::count() > 10) {
+                    return 1;
+                }
+                return 0;
+            }
+        }
+
+    after:
+      app/Services/OrderService.php: |
+          <?php
+
+          class OrderService
+          {
+          }
+    expect: []

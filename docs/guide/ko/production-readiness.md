@@ -207,7 +207,7 @@ python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude/plugin
 
 기본은 **꺼져 있습니다**. 전 항목 [샌드박스] — `tests/integration/test_semantic_review.py`, `tests/semantic/*`.
 
-- [ ] **G1. 후보가 없으면 AI 호출이 0이다** — 게이트에 걸리는 변경이 없는 턴에는 판정 배치가 생기지 않음.
+- [ ] **G1. 판정할 것이 없으면 AI 호출이 0이다** — 게이트에 걸리는 변경도, `when_code_added` 글롭에 든 파일의 의미 있는 추가 줄도 없는 턴에는 판정 배치가 생기지 않음.
 - [ ] **G2. 후보가 있으면 판정 명령 한 줄을 넘긴다** — `convention-guard:convention-reviewer 에이전트에게 아래 명령 한 줄을 그대로 전달` + `review.py show <배치>`.
 - [ ] **G3. 컨텍스트 팩이 "함수 하나 분량"이다** — 후보 + 주변 + import + 이번 변경이 추가한 줄. `semantic_review.context_budget_lines`, 규칙의 `max_context_lines` 안.
 - [ ] **G4. 판정이 캐시된다** — VALID 는 다시 묻지 않음, VIOLATION 은 결정론 후보처럼 차단. 함수 본문·관련 파일·규칙이 바뀌면 재판정. TTL `verdict_ttl_days`(기본 30).

@@ -32,6 +32,7 @@ Anchors decide what makes a finding *this change's* responsibility:
     when_file_added     must_contain_in_file      absent    the new file; it lacks the requirement
     when_changed        require_changed           paired    the change set; no paired file changed
     file_regex          -                         file      a multi-line match overlapping changed lines
+    when_code_added     - (semantic_review, files) unit      a function or file head it added code to
 """
 
 import difflib
@@ -43,7 +44,7 @@ import re
 from ..stack import parse_constraint
 from .select import SEVERITIES
 
-ANCHORS = ('when_line_added', 'when_file_added', 'when_changed', 'file_regex')
+ANCHORS = ('when_line_added', 'when_file_added', 'when_changed', 'file_regex', 'when_code_added')
 CONDITIONS = ('must_contain_in_file', 'require_changed', 'must_not_in')
 # Structure conditions (3.0): filters that ask what the match sits inside.
 # `CONDITIONS` above was already taken by the anchor modifiers, hence the name.
@@ -207,6 +208,9 @@ def normalize(raw, path, source):
     }
     _detect(rule, raw.get('detect'))
     rule['review'] = _review(raw.get('semantic_review'))
+    if rule['kind'] == 'unit' and not rule['review']:
+        # no regex says what is wrong: only the reviewer can (units.py)
+        raise RuleError('when_code_added 규칙에는 semantic_review 가 필요합니다')
     rule['definition_hash'] = definition_hash(rule) if rule['review'] else None
     rule['fix'] = _fix(raw.get('fix'), rule)
     tests = rule['tests']
@@ -265,6 +269,16 @@ def _detect(rule, spec):
         rule['kind'] = 'paired'
         rule['when_changed'] = _globs(spec[anchor], 'detect.when_changed')
         rule['require_changed'] = _globs(required, 'detect.require_changed')
+    elif anchor == 'when_code_added':
+        if spec[anchor] is not True:
+            raise RuleError('when_code_added 는 true 여야 합니다')
+        if must or required:
+            raise RuleError('when_code_added 에는 조건을 붙일 수 없습니다')
+        if not rule['files']:
+            # without a glob every added line in the repo would go to a reviewer
+            raise RuleError('when_code_added 규칙에는 applies_to.files 가 필요합니다 — '
+                            '판정할 파일을 글롭으로 정합니다')
+        rule['kind'] = 'unit'
     else:
         if must or required:
             raise RuleError('file_regex 에는 조건을 붙일 수 없습니다')

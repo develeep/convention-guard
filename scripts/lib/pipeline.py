@@ -101,6 +101,11 @@ def run(scope, cfg, plugin_root=None, run_lint=True, cap=None, use_dismiss=True,
                       is_dismissed, unchecked)
     semantic_hits = detect.run([r for r in applicable if r['review']], scope, stacks, cap,
                                is_dismissed, unchecked)
+    for rule, cands in semantic_hits:
+        if rule['kind'] == 'unit' and len(cands) >= detect.unit_cap(cap):
+            # the units past the cap were never looked at: not a pass (R3)
+            ruleset.notes.append(('warn', '%s: 판정 단위가 상한 %d개에 닿아 나머지는 이번에 '
+                                          '판정하지 못했습니다' % (rule['id'], len(cands))))
 
     return Result(scope, stacks, ruleset, applicable, lint_blocking, lint_notes, lint_raw,
                   hits, semantic_hits, dismissals, unchecked, lint_unfinished)

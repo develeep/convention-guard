@@ -15,14 +15,16 @@ Carried over from 0.x regressions:
 - a finding declined as a false positive is "dismissed", never "not fixed",
   and does not spend the rule's once-per-session budget
 """
+import json
 import os
+import re
 import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import (LARAVEL_COMPOSER, Session, check, commit, finish, git,  # noqa: E402
-                     make_repo, run_script, store_rows, tempdir, write)
+                     make_repo, needs_engine, run_script, store_rows, tempdir, write)
 from lib import structure  # noqa: E402
 from lib.candidate import clip, fingerprint  # noqa: E402
 
@@ -523,6 +525,102 @@ def case_reformat_and_move_are_still(repo, data):
     check('moved to another file is still', verify == ['still'], t.events('verify'))
 
 
+UNIT_RULE = '''id: %(id)s
+title: %(id)s
+severity: error
+applies_to:
+  stacks: [laravel]
+  files: ["%(glob)s"]
+detect:
+  when_code_added: true
+semantic_review:
+  instruction: 이 판정 단위가 규칙을 어기는가?
+message: 고치세요
+tests:
+  match: ["x"]
+'''
+CTRL = 'app/Http/Controllers/OrderController.php'
+CUST = 'app/Http/Controllers/CustomerController.php'
+DOM = 'app/Domain/Price.php'
+
+
+def ctrl(store_body):
+    return (HDR + 'class OrderController {\n'
+            '    public function legacy() { if ($o->total > 9) { $o->fee = 1; } }\n'
+            + ('    public function place() {\n        %s\n    }\n' % store_body
+               if store_body else '') + '}\n')
+
+
+def cust(body):
+    return HDR + 'class CustomerController {\n    public function vip() {\n        %s\n    }\n}\n' % body
+
+
+def dom(body):
+    return HDR + 'final class Price {\n    public function total() {\n        %s\n    }\n}\n' % body
+
+
+def unit_items(s, result):
+    """The batch the block asks for: [(id, file, snippet)]."""
+    match = re.search(r'review\.py" show "([^"]+)"', result['reason'])
+    if not match:
+        return None, []
+    rows = store_rows(s.data, 'SELECT body FROM review_batch WHERE id = ?',
+                      (match.group(1).rsplit('#', 1)[1],))
+    items = json.loads(rows[0][0])['items'] if rows else []
+    return match.group(1), [(i['id'], i['file'], i['snippet']) for i in items]
+
+
+def answer(s, batch, items, verdict_of):
+    answers = [{'id': ident, 'verdict': verdict_of(path, snippet), 'reason': '근거'}
+               for ident, path, snippet in items]
+    return run_script('review.py', ['record', batch], stdin=json.dumps(answers),
+                      env=s.env, cwd=s.repo)
+
+
+def case_unit_rules_verify_scope(repo, data):
+    if not needs_engine('판정 단위 사이클'):
+        return
+    for rid, glob in (('thin', 'app/Http/Controllers/**/*.php'), ('pure', 'app/Domain/**/*.php')):
+        write(repo, '.claude/convention-guard/rules/%s.yaml' % rid,
+              UNIT_RULE % {'id': rid, 'glob': glob})
+    write(repo, CTRL, ctrl(''))
+    commit(repo, 'legacy controller')
+    s = Session(repo, data, 'units')
+    s.edit(CTRL, ctrl('$o = Order::create([\'total\' => $a * 2]);'))
+    s.edit(CUST, cust('return $this->customers->vip();'))
+    s.edit(DOM, dom('return 1 + 2;'))
+    first = s.stop('p1')
+    batch, items = unit_items(s, first)
+    check('code added under the globs blocks with one question per unit',
+          first['decision'] == 'block' and len(items) == 5, items)
+    check('the legacy method is not a unit', not any('legacy' in i[2] for i in items), items)
+    rec = answer(s, batch, items,
+                 lambda path, snip: 'VIOLATION' if 'place' in snip else 'VALID')
+    check('the reviewer records', rec.returncode == 0, rec.stderr)
+
+    s.edit(CTRL, ctrl('$o = $this->orders->place($a);'))
+    s.edit(CUST, cust('return $this->customers->vip()->sortBy(\'id\');'))
+    s.edit(DOM, dom('return 1 + 3;'))
+    verify = s.stop('p1', stop_hook_active=True)
+    batch, items = unit_items(s, verify)
+    check('the fix asks again only the rule that found a violation',
+          verify['decision'] == 'block'
+          and sorted(i[1] for i in items) == sorted([CTRL, CUST]), items)
+    check('and holds the other rule', '재검증 범위 밖 판정 보류 1' in verify['reason'],
+          verify['reason'])
+    check('asking again spent no verify attempt', s.state()['cycle']['attempt'] == 0,
+          s.state()['cycle'])
+
+    answer(s, batch, items, lambda path, snip: 'VIOLATION' if path == CUST else 'VALID')
+    s.touch(CTRL)
+    done = s.stop('p1', stop_hook_active=True)
+    check('a violation found elsewhere while verifying is reported, not blocked',
+          done['decision'] is None and '보고만 1' in done['summary']
+          and '재검증 범위 밖 판정 보류 1' in done['summary'], done)
+    check('the fix is logged fixed and the other reported',
+          outcomes(s) == ['fixed', 'reported'], s.events('verify'))
+
+
 CASES = [
     (case_fixed_passes, ''),
     (case_still_blocks_once_more, 'once_per_session: false\n'),
@@ -556,6 +654,7 @@ CASES = [
     (case_hidden_rules_are_counted, 'limits:\n  max_error_rules: 1\n'),
     (case_verify_cap_is_not_new, 'once_per_session: false\n'),
     (case_reformat_and_move_are_still, 'once_per_session: false\n'),
+    (case_unit_rules_verify_scope, 'semantic_review:\n  enabled: true\n'),
 ]
 
 

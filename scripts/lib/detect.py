@@ -8,6 +8,7 @@ Each rule kind differs in what it looks at and in what anchors a finding to
   requires  조건 + 파일 전체            조건이 '추가된 줄'에 있어야 함
   absent    새 파일 전체               파일이 새것이어야 함
   paired    변경 집합 (줄만 지운 파일 포함)  변경 집합 자체가 앵커
+  unit      글롭에 든 파일의 추가된 줄      줄이 속한 판정 단위(함수·파일 머리)가 앵커 (units.py)
 
 A rule with semantic_review uses the same detectors; its candidates are
 routed to a reviewer instead of straight to the agent (see pipeline.py).
@@ -18,10 +19,19 @@ therefore file-level and does not expire when the file changes -- which is
 the right granularity for "this file needs no pair", not an oversight.
 """
 
-from . import rules as rulelib, structure
+from . import rules as rulelib, structure, units
 from .candidate import Candidate, clip
 from .structure import conditions as structure_conditions
 from .structure.model import REJECT, UNKNOWN, Span
+
+# Judgment units a when_code_added rule collects in one run. The display cap
+# (max_locations_per_rule) is about what a block shows; every unit is a question
+# a reviewer pages through, so it gets its own, and reaching it is said (pipeline).
+UNIT_CAP = 50
+
+
+def unit_cap(cap):
+    return max(int(cap), UNIT_CAP)
 
 
 class Unchecked:
@@ -244,6 +254,24 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
                     continue
                 spans = _line_spans(rule['compiled_when'], text, lineno) if wants else None
                 if add(relpath, lineno, clip(text), spans, source, code=text):
+                    return found
+
+        elif kind == 'unit':
+            # one candidate per judgment unit, keyed on the unit's code: any
+            # edit inside it is a new question, an edit elsewhere is not
+            added = scope.lines(relpath)
+            if not any(units.meaningful(text) for _, text in added):
+                continue
+            body = scope.text(relpath)
+            if not body:
+                continue
+            for item in units.of(body, structure.language_of(relpath), added):
+                cand = Candidate(rule['id'], relpath, item.lines[0], clip(item.label),
+                                 code=item.code, unit=item)
+                if is_dismissed(rule['id'], relpath, cand.code_hash):
+                    continue
+                found.append(cand)
+                if len(found) >= unit_cap(cap):
                     return found
 
         elif kind == 'absent':

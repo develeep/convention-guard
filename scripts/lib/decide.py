@@ -36,6 +36,20 @@ Semantic review never runs on its own. Only when candidates of a
 semantic_review rule exist and the verdict cache has nothing for them does
 the block ask the main agent to hand one batch reference to the
 convention-reviewer subagent. No candidates, no AI call.
+
+A when_code_added rule (kind `unit`) has no regex to make it deterministic,
+and a model asked again finds again. So once a cycle is open its reviewer
+is held to what the cycle is about:
+  - a unit present when the cycle opened and not asked yet is asked (a page)
+  - any other unit -- changed or written by the fix, or asked before and
+    now in a new context -- is asked only if its rule found a violation in
+    this cycle; otherwise it is held for the next request
+  - a VIOLATION blocks only in a file where that rule already found one,
+    and never on a unit this cycle already judged VALID; otherwise it is
+    reported, not blocked
+Asking is part of judging, not a failed fix: a block that only asks units
+it has not asked before spends neither max_verify_attempts nor the streak.
+A question asked twice in one cycle is not free.
 """
 
 import copy
@@ -44,6 +58,7 @@ from . import batch as batchlib
 from .candidate import VIOLATION
 
 FIXED, DISMISSED, STILL, NEW = 'fixed', 'dismissed', 'still', 'new'
+REPORTED = 'reported'      # a unit rule's violation found while verifying: said, not blocked
 BLOCKING = ('error',)
 
 DEFAULT_STATE = {
@@ -190,12 +205,23 @@ def new_cycle(ident, prompt_id, opened, seen):
         'opened': opened,          # {key: meta} flagged to the agent, still being tracked
         'seen': sorted(seen),      # every candidate key present when flagged
         'review': None,
+        'violated': [],            # [rule_id, file] where a unit rule found a violation
+        'asked': [],               # unit candidate keys put to a reviewer in this cycle
+        'asked_reviews': [],       # their review keys
+        'cleared': [],             # unit candidate keys judged VALID in this cycle
     }
 
 
+def is_unit(rule):
+    return rule.get('kind') == 'unit'
+
+
 def entry(rule, cand):
-    return {'rule_id': rule['id'], 'title': rule['title'], 'severity': rule['severity'],
-            'file': cand.file, 'line': cand_line(rule, cand), 'snippet': cand.snippet}
+    out = {'rule_id': rule['id'], 'title': rule['title'], 'severity': rule['severity'],
+           'file': cand.file, 'line': cand_line(rule, cand), 'snippet': cand.snippet}
+    if is_unit(rule):
+        out['unit'] = True
+    return out
 
 
 def cand_line(rule, cand):
@@ -216,10 +242,11 @@ def lint_entry(fail):
 class Outcome:
     def __init__(self):
         self.fixed, self.dismissed, self.still, self.new = {}, {}, {}, {}
+        self.reported = {}
 
     def counts(self):
         return {FIXED: len(self.fixed), DISMISSED: len(self.dismissed),
-                STILL: len(self.still), NEW: len(self.new)}
+                STILL: len(self.still), NEW: len(self.new), REPORTED: len(self.reported)}
 
     def blocking(self):
         """STILL and NEW entries that are worth another block -- not one whose
@@ -253,6 +280,8 @@ def classify(cycle, current, is_dismissed, unconfirmed=()):
         if key not in seen:
             out.new[key] = meta
     _pair_moves(out)
+    for key in [k for k, m in out.new.items() if m.get('unit')]:
+        out.reported[key] = out.new.pop(key)
     return out
 
 
@@ -345,7 +374,10 @@ class _Run:
         return Decision(self.saved, action, self.events, self.batch)
 
     def _quiet(self, rule):
-        return self.cfg['once_per_session'] and rule['id'] in (self.state.get('fired_rules') or [])
+        # a unit rule judges all new code; the verdict cache, not the session,
+        # is what keeps it from asking about the same code twice
+        return (self.cfg['once_per_session'] and not is_unit(rule)
+                and rule['id'] in (self.state.get('fired_rules') or []))
 
     # -- the order of things
 
@@ -425,55 +457,84 @@ class _Run:
         if review.get('batch'):
             # a candidate the reviewer called a VIOLATION is one the agent was told
             # to fix: from here on it is tracked like any other flagged finding
-            for review_key, verdict in (self.obs.cycle_verdicts or {}).items():
-                item = review['items'].get(review_key)
-                if item and verdict.get('verdict') == VIOLATION:
-                    cycle['opened'].setdefault(item['key'], dict(item))
+            answered = [(review['items'][k], v) for k, v in (self.obs.cycle_verdicts or {}).items()
+                        if k in review['items']]
+            # pages first: a violation they find widens what a re-ask may block on
+            answered.sort(key=lambda pair: not pair[0].get('page'))
+            for item, verdict in answered:
+                if verdict.get('verdict') != VIOLATION:
+                    if item.get('unit'):
+                        _add(cycle, 'cleared', [item['key']])
+                    continue
+                if item.get('unit') and not item.get('page') and (
+                        (item['rule_id'], item['file']) not in _violated(cycle)
+                        or item['key'] in (cycle.get('cleared') or ())):
+                    continue    # found while verifying: reported (classify)
+                cycle['opened'].setdefault(item['key'], dict(item))
+                if item.get('unit'):
+                    _mark_violated(cycle, item)
         if current is None:
             current = self._current(scan)
         unfinished = scan.lint_unfinished if scan is not None else ()
         unconfirmed = {lint_key({'key': key, 'cmd': ''}) for key in unfinished}
-        return classify(cycle, current, self.obs.is_dismissed, unconfirmed)
+        out = classify(cycle, current, self.obs.is_dismissed, unconfirmed)
+        # the same unit, VALID earlier in this cycle and VIOLATION now: the
+        # model changed its mind, not the code -- said, not blocked
+        cleared = set(cycle.get('cleared') or ())
+        for key, meta in current.items():
+            if meta.get('unit') and key in cleared and key not in out.remaining():
+                out.reported[key] = meta
+        return out
 
     @staticmethod
     def _hidden(outcome, current):
         """Blocking findings still there that the cycle never showed -- past the
         display budget. Not a failed fix, but not a pass either (R3)."""
-        shown = set(outcome.remaining())
+        shown = set(outcome.remaining()) | set(outcome.reported)
         return sorted(k for k, m in current.items()
                       if k not in shown and not k.startswith('lint:')
                       and m['severity'] in BLOCKING)
 
     def _pending_review(self, cycle, scan):
-        """(skipped, needs_review): semantic candidates without a verdict, split by
-        whether the reviewer was already asked about them in this cycle."""
+        """(skipped, needs_review, held): semantic candidates without a verdict,
+        split by whether the reviewer was already asked about them in this cycle
+        -- and, for unit rules, whether the cycle is about them at all."""
         if scan is None or not scan.pending:
-            return [], []
+            return [], [], []
         review = cycle.get('review') or {}
         asked = set(review.get('items') or {})
         ran = bool(review.get('batch')) and self.obs.cycle_verdicts is not None
-        skipped, needs = [], []
+        violated_rules = {rule_id for rule_id, _ in _violated(cycle)}
+        skipped, needs, held = [], [], []
         for item in scan.pending:
-            cand = item[1]
-            (skipped if cand.review_key in asked and not ran else needs).append(item)
-        return skipped, needs
+            rule, cand = item[0], item[1]
+            if cand.review_key in asked and not ran:
+                skipped.append(item)
+            elif is_unit(rule) and not _page(cycle, cand) and rule['id'] not in violated_rules:
+                held.append(item)
+            else:
+                needs.append(item)
+        return skipped, needs, held
 
     # -- closing and asking
 
     def _log_outcome(self, cycle, outcome, abandoned=False):
         for label, items in ((FIXED, outcome.fixed), (DISMISSED, outcome.dismissed),
-                             (STILL, outcome.still), (NEW, outcome.new)):
+                             (STILL, outcome.still), (NEW, outcome.new),
+                             (REPORTED, outcome.reported)):
             for key, meta in items.items():
                 self._event({'event': 'verify', 'cycle': cycle['id'], 'attempt': cycle['attempt'],
                              'outcome': label, 'key': key, 'rule_id': meta['rule_id'],
                              'severity': meta['severity'], 'file': meta['file'],
                              'abandoned': abandoned})
 
-    def _close(self, cycle, outcome, abandoned=False, unreviewed=(), current=None):
+    def _close(self, cycle, outcome, abandoned=False, unreviewed=(), current=None, held=()):
         self._log_outcome(cycle, outcome, abandoned)
-        for _rule, cand, _pack in unreviewed:
-            self._event({'event': 'review_skipped', 'cycle': cycle['id'], 'rule_id': cand.rule_id,
-                         'key': cand.key, 'file': cand.file, 'reason': 'attempts'})
+        for reason, items in (('attempts', unreviewed), ('verify_scope', held)):
+            for _rule, cand, _pack in items:
+                self._event({'event': 'review_skipped', 'cycle': cycle['id'],
+                             'rule_id': cand.rule_id, 'key': cand.key, 'file': cand.file,
+                             'reason': reason})
         if abandoned:
             self._event(dict({'event': 'abandoned', 'cycle': cycle['id']}, **outcome.counts()))
         state = self.state
@@ -510,8 +571,12 @@ class _Run:
         for rule, cand, _ in pending:       # the first candidate, as the batch item (R7)
             by_key.setdefault(cand.review_key, (rule, cand))
         cycle['review'] = {'batch': ref, 'items': {
-            item['review_key']: dict(entry(*by_key[item['review_key']]), key=item['key'])
+            item['review_key']: dict(entry(*by_key[item['review_key']]), key=item['key'],
+                                     page=_page(cycle, by_key[item['review_key']][1]))
             for item in items}}
+        units = [item for item in items if is_unit(by_key[item['review_key']][0])]
+        _add(cycle, 'asked', [item['key'] for item in units])
+        _add(cycle, 'asked_reviews', [item['review_key'] for item in units])
         self.batch = (ref, body)
         self._event({'event': 'review_requested', 'cycle': cycle['id'], 'batch': ref,
                      'rules': sorted({i['rule_id'] for i in items}), 'candidates': len(items),
@@ -529,7 +594,7 @@ class _Run:
         for key in [k for k, m in outcome.new.items() if m['rule_id'] in capped]:
             del outcome.new[key]
         hidden = self._hidden(outcome, current)
-        skipped, needs = self._pending_review(cycle, scan)
+        skipped, needs, held = self._pending_review(cycle, scan)
         warnings = scan.warnings if scan is not None else []
         cfg = self.cfg
         streak = int(self.state.get('consecutive_blocks', 0))
@@ -538,11 +603,16 @@ class _Run:
         # attempt. Let deferred, previously-unasked candidates consume the loop
         # guard, not max_verify_attempts.
         review_page = bool(needs) and not outcome.blocking() and not skipped
+        # asking about units is judging, not fixing: each is asked once, so it
+        # needs neither guard (see the module docstring)
+        asked_before = set(cycle.get('asked_reviews') or ())
+        free = review_page and all(is_unit(rule) and cand.review_key not in asked_before
+                                   for rule, cand, _ in needs)
         attempts_left = (cycle['attempt'] < cfg.limit('max_verify_attempts') or review_page)
         again = (wants and not cfg.report_only and attempts_left
-                 and streak < cfg.limit('max_consecutive_blocks'))
+                 and (free or streak < cfg.limit('max_consecutive_blocks')))
         if not again:
-            self._close(cycle, outcome, unreviewed=skipped + needs, current=current)
+            self._close(cycle, outcome, unreviewed=skipped + needs, current=current, held=held)
             counts = outcome.counts()
             unshown = '미표시 %d' % len(hidden) if hidden else ''
             warning = _warning_part(warnings)
@@ -552,7 +622,7 @@ class _Run:
                     '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'],
                     '남음 %d' % (counts['still'] - len(unsure)), '새로 생김 %d' % counts['new'],
                     '린터 미확인 %d' % len(unsure), unshown, warning, '이후 기록만'], 'warn'))
-            if not outcome.remaining() and not (skipped or needs):
+            if not outcome.remaining() and not (skipped or needs or held or outcome.reported):
                 if hidden:      # what was shown is fixed; the rest is not a pass (R3)
                     return self._done(Notice('재검증 종료', [
                         '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'], unshown,
@@ -564,13 +634,16 @@ class _Run:
                 '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'],
                 '남음 %d' % counts['still'], '새로 생김 %d' % counts['new'], unshown,
                 '판정 대기 %d' % len(skipped + needs) if skipped or needs else '',
+                '보고만 %d' % counts[REPORTED] if outcome.reported else '',
+                '재검증 범위 밖 판정 보류 %d' % len(held) if held else '',
                 warning, '이후 기록만'], 'warn'))
 
         self._log_outcome(cycle, outcome)
         for _rule, cand, _pack in skipped:
             self._event({'event': 'review_skipped', 'cycle': cycle['id'], 'rule_id': cand.rule_id,
                          'key': cand.key, 'file': cand.file, 'reason': 'not_run'})
-        cycle['attempt'] += 1
+        if not free:
+            cycle['attempt'] += 1
         last_chance = (not review_page
                        and cycle['attempt'] >= cfg.limit('max_verify_attempts'))
         cycle['opened'] = outcome.remaining()
@@ -579,7 +652,7 @@ class _Run:
         review = self._request_review(cycle, skipped + needs, 'verify') \
             if (skipped or needs) else None
         self.state['cycle'] = cycle
-        self.state['consecutive_blocks'] = streak + 1
+        self.state['consecutive_blocks'] = streak + (0 if free else 1)
         self.state['blocks'] = int(self.state.get('blocks', 0)) + 1
         self._save()
         self._event({'event': 'block', 'cycle': cycle['id'], 'attempt': cycle['attempt'],
@@ -587,7 +660,7 @@ class _Run:
                      'review': bool(review)})
         return self._done(Block('verify', {'outcome': outcome, 'last_chance': last_chance,
                                            'review': review, 'skipped': bool(skipped),
-                                           'warnings': warnings}))
+                                           'warnings': warnings, 'held': len(held)}))
 
     # -- open a cycle
 
@@ -675,6 +748,9 @@ class _Run:
             opened[lint_key(fail)] = lint_entry(fail)
         seen = set(self._current(scan)) | {cand.key for _, cand, _ in all_pending}
         cycle = new_cycle('c%d' % int(self.obs.now * 1000), self.request.prompt_id, opened, seen)
+        for meta in opened.values():
+            if meta.get('unit'):
+                _mark_violated(cycle, meta)
         review = self._request_review(cycle, pending, 'open') if pending else None
         if not (opened or review):
             self._save()
@@ -691,6 +767,24 @@ class _Run:
             'errors': errors, 'warns': warns, 'repeats': repeats, 'review': review,
             'warnings': scan_warnings, 'lint_count': lint_count, 'info_count': len(infos),
             'more': more, 'hidden_rules': hidden_rules}))
+
+
+def _violated(cycle):
+    return {(rule_id, path) for rule_id, path in cycle.get('violated') or ()}
+
+
+def _page(cycle, cand):
+    """A unit there when the cycle opened that no reviewer was asked about yet."""
+    return cand.key in (cycle.get('seen') or ()) and cand.key not in (cycle.get('asked') or ())
+
+
+def _add(cycle, field, keys):
+    cycle[field] = sorted(set(cycle.get(field) or ()) | set(keys))
+
+
+def _mark_violated(cycle, meta):
+    pairs = _violated(cycle) | {(meta['rule_id'], meta['file'])}
+    cycle['violated'] = sorted([rule_id, path] for rule_id, path in pairs)
 
 
 def _warning_part(warnings):

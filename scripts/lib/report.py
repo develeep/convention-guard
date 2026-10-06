@@ -75,9 +75,12 @@ def review_section(review, skipped=False):
     counts = {}
     for item in review['items']:
         counts[item['rule_id']] = counts.get(item['rule_id'], 0) + 1
+    units = all(any(s['kind'] == 'unit' for s in item['context'].get('sections') or ())
+                for item in review['items'])
     out = [fmt.section('판정 대기', '후보 %d건 (%s)' % (
         len(review['items']), ', '.join('%s %d' % kv for kv in sorted(counts.items())))),
-        '  정규식만으로는 위반인지 알 수 없는 후보입니다.']
+        '  규칙이 정한 파일에 추가한 코드입니다. 함수·파일 머리 단위로 판정합니다.' if units
+        else '  정규식만으로는 위반인지 알 수 없는 후보입니다.']
     if skipped:
         out += fmt.aux('참고', '지난번 판정 요청이 실행되지 않았습니다. 이번에는 꼭 판정을 맡기세요.')
     notes = ['나머지 %d건은 예산 때문에 다음 판정으로 미뤘습니다' % review['deferred']] \
@@ -141,13 +144,15 @@ def hook_reason(lint_failures, lint_notes, errors, warns, repeats=frozenset(), r
     return clip_reason(fmt.blocks(*groups))
 
 
-def verify_reason(outcome, last_chance, review=None, skipped=False, warnings=()):
+def verify_reason(outcome, last_chance, review=None, skipped=False, warnings=(), held=0):
     """The re-scan after a block: what is left, and what the fix introduced."""
     counts = outcome.counts()
     head = hook_header('재검증 차단', [
         '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'],
         '남음 %d' % counts['still'], '새로 생김 %d' % counts['new'],
+        '보고만 %d' % counts['reported'] if outcome.reported else '',
         '판정 대기 %d' % len(review['items']) if review else '',
+        '재검증 범위 밖 판정 보류 %d' % held if held else '',
         '검사 경고 %d' % len(warnings) if warnings else ''])
     groups = [[head]]
 
@@ -173,6 +178,8 @@ def verify_reason(outcome, last_chance, review=None, skipped=False, warnings=())
     blocking = outcome.blocking()
     render('남음', {k: v for k, v in outcome.still.items() if k in blocking})
     render('새로 생김', {k: v for k, v in outcome.new.items() if k in blocking})
+    # a unit rule's verdict outside what this cycle fixes: said, not blocked
+    render('보고만 — 고치지 않아도 이번 요청은 끝납니다', outcome.reported)
     step = None
     if review:
         lines, step = review_section(review, skipped)

@@ -71,6 +71,37 @@ def case_schema():
           bool(absent['compiled_must'].search('declare(\n    strict_types=1')))
 
 
+def case_code_added_anchor():
+    print('case_code_added_anchor:')
+    review = {'instruction': 'judge'}
+    files = {'stacks': ['php'], 'files': ['app/**/*.php']}
+    unit = rulelib.normalize(rule_yaml(applies_to=files, detect={'when_code_added': True},
+                                       semantic_review=review), 'x.yaml', 'local')
+    check('when_code_added loads as a unit rule', unit['kind'] == 'unit', unit.get('kind'))
+    check('and is reviewed', bool(unit['review']) and unit['definition_hash'])
+    expect_error('when_code_added must be true',
+                 rule_yaml(applies_to=files, detect={'when_code_added': 'x'},
+                           semantic_review=review), 'when_code_added 는 true')
+    expect_error('when_code_added needs semantic_review',
+                 rule_yaml(applies_to=files, detect={'when_code_added': True}),
+                 'semantic_review')
+    expect_error('when_code_added needs applies_to.files',
+                 rule_yaml(detect={'when_code_added': True}, semantic_review=review),
+                 'applies_to.files')
+    expect_error('when_code_added takes no requirement',
+                 rule_yaml(applies_to=files, semantic_review=review,
+                           detect={'when_code_added': True, 'must_contain_in_file': 'x'}),
+                 'when_code_added')
+    expect_error('when_code_added takes no structure condition',
+                 rule_yaml(applies_to=files, semantic_review=review,
+                           detect={'when_code_added': True, 'not_in': ['comment']}),
+                 '구조 조건')
+    expect_error('when_code_added takes no auto-fix',
+                 rule_yaml(applies_to=files, semantic_review=review,
+                           detect={'when_code_added': True},
+                           fix={'auto': {'replace': 'a', 'with': 'b'}}), 'fix.auto')
+
+
 def case_structure_conditions():
     """not_in / in_scope / block_empty -- the U2 schema (DR-01~DR-08)."""
     print('case_structure_conditions:')
@@ -339,6 +370,7 @@ if __name__ == '__main__':
     case_globs()
     case_version_constraints()
     case_structure_conditions()
+    case_code_added_anchor()
     case_definition_hash()
     case_config_layers()
     case_presets_and_overrides()
