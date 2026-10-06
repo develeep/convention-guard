@@ -195,10 +195,32 @@ def case_new_file_is_the_agents(repo, data):
           'app/Svc/H.php' not in out['reason'], out['reason'])
 
 
+def legacy_and_new(*parts):
+    """A class of one-line-body methods, each part (property or method) in order."""
+    body = ''
+    for part in parts:
+        body += ('    %s\n' % part if not part.startswith('function')
+                 else '    public %s\n    {\n        dd($old);\n    }\n' % part)
+    return HDR + 'class A {\n' + body + '}\n'
+
+
+def case_shared_ending_is_not_the_agents(repo, data):
+    write(repo, A, legacy_and_new('function f()'))
+    commit(repo, 'legacy dd')
+    s = Session(repo, data, 'ending')
+    after = legacy_and_new('public $x = 1;', 'function f()', 'function g()')
+    s.edit(A, after)
+    out = s.stop('p1')
+    line = after.split('\n').index('    public function g()') + 3
+    check('a line shared with a legacy method is credited to the new one',
+          out['decision'] == 'block' and '%s:%d' % (A, line) in out['reason']
+          and '%s:%d' % (A, line - 4) not in out['reason'], out['reason'])
+
+
 CASES = [case_person_between_calls, case_person_elsewhere, case_bash_writes, case_moved_file,
          case_post_without_pre, case_pre_without_post, case_denied_call, case_background_write,
          case_parallel_calls, case_failed_call, case_collect_error, case_outside_root,
-         case_new_file_is_the_agents]
+         case_new_file_is_the_agents, case_shared_ending_is_not_the_agents]
 
 
 def main():

@@ -39,6 +39,10 @@ ROWS = [
      {'pool': [(A, 'p'), (B, 'a')]}),
     ('seams travel with their line', [A, B], 'Pp', [C, A, B], 'a', 'aPp', {}),
     ('identical blocks align', [A, B, A, B], 'ppaa', [A, B, C, A, B], 'a', 'ppaaa', {}),
+    # a method that ends like the old one, added below it while a line went in
+    # above: the shared ending belongs to the new method, not the old one
+    ('a shared ending stays with the old block', ['h', 'f', B, 'z'], 'pppp',
+     ['h', 'x', 'f', B, 'g', B, 'z'], 'a', 'pappaap', {}),
 ]
 
 

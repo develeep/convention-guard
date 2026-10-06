@@ -73,6 +73,13 @@ def apply(old, origins, new, label, pool=None, arrived=None):
     hi = 0
     while hi < n_old - lo and hi < n_new - lo and old[n_old - 1 - hi] == new[n_new - 1 - hi]:
         hi += 1
+    # Trimming the end pairs identical lines by position alone: a method added
+    # below an old one that ends the same way (`return ...;`, `}`) would take
+    # the old one's ending. The pairing is off by at most the lines that
+    # changed, so that many go back to difflib -- a small edit to a big file
+    # stays cheap. The start keeps its trim: "the copy comes after" is the
+    # reading the ledger has always given a repeated line.
+    hi = max(0, hi - (max(n_old, n_new) - lo - hi))
     a, b, am = old[lo:n_old - hi], new[lo:n_new - hi], marks[lo:n_old - hi]
     ops = difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes() if (a or b) else []
 
