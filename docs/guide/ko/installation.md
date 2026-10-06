@@ -121,7 +121,7 @@ python3 "$CG/scripts/engine.py" ensure    # 지금 설치하고 끝날 때까지
 
 ```bash
 CG=$(claude plugin list --json | python3 -c "import json,sys; print(next(p['installPath'] for p in json.load(sys.stdin) if p['id'].startswith('convention-guard@')))")
-echo "$CG"    # 예: ~/.claude/plugins/cache/develeep-convention-guard/convention-guard/4.0.0
+echo "$CG"    # 예: ~/.claude/plugins/cache/develeep-convention-guard/convention-guard/4.1.0
 ```
 
 `--plugin-dir` 로 쓰는 경우에는 그 체크아웃 경로가 `$CG` 입니다.

@@ -121,7 +121,7 @@ Skills call scripts through `${CLAUDE_PLUGIN_ROOT}`, so you do not need the path
 
 ```bash
 CG=$(claude plugin list --json | python3 -c "import json,sys; print(next(p['installPath'] for p in json.load(sys.stdin) if p['id'].startswith('convention-guard@')))")
-echo "$CG"    # e.g. ~/.claude/plugins/cache/develeep-convention-guard/convention-guard/4.0.0
+echo "$CG"    # e.g. ~/.claude/plugins/cache/develeep-convention-guard/convention-guard/4.1.0
 ```
 
 When you use `--plugin-dir`, that checkout path is `$CG`.
