@@ -77,16 +77,17 @@ The same candidate is handled differently depending on `mode`.
 | `fix` | **Block** the turn and pass the location, guidance, and dismiss command to the agent | Does not block on its own. Passed along when something else blocks |
 | `auto-fix` | Same as `fix`, but rules with `fix.auto` are fixed automatically first | Same as `fix` |
 
-A block opens a verification cycle. When the agent fixes things and ends the turn again, the same scope is checked again and the results fall into four groups.
+A block opens a verification cycle. When the agent fixes things and ends the turn again, the same scope is checked again and the results are grouped.
 
 | Result | Meaning |
 |---|---|
 | fixed | The flagged candidate is gone |
 | dismissed | Recorded as a false positive |
+| dropped (`검사에서 빠짐`) | The candidate is gone but its code is still on the agent's line — the structure engine was installed mid-cycle, or the rule was turned off or `exclude`d. It is not counted as fixed, so it stays out of rule-tune's fix rate. Semantic-review rules are excluded, since they are fixed in the surrounding code. Not shown when 0 |
 | still | Still there (reformatting in place or moving it as a whole also counts as still) |
 | new | A candidate that was not there at first — usually created by the fix just made |
 
-If still or new includes an error, it blocks once more, up to `limits.max_verify_attempts` (default 1). After that, it only records what is left and closes. `limits.max_consecutive_blocks` (default 3) caps consecutive blocks within one request to prevent an infinite loop.
+Blocking still and new items (errors) appear under `■ 남음` (still) and `■ 새로 생김` (new); non-blocking ones (warn) appear under `■ 참고` (note). If there is a blocking one, it blocks once more, up to `limits.max_verify_attempts` (default 1). After that, it only records what is left and closes. `limits.max_consecutive_blocks` (default 3) caps consecutive blocks within one request to prevent an infinite loop.
 
 ```
 block → fix → re-verification: still → block (last) → fix → re-verification: still → record only and close

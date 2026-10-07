@@ -160,6 +160,41 @@ def case_dismissed_in_cycle(repo, data):
           changed['decision'] == 'block', changed)
 
 
+def case_dropped_from_scan_is_not_fixed(repo, data):
+    """A candidate that leaves the scan while its code stays -- the engine
+    finished installing, a teammate turned the rule off -- was counted as a
+    fix, and rule-tune read the false positive as a healthy rule."""
+    s = Session(repo, data, 'dropped')
+    first = s.turn(A, body(), 'p1')
+    check('the finding blocks first', first['decision'] == 'block', first)
+    write(repo, '.claude/convention-guard/config.yaml',
+          'mode: fix\ndisable:\n  - core/php-no-debug-output\n')
+    s.touch(A)
+    verify = s.stop('p1', stop_hook_active=True)
+    check('nothing is left to block', verify['decision'] is None, verify)
+    check('it is not called a fix', '고쳐짐 0' in verify['summary']
+          and '검사에서 빠짐 1' in verify['summary'], verify['summary'])
+    check('and is logged dropped, not fixed', outcomes(s) == ['dropped'], s.events('verify'))
+
+
+def case_engine_arriving_is_not_a_fix(repo, data):
+    """The first Stop of a session ran before the engine was installed, so a
+    commented-out dd() was flagged; the re-scan has the engine and filters it."""
+    if not needs_engine('사이클 도중 엔진 설치'):
+        return
+    s = Session(repo, data, 'engine')
+    s.env['CONVENTION_GUARD_NO_ENGINE'] = '1'
+    code = HDR + 'class A { public function f() {\n// dd(1);\nreturn 1; } }\n'
+    first = s.turn(A, code, 'p1')
+    check('without the engine the comment is flagged', first['decision'] == 'block', first)
+    del s.env['CONVENTION_GUARD_NO_ENGINE']
+    s.touch(A)
+    verify = s.stop('p1', stop_hook_active=True)
+    check('with the engine nothing is left', verify['decision'] is None, verify)
+    check('the comment is not counted as fixed', '고쳐짐 0' in verify['summary']
+          and '검사에서 빠짐 1' in verify['summary'], verify['summary'])
+
+
 def case_abandoned_request(repo, data):
     s = Session(repo, data, 'abandon')
     s.turn(A, body(), 'p1')
@@ -628,6 +663,8 @@ CASES = [
     (case_settled_rule_can_come_back, ''),
     (case_over_budget_is_not_new, ''),
     (case_dismissed_in_cycle, ''),
+    (case_dropped_from_scan_is_not_fixed, ''),
+    (case_engine_arriving_is_not_a_fix, ''),
     (case_abandoned_request, 'once_per_session: false\n'),
     (case_new_occurrence_is_not_a_repeat, 'once_per_session: false\n'),
     (case_consecutive_cap, 'once_per_session: false\nlimits:\n  max_verify_attempts: 5\n'),

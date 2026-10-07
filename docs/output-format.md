@@ -396,7 +396,7 @@ convention-guard ✖ 차단 — error 1 · warn 1
 ### 2. Stop 훅 — 재검증
 
 ```
-convention-guard ✖ 재검증 차단 — 고쳐짐 0 · 기각 0 · 남음 1 · 새로 생김 0
+convention-guard ✖ 재검증 차단 — 고쳐짐 0 · 기각 0 · 남음 2 · 새로 생김 0
 
 ■ 남음
 ✖ error[core/php-no-debug-output]: 디버그 출력 잔여물
@@ -407,6 +407,10 @@ convention-guard ✖ 재검증 차단 — 고쳐짐 0 · 기각 0 · 남음 1 ·
   $ ./vendor/bin/pint --test -v app/Svc/A.php
     app/Svc/A.php:5  …
 
+■ 참고 — 차단하지 않습니다
+⚠ warn[core/php-no-empty-catch]: 빈 catch 블록 금지
+  app/Svc/A.php:6  try { $x = 1; } catch (\Exception $e) { }
+
 ■ 다음
 - 위반이면 고치고, 오탐이면 고치지 말고 기각으로 남기세요.
   $ python3 "…/scripts/dismiss.py" --key core/php-no-debug-output:app/Svc/A.php:f8a8cfe07d --by agent --reason "<한 줄 이유>"
@@ -414,12 +418,15 @@ convention-guard ✖ 재검증 차단 — 고쳐짐 0 · 기각 0 · 남음 1 ·
 - 이번이 마지막 재검증입니다. 다음에 끝낼 때는 남은 항목을 기록만 하고 차단하지 않습니다.
 ```
 
+머리말의 남음·새로 생김 수는 본문 항목 수와 같습니다. 차단 대상은 `■ 남음`·`■ 새로 생김`, 차단하지 않는 것은 `■ 참고` 에 나옵니다. `검사에서 빠짐 N` 은 후보가 결과에서 사라졌지만 코드가 에이전트 줄에 그대로 있을 때(사이클 도중 엔진 설치, 규칙 끄기·exclude — 의미 판정 규칙 제외)만 `기각` 뒤에 붙습니다.
+
 기각 문장은 규칙 후보가 남았을 때만, 린터 문장은 린터가 남았을 때만 씁니다.
 
 ### 3. Stop 훅 — 차단하지 않는 알림 (`systemMessage` 만)
 
 ```
 convention-guard ✔ 재검증 통과 — 고쳐짐 2 · 기각 1
+convention-guard ✔ 재검증 통과 — 고쳐짐 0 · 기각 0 · 검사에서 빠짐 2
 convention-guard ⚠ 재검증 종료 — 고쳐짐 0 · 기각 0 · 남음 1 · 새로 생김 0 · 이후 기록만
 convention-guard ⚠ 재검증 종료 — 고쳐짐 1 · 기각 0 · 미표시 1 · 다음 요청에서 다시 알림
 convention-guard ⚠ 재검증 종료 — 고쳐짐 0 · 기각 0 · 남음 0 · 새로 생김 0 · 린터 미확인 1 · 이후 기록만

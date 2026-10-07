@@ -19,6 +19,8 @@ The verification cycle, in order:
                            otherwise re-scan and verify:
        FIXED       a flagged candidate is gone (a reformat or a move pairs up as STILL)
        DISMISSED   a flagged candidate was recorded as a false positive
+       DROPPED     a flagged candidate is gone but its code is still written (the
+                   engine arrived, the rule was turned off) -- not a fix
        STILL       a flagged candidate is still there
        NEW         a blocking candidate that did not exist when the cycle opened
      STILL or NEW at blocking severity earns one more block, up to
@@ -58,6 +60,7 @@ from . import batch as batchlib
 from .candidate import VIOLATION
 
 FIXED, DISMISSED, STILL, NEW = 'fixed', 'dismissed', 'still', 'new'
+DROPPED = 'dropped'        # gone from the scan, not from the code: neither fixed nor still
 REPORTED = 'reported'      # a unit rule's violation found while verifying: said, not blocked
 BLOCKING = ('error',)
 
@@ -130,15 +133,17 @@ class BatchSlot:
 
 
 class Observation:
-    __slots__ = ('request', 'config_error', 'scan', 'is_dismissed', 'cycle_verdicts',
-                 'batch', 'now')
+    __slots__ = ('request', 'config_error', 'scan', 'is_dismissed', 'still_written',
+                 'cycle_verdicts', 'batch', 'now')
 
     def __init__(self, request, config_error=None, scan=None, is_dismissed=None,
-                 cycle_verdicts=None, batch=None, now=0.0):
+                 still_written=None, cycle_verdicts=None, batch=None, now=0.0):
         self.request = request
         self.config_error = config_error       # first config error, or None
         self.scan = scan                       # ScanView | ScanFailure | None (nothing to inspect)
         self.is_dismissed = is_dismissed or (lambda _key: False)
+        # still_written(key): an agent line with this key's code is still in the file
+        self.still_written = still_written or (lambda _key: False)
         self.cycle_verdicts = cycle_verdicts   # what the open cycle's reviewer recorded, or None
         self.batch = batch                     # BatchSlot
         self.now = float(now)
@@ -221,6 +226,8 @@ def entry(rule, cand):
            'file': cand.file, 'line': cand_line(rule, cand), 'snippet': cand.snippet}
     if is_unit(rule):
         out['unit'] = True
+    if rule.get('review'):
+        out['semantic'] = True
     return out
 
 
@@ -242,10 +249,10 @@ def lint_entry(fail):
 class Outcome:
     def __init__(self):
         self.fixed, self.dismissed, self.still, self.new = {}, {}, {}, {}
-        self.reported = {}
+        self.reported, self.dropped = {}, {}
 
     def counts(self):
-        return {FIXED: len(self.fixed), DISMISSED: len(self.dismissed),
+        return {FIXED: len(self.fixed), DISMISSED: len(self.dismissed), DROPPED: len(self.dropped),
                 STILL: len(self.still), NEW: len(self.new), REPORTED: len(self.reported)}
 
     def blocking(self):
@@ -261,10 +268,15 @@ class Outcome:
         return dict(self.still, **self.new)
 
 
-def classify(cycle, current, is_dismissed, unconfirmed=()):
+def classify(cycle, current, is_dismissed, unconfirmed=(), still_written=lambda _key: False):
     """current: {key: entry} for every candidate (and blocking lint failure)
     the re-scan found. is_dismissed(key) -> bool. unconfirmed: lint keys whose
-    linter did not finish -- gone from `current` is not fixed for them (R17)."""
+    linter did not finish -- gone from `current` is not fixed for them (R17).
+    still_written(key) -> bool: the code is still there, so a key gone from
+    `current` left the scan, not the file -- dropped, not fixed. Not for a
+    judged rule: its fix is in the context around the line (an eager load
+    above the loop). A match that spans lines never matches one line's code,
+    so it counts as fixed as before."""
     out = Outcome()
     for key, meta in cycle['opened'].items():
         if key in current:
@@ -273,6 +285,8 @@ def classify(cycle, current, is_dismissed, unconfirmed=()):
             out.still[key] = dict(meta, unconfirmed=True)
         elif not key.startswith('lint:') and is_dismissed(key):
             out.dismissed[key] = meta
+        elif not (key.startswith('lint:') or meta.get('semantic')) and still_written(key):
+            out.dropped[key] = meta
         else:
             out.fixed[key] = meta
     seen = set(cycle.get('seen') or ()) | set(cycle['opened'])
@@ -477,7 +491,7 @@ class _Run:
             current = self._current(scan)
         unfinished = scan.lint_unfinished if scan is not None else ()
         unconfirmed = {lint_key({'key': key, 'cmd': ''}) for key in unfinished}
-        out = classify(cycle, current, self.obs.is_dismissed, unconfirmed)
+        out = classify(cycle, current, self.obs.is_dismissed, unconfirmed, self.obs.still_written)
         # the same unit, VALID earlier in this cycle and VIOLATION now: the
         # model changed its mind, not the code -- said, not blocked
         cleared = set(cycle.get('cleared') or ())
@@ -520,6 +534,7 @@ class _Run:
 
     def _log_outcome(self, cycle, outcome, abandoned=False):
         for label, items in ((FIXED, outcome.fixed), (DISMISSED, outcome.dismissed),
+                             (DROPPED, outcome.dropped),
                              (STILL, outcome.still), (NEW, outcome.new),
                              (REPORTED, outcome.reported)):
             for key, meta in items.items():
@@ -614,24 +629,24 @@ class _Run:
         if not again:
             self._close(cycle, outcome, unreviewed=skipped + needs, current=current, held=held)
             counts = outcome.counts()
+            settled = ['고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'],
+                       dropped_part(counts)]
             unshown = '미표시 %d' % len(hidden) if hidden else ''
             warning = _warning_part(warnings)
             unsure = outcome.unconfirmed()
             if unsure:          # a linter that timed out has not confirmed anything (R17)
                 return self._done(Notice('재검증 종료', [
-                    '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'],
+                    *settled,
                     '남음 %d' % (counts['still'] - len(unsure)), '새로 생김 %d' % counts['new'],
                     '린터 미확인 %d' % len(unsure), unshown, warning, '이후 기록만'], 'warn'))
             if not outcome.remaining() and not (skipped or needs or held or outcome.reported):
                 if hidden:      # what was shown is fixed; the rest is not a pass (R3)
                     return self._done(Notice('재검증 종료', [
-                        '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'], unshown,
+                        *settled, unshown,
                         warning, '다음 요청에서 다시 알림'], 'warn'))
-                return self._done(Notice('재검증 통과', [
-                    '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'], warning],
-                    'pass'))
+                return self._done(Notice('재검증 통과', [*settled, warning], 'pass'))
             return self._done(Notice('재검증 종료', [
-                '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'],
+                *settled,
                 '남음 %d' % counts['still'], '새로 생김 %d' % counts['new'], unshown,
                 '판정 대기 %d' % len(skipped + needs) if skipped or needs else '',
                 '보고만 %d' % counts[REPORTED] if outcome.reported else '',
@@ -785,6 +800,12 @@ def _add(cycle, field, keys):
 def _mark_violated(cycle, meta):
     pairs = _violated(cycle) | {(meta['rule_id'], meta['file'])}
     cycle['violated'] = sorted([rule_id, path] for rule_id, path in pairs)
+
+
+def dropped_part(counts):
+    """Said only when it happened: a count of findings the scan stopped
+    reporting while their code stayed -- not to be read as fixes."""
+    return '검사에서 빠짐 %d' % counts[DROPPED] if counts[DROPPED] else ''
 
 
 def _warning_part(warnings):

@@ -17,7 +17,7 @@ import time
 
 from . import (autofix, config as configlib, decide, dismiss as dismisslib, fmt, ledger, lint,
                log, observe, pipeline, report, semantic, state as statelib, store)
-from .candidate import parse_key
+from .candidate import fingerprint, parse_key
 from .paths import hook_project_dir
 from .scope import ChangeScope
 
@@ -118,6 +118,7 @@ class Shell:
         self.cfg = configlib.load(self.root)
         self.autofixed = []
         self.scan = None
+        self.written = frozenset()      # (file, code fingerprint) of every agent line scanned
         self.ledger = ledger.StopLedger()
 
     def event(self, record):
@@ -149,6 +150,8 @@ class Shell:
                 scope = ChangeScope.from_ledger(self.root, [e for e in entries if e.owned()],
                                                 skip)
                 result = pipeline.run(scope, self.cfg, cap=VERIFY_CAP, lint_budget=LINT_BUDGET)
+        self.written = frozenset((rel, fingerprint(text))
+                                 for rel, lines in scope.changed.items() for _, text in lines)
         triage = None
         if self.cfg['semantic_review']['enabled'] and not result.errors and result.semantic_hits:
             triage = semantic.triage(result, self.cfg)
@@ -166,6 +169,17 @@ def _dismissed_predicate(root):
             return False
         return dismissals.is_dismissed(rule_id, relpath, digest)
     return is_dismissed
+
+
+def _written_predicate(written):
+    """key -> its code is still on one of the agent's lines."""
+    def still_written(key):
+        try:
+            _rule_id, relpath, digest = parse_key(key)
+        except ValueError:
+            return False
+        return (relpath, digest) in written
+    return still_written
 
 
 def on_stop(payload):
@@ -187,6 +201,7 @@ def on_stop(payload):
     obs = decide.Observation(
         request, config_error=config_error_text, scan=view_of(scan),
         is_dismissed=_dismissed_predicate(shell.root) if cycle else None,
+        still_written=_written_predicate(shell.written),
         cycle_verdicts=semantic.read_verdicts(review['batch']) if review.get('batch') else None,
         batch=decide.BatchSlot(semantic.new_batch_id(), store.path(), shell.root, shell.session,
                                log.log_path()),

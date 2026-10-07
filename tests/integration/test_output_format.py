@@ -82,6 +82,9 @@ def case_hook_block_and_verify(tmp):
     check('재검증: 용어 남음', re.match(r'^convention-guard ✖ 재검증 차단 — 고쳐짐 \d+ · 기각 \d+ · 남음 \d+ · '
                                     r'새로 생김 \d+', again['reason']), again['reason'][:90])
     check('재검증: ■ 남음 섹션', outfmt.section(again['reason'], '남음') is not None, again['reason'])
+    check('재검증: 차단하지 않는 남음은 ■ 참고 (머리말 남음 수와 본문이 맞음)',
+          'php-no-empty-catch' in '\n'.join(outfmt.section(again['reason'], '참고') or []),
+          again['reason'])
     done = s.turn(A, body('return 2;'), 'p1', stop_hook_active=True)
     check('재검증 통과: 알림 (§3)', done['summary'].startswith('convention-guard ✔ 재검증 통과 — 고쳐짐 '),
           repr(done['summary']))

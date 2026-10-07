@@ -343,6 +343,34 @@ def case_classify_reports_new_units():
           and not out.new and not out.blocking(), (out.new, out.reported))
 
 
+def case_dropped_is_not_fixed():
+    print('case_dropped_is_not_fixed:')
+    state = opened_by({}, X)
+    # the engine finished installing (or the rule was turned off) between the
+    # block and the re-scan: the candidate is gone, the code is not
+    d = decide.decide(state, obs(view(), continuing=True,
+                                 still_written=lambda key: key == X.key), cfg())
+    outcomes = [e['outcome'] for e in d.events if e['event'] == 'verify']
+    check('gone from the scan with its code still written is dropped, not fixed',
+          outcomes == ['dropped'], outcomes)
+    check('nothing to fix: the re-scan passes and says what dropped out',
+          d.action.kind == 'notice' and d.action.word == '재검증 통과'
+          and '검사에서 빠짐 1' in d.action.parts and '고쳐짐 0' in d.action.parts, d.action)
+    check('and its rule is not settled', d.state['fired_rules'] == [], d.state)
+
+    cycle = decide.new_cycle('c1', 'p1', {X.key: decide.entry(DD, X)}, [])
+    out = decide.classify(cycle, {}, lambda _k: False)
+    check('without the predicate, gone is fixed', list(out.fixed) == [X.key], out.counts())
+    out = decide.classify(cycle, {}, lambda _k: True, still_written=lambda _k: True)
+    check('a dismissal wins over dropped', list(out.dismissed) == [X.key], out.counts())
+    judged = rule('core/n1', 'warn', review={'question': 'q'})
+    cycle = decide.new_cycle('c1', 'p1', {X.key: decide.entry(judged, X)}, [])
+    out = decide.classify(cycle, {}, lambda _k: False, still_written=lambda _k: True)
+    check('a judged rule is fixed around its line: gone is fixed', list(out.fixed) == [X.key],
+          out.counts())
+
+
+
 def case_pure():
     print('case_pure:')
     allowed = {'copy', 'batch', 'candidate'}
@@ -365,6 +393,6 @@ if __name__ == '__main__':
                  case_r3_hidden_is_not_a_pass, case_r17_unfinished_linter, case_abandoned,
                  case_semantic, case_unit_pages, case_unit_verify_scope, case_unit_asked_twice,
                  case_unit_not_quiet,
-                 case_classify_reports_new_units, case_pure):
+                 case_classify_reports_new_units, case_dropped_is_not_fixed, case_pure):
         case()
     sys.exit(finish('decide 전이 표'))

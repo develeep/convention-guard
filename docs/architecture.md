@@ -65,7 +65,7 @@ Stop                   check.py → lib/stop.py (셸) → lib/decide.py (순수 
 | `observe.py` | stat 서명, git 방식 줄 읽기, `git status` 한 번으로 HEAD 와 dirty 경로, blob 읽기 |
 | `store.py` | sqlite 저장소 (`convention-guard.db`): 스키마, 트랜잭션, GC |
 | `state.py` | Stop 의 사이클 상태 읽기·쓰기 |
-| `decide.py` | 사이클 전이를 모은 순수 함수 `decide()`, 분류(fixed/dismissed/still/new) |
+| `decide.py` | 사이클 전이를 모은 순수 함수 `decide()`, 분류(fixed/dismissed/dropped/still/new) |
 | `stop.py` | Stop 셸: 관찰 → decide → 저장·로그·렌더, 알림 붙이기 |
 | `scope.py` | ChangeScope — 원장(`from_ledger`) 또는 git(working tree / staged / range / files / all) |
 | `gitdiff.py` | CLI 범위의 배치 git diff, 남의 커밋이 들여온 줄 |

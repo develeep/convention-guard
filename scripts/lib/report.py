@@ -149,6 +149,7 @@ def verify_reason(outcome, last_chance, review=None, skipped=False, warnings=(),
     counts = outcome.counts()
     head = hook_header('재검증 차단', [
         '고쳐짐 %d' % counts['fixed'], '기각 %d' % counts['dismissed'],
+        '검사에서 빠짐 %d' % counts['dropped'] if counts['dropped'] else '',
         '남음 %d' % counts['still'], '새로 생김 %d' % counts['new'],
         '보고만 %d' % counts['reported'] if outcome.reported else '',
         '판정 대기 %d' % len(review['items']) if review else '',
@@ -178,6 +179,9 @@ def verify_reason(outcome, last_chance, review=None, skipped=False, warnings=(),
     blocking = outcome.blocking()
     render('남음', {k: v for k, v in outcome.still.items() if k in blocking})
     render('새로 생김', {k: v for k, v in outcome.new.items() if k in blocking})
+    # the header counts every still and new one: the rest is said, not hidden
+    render('참고 — 차단하지 않습니다', {k: v for k, v in outcome.remaining().items()
+                                if k not in blocking})
     # a unit rule's verdict outside what this cycle fixes: said, not blocked
     render('보고만 — 고치지 않아도 이번 요청은 끝납니다', outcome.reported)
     step = None
