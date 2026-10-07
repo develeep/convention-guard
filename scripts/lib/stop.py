@@ -206,7 +206,7 @@ def on_stop(payload):
 
 def _install_engine_if_missing(scan):
     """The engine was needed and is not there: start installing it in the
-    background (SessionStart may not have run). This Stop does not wait."""
+    background (convention-setup may not have run on this machine). This Stop does not wait."""
     unchecked = getattr(getattr(scan, 'result', None), 'unchecked', None)
     if not unchecked:
         return

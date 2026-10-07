@@ -102,7 +102,7 @@ claude --plugin-dir ./convention-guard
 
 주석·문자열 안의 코드를 위반으로 보지 않으려면 구문 트리가 필요합니다. convention-guard 는 tree-sitter 휠을 스스로 받아 설치합니다(venv·pip 를 쓰지 않음).
 
-- **언제**: 세션이 시작될 때(SessionStart 훅, 백그라운드), Stop 이 엔진을 필요로 하는데 없을 때(백그라운드), `engine.py ensure` 를 직접 실행할 때.
+- **언제**: convention-setup 스킬을 실행할 때(끝날 때까지 기다림), Stop 이 엔진을 필요로 하는데 없을 때(백그라운드 — 셋업을 돌리지 않은 팀원 머신), `engine.py ensure` 를 직접 실행할 때. 세션 시작 때는 설치하지 않습니다.
 - **무엇을**: `scripts/lib/engine/lock.json` 에 고정된 휠만 받고 sha256 이 맞지 않으면 거부합니다.
 - **설치 전·실패 시**: 검사는 그대로 돌고, 구조 조건을 확인하지 못한 후보를 걸러 내지 않은 채 `구조 엔진 없음 (사유)` 로 알립니다. 통과로 처리하지 않습니다.
 

@@ -8,6 +8,7 @@
       "fixture: tests/helpers/fixtures.py laravel_repo + app/Legacy 디렉터리에 dd() 30개 커밋"
     ],
     "expected_behavior": [
+      "engine.py ensure 를 CLAUDE_PLUGIN_DATA 를 붙여 실행해 구조 엔진을 훅과 같은 디렉터리에 설치한다",
       "detect_stack.py 로 감지 결과를 먼저 확인하고 laravel, php 스택을 보고한다",
       "setup.py init 으로 mode: report 초안을 쓰고, 추측이 아니라 scan.py --range / --all 측정 결과로 설정을 조정한다",
       "지적이 app/Legacy 에 몰린 것을 레거시 신호로 보고 규칙을 끄지 않고 exclude 에 경로를 넣는다",

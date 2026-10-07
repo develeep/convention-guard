@@ -36,8 +36,7 @@ def case_hooks():
     config = load('hooks', 'hooks.json')
     events = config.get('hooks') or {}
     check('declares the ledger hooks and Stop',
-          set(events) == {'SessionStart', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure',
-                          'Stop'},
+          set(events) == {'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop'},
           sorted(events))
 
     stop_timeout = None

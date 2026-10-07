@@ -192,7 +192,7 @@ def _self_test(directory):
 # ---------------------------------------------------------------- the install
 
 class _Locked:
-    """One install at a time per engine dir (a SessionStart and a Stop may race)."""
+    """One install at a time per engine dir (the setup skill and a Stop may race)."""
 
     def __init__(self, base):
         self.path = os.path.join(base, 'install.lock')

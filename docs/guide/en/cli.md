@@ -26,9 +26,9 @@ This page shows how to run the scripts that the skills call directly from a term
 | `dismiss.py` | Records a false positive in `dismissed.yaml` | the hook's block message, convention-check |
 | `log_report.py` | Per-rule fix rate, dismissal rate, and precision from the firing log | rule-tune |
 | `readiness.py` | Automatic check of the adoption checklist | convention-readiness |
-| `engine.py` | Structure engine status and install | SessionStart hook, CI |
+| `engine.py` | Structure engine status and install | convention-setup skill, CI |
 | `review.py` | View and record semantic review batches | convention-reviewer agent |
-| `session_start.py` · `collect.py` · `check.py` | Hook entry points (SessionStart / Pre·PostToolUse / Stop) | `hooks/hooks.json` — do not run directly |
+| `collect.py` · `check.py` | Hook entry points (Pre·PostToolUse / Stop) | `hooks/hooks.json` — do not run directly |
 
 Most scripts can check another repo with `--cwd <repo>` (default: the current directory), and they share the same output format. Errors go to stderr as `convention-guard: error: …`.
 

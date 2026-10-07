@@ -26,9 +26,9 @@
 | `dismiss.py` | 오탐을 `dismissed.yaml` 에 기록 | 훅의 차단 메시지, convention-check |
 | `log_report.py` | 발동 로그로 규칙별 수정률·기각률·정밀도 | rule-tune |
 | `readiness.py` | 도입 체크리스트 자동 점검 | convention-readiness |
-| `engine.py` | 구조 엔진 상태·설치 | SessionStart 훅, CI |
+| `engine.py` | 구조 엔진 상태·설치 | convention-setup 스킬, CI |
 | `review.py` | 의미 판정 배치 보기·기록 | convention-reviewer 에이전트 |
-| `session_start.py` · `collect.py` · `check.py` | 훅 진입점 (SessionStart / Pre·PostToolUse / Stop) | `hooks/hooks.json` — 직접 실행하지 않음 |
+| `collect.py` · `check.py` | 훅 진입점 (Pre·PostToolUse / Stop) | `hooks/hooks.json` — 직접 실행하지 않음 |
 
 대부분의 스크립트는 `--cwd <레포>` 로 다른 레포를 검사할 수 있고 (기본: 현재 디렉터리), 출력 형식은 공통입니다. 오류는 stderr 에 `convention-guard: error: …` 로 나옵니다.
 

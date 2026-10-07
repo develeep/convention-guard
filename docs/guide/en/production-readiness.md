@@ -68,7 +68,7 @@ This plugin has one core safety principle — **something that was not checked m
 
 - [ ] **A5. The structure engine is installed** [auto]
   - Why: Structure conditions (`not_in`, `in_scope`, `block_empty`) are decided with tree-sitter. Without the engine the conditions cannot be applied, so candidates come up unverified (reported as "구조 엔진 없음" ("structure engine missing")).
-  - Expect: `python3 scripts/engine.py status` shows the path. It is installed in the background at session start (SessionStart hook) or on the first Stop.
+  - Expect: `python3 scripts/engine.py status` shows the path. The convention-setup skill installs it; on a machine where setup never ran, the first Stop installs it in the background.
   - If it fails: Run `python3 scripts/engine.py ensure` directly to see the reason. Offline, put the wheels from `lock.json` in `CONVENTION_GUARD_WHEELS` and install. musl aarch64 and free-threaded Python have no wheels and are not supported.
 
 ---
@@ -93,7 +93,7 @@ This plugin has one core safety principle — **something that was not checked m
 
 - [ ] **B3. The hooks are wired and actually run** [auto][sandbox]
   - Why: Pre/PostToolUse and PostToolUseFailure (edit event ledger) / Stop (check) must all be present for "only lines the agent wrote" to hold. If a hook is missing or dies, Stop reports it as "관찰 누락" ("observation gap").
-  - Expect: `hooks.json` wires PreToolUse, PostToolUse and Stop (these three are checked; PostToolUseFailure and SessionStart are in the same file but not checked) + the state store (`convention-guard.db`) in the hook data directory (B4) shows recent activity.
+  - Expect: `hooks.json` wires PreToolUse, PostToolUse and Stop (these three are checked; PostToolUseFailure is in the same file but not checked) + the state store (`convention-guard.db`) in the hook data directory (B4) shows recent activity.
   - If it fails: In a session, change one line in a file, end the turn, and check again. If it is still missing, see whether it is enabled in `/plugin`.
 
 - [ ] **B4. You know where the data directory is** [auto]

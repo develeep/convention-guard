@@ -87,7 +87,7 @@ At the bottom of legacy.js, add an add function that adds two numbers, and print
 
 When the agent writes the code and tries to end its turn, the `✖ 차단` (blocked) message above appears. The agent deletes the `console.log` line it just wrote, and the turn ends with `✔ 재검증 통과 — 고쳐짐 1` (re-verification passed — fixed 1). The legacy `console.log` on line 1 stays as it was.
 
-In the very first session the structure engine may still be installing in the background, so you may also see `구조 엔진 없음 (설치 중)` ("structure engine missing (installing)"). The check still runs, and the notice goes away once the install finishes.
+On the first turn without setup, the structure engine may still be installing in the background, so you may also see `구조 엔진 없음 (설치 중)` ("structure engine missing (installing)"). The check still runs, and the notice goes away once the install finishes.
 
 When you are done, remove it with `cd .. && rm -rf cg-demo`.
 

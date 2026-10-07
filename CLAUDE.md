@@ -45,7 +45,7 @@ claude --plugin-dir /root/convention-guard        # 임시 레포에서 실제 �
 
 - `collect.py` (Pre/PostToolUse/PostToolUseFailure) → `lib/ledger.py`: 편집 사건 원장. 파일마다 마지막 내용과 줄별 출처(`p` 원래 / `a` 에이전트 / `o` 남의 커밋 / `u` 출처 미확인, 대문자 = 에이전트가 지운 자리)를 sqlite 에 둔다. Edit 계열은 경로로, Bash 와 모든 `mcp__*` 는 `git status` 전후 비교로 관찰한다. Pre 만 있고 Post 가 없거나, Post 만 왔거나, 도구 밖에서 바뀐 것은 Stop 이 이름 붙여 알린다.
 - `check.py` → `lib/stop.py`(셸): 원장 정리 → `ChangeScope.from_ledger` → `pipeline.run` → `decide.decide(state, observation, cfg)` → 배치·상태·로그 저장 → 출력. 결정론 후보 / 의미 판정 후보 / 없음(AI 호출 0).
-- `session_start.py` (SessionStart, async): 구조 엔진이 없으면 설치한다. Stop 도 엔진이 필요한데 없으면 백그라운드 설치를 시작한다.
+- 구조 엔진 설치: convention-setup 스킬이 `engine.py ensure` 로 설치한다(SessionStart 훅은 없다). Stop 은 엔진이 필요한데 없으면 백그라운드 설치를 시작한다(셋업을 돌리지 않은 팀원 머신).
 - **`pipeline.run` 하나를 `scan.py`, `dismiss.py`, `review.py` 가 모두 쓴다.** 각 진입점은 ChangeScope 를 만드는 방식(훅: 원장 / CLI: working tree·staged·range·files·all)만 다르다.
 - 파이프라인 순서: stacks → rules(프리셋 → disable → 적용 필터: 스택·버전·supersede·files 글롭) → linters(변경 줄에 걸린 것만) → `detect.py`(앵커별 정규식 게이트) → 구조 조건 → 기각 적용.
 - **앵커** (`when_line_added` 등): 추가된 줄, 새 파일, 변경 집합처럼 "이번 변경의 책임"을 정의한다. 앵커 종류는 [docs/guide/ko/rules.md](docs/guide/ko/rules.md)에 있다. 정규식 신호가 없는 규칙은 `when_code_added` 로 파일 글롭만 정하고, 추가된 줄을 판정 단위(가장 바깥 함수 / 파일 머리 / 엔진 없으면 파일 전체, `lib/units.py`)로 묶어 단위마다 리뷰어에게 묻는다. 사이클이 열린 뒤 이 규칙들은 VIOLATION 을 낸 규칙만 다시 묻고, 그 밖의 새 지적은 보고만 한다(`decide.py` 머리말).

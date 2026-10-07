@@ -68,7 +68,7 @@ python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude/plugin
 
 - [ ] **A5. 구조 엔진이 설치돼 있다** [자동]
   - 왜: 구조 조건(`not_in`·`in_scope`·`block_empty`)은 tree-sitter 로 판정합니다. 엔진이 없으면 조건을 적용하지 못해 후보가 확인 없이 올라옵니다 ("구조 엔진 없음" 으로 알림).
-  - 기대: `python3 scripts/engine.py status` 가 경로를 보여줌. 세션 시작(SessionStart 훅)이나 첫 Stop 에서 백그라운드로 설치됩니다.
+  - 기대: `python3 scripts/engine.py status` 가 경로를 보여줌. convention-setup 스킬이 설치하고, 셋업을 돌리지 않은 머신에서는 첫 Stop 에서 백그라운드로 설치됩니다.
   - 실패하면: `python3 scripts/engine.py ensure` 를 직접 실행해 사유를 보세요. 오프라인이면 `CONVENTION_GUARD_WHEELS` 에 `lock.json` 의 휠을 두고 설치합니다. musl aarch64 와 free-threaded Python 은 휠이 없어 미지원입니다.
 
 ---
@@ -93,7 +93,7 @@ python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude/plugin
 
 - [ ] **B3. 훅이 걸려 있고 실제로 돈다** [자동][샌드박스]
   - 왜: Pre/PostToolUse·PostToolUseFailure(편집 사건 원장) / Stop(검사)이 다 있어야 "에이전트가 쓴 줄만" 이 성립합니다. 훅이 빠지거나 죽으면 Stop 이 "관찰 누락" 으로 알립니다.
-  - 기대: `hooks.json` 에 PreToolUse·PostToolUse·Stop 배선(점검 대상은 이 셋. PostToolUseFailure·SessionStart 는 같은 파일에 있지만 점검하지 않음) + 훅 데이터 디렉터리(B4)의 상태 저장소(`convention-guard.db`)에 최근 활동이 있음.
+  - 기대: `hooks.json` 에 PreToolUse·PostToolUse·Stop 배선(점검 대상은 이 셋. PostToolUseFailure 는 같은 파일에 있지만 점검하지 않음) + 훅 데이터 디렉터리(B4)의 상태 저장소(`convention-guard.db`)에 최근 활동이 있음.
   - 실패하면: 세션에서 파일을 한 줄 고치고 턴을 끝낸 뒤 다시 점검. 여전히 없으면 `/plugin` 에서 enabled 인지 보세요.
 
 - [ ] **B4. 데이터 디렉터리가 어디인지 안다** [자동]

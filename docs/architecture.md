@@ -26,8 +26,6 @@ Instruction → Execution → Verification → Feedback → Fix → Verification
 ## 전체 흐름
 
 ```
-SessionStart (async)   session_start.py   구조 엔진(tree-sitter)이 없으면 설치, 오래된 세션 정리
-        │
 PreToolUse / PostToolUse / PostToolUseFailure      collect.py → lib/ledger.py
   (Write|Edit|MultiEdit|NotebookEdit|Bash|mcp__*)    도구 호출 전후 내용을 비교해 줄마다 출처를 기록
         │                                          (출력·컨텍스트 0)
@@ -162,7 +160,7 @@ scope → stacks → rules (프리셋 → 비활성 규칙 제외 → 적용 가
 | **엔진 없음** | 내장 대체 계층은 없습니다. 모든 구조 조건이 UNKNOWN 이고, 후보를 남기고 "구조 엔진 없음 (사유)" 로 알립니다 |
 | **값으로 답하고 예외를 던지지 않습니다** | 훅이 엔진 문제로 죽지 않습니다 |
 
-엔진 설치: `lib/engine/install.py` 가 `lock.json` 의 고정 휠(tree-sitter 0.25.2, javascript 0.25.0, typescript 0.23.2, php 0.24.1, python 0.25.0)을 files.pythonhosted.org 에서 받아 sha256 을 확인하고, 경로 탈출을 막아 풀고, 임시 디렉터리에서 모든 문법을 불러 파싱해 본 뒤 `${CLAUDE_PLUGIN_DATA}/engine/<lock id>/<cp3XY-os-arch>/` 로 옮깁니다. venv·pip 를 쓰지 않습니다. 설치 시점은 `SessionStart` 훅(백그라운드), Stop 이 엔진이 필요한데 없을 때(백그라운드), `scripts/engine.py ensure`(CI) 셋입니다. 로더는 이 고정 디렉터리만 보고 사이트 패키지의 다른 tree-sitter 는 쓰지 않습니다.
+엔진 설치: `lib/engine/install.py` 가 `lock.json` 의 고정 휠(tree-sitter 0.25.2, javascript 0.25.0, typescript 0.23.2, php 0.24.1, python 0.25.0)을 files.pythonhosted.org 에서 받아 sha256 을 확인하고, 경로 탈출을 막아 풀고, 임시 디렉터리에서 모든 문법을 불러 파싱해 본 뒤 `${CLAUDE_PLUGIN_DATA}/engine/<lock id>/<cp3XY-os-arch>/` 로 옮깁니다. venv·pip 를 쓰지 않습니다. 설치 시점은 convention-setup 스킬(`engine.py ensure`, 기다림), Stop 이 엔진이 필요한데 없을 때(백그라운드), `scripts/engine.py ensure`(CI) 셋입니다. 로더는 이 고정 디렉터리만 보고 사이트 패키지의 다른 tree-sitter 는 쓰지 않습니다.
 
 ## 검증 사이클
 

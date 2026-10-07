@@ -102,7 +102,7 @@ All setting keys are in [configuration.md](configuration.md).
 
 To avoid treating code inside comments and strings as violations, a syntax tree is needed. convention-guard downloads and installs tree-sitter wheels by itself (it does not use venv or pip).
 
-- **When**: when a session starts (SessionStart hook, in the background), when Stop needs the engine and it is missing (in the background), and when you run `engine.py ensure` yourself.
+- **When**: when you run the convention-setup skill (it waits until done), when Stop needs the engine and it is missing (in the background — for teammates who never ran setup), and when you run `engine.py ensure` yourself. Nothing is installed at session start.
 - **What**: it downloads only the wheels pinned in `scripts/lib/engine/lock.json`, and rejects any whose sha256 does not match.
 - **Before install or on failure**: checks still run. Candidates whose structure conditions could not be confirmed are not filtered out, and it reports `구조 엔진 없음 (사유)` ("structure engine missing (reason)"). It does not treat them as passing.
 

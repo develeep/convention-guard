@@ -12,33 +12,45 @@ description: 레포에 convention-guard 를 처음부터 도입합니다. 스택
 
 ```
 - [ ] 1. 기존 설정 확인 (있으면 한 번 묻고 덮어씀)
-- [ ] 2. 감지 결과 확인
-- [ ] 3. 설정 초안 쓰기
-- [ ] 4. 측정 → 조정 → 재측정 (남는 지적이 진짜일 때까지)
-- [ ] 5. 컨벤션 전부를 AGENTS.md 로 내보내기
-- [ ] 6. 보고
+- [ ] 2. 구조 엔진 설치
+- [ ] 3. 감지 결과 확인
+- [ ] 4. 설정 초안 쓰기
+- [ ] 5. 측정 → 조정 → 재측정 (남는 지적이 진짜일 때까지)
+- [ ] 6. 컨벤션 전부를 AGENTS.md 로 내보내기
+- [ ] 7. 보고
 ```
 
 ### 1. 기존 설정 확인
 
 `.claude/convention-guard/config.yaml` 이 있으면 사용자에게 **한 번만** 묻습니다: "기존 설정을 덮어쓰고 처음부터 셋업할까요?"
 
-- 예 → 3단계에서 `init --force` 로 덮어씁니다.
+- 예 → 4단계에서 `init --force` 로 덮어씁니다.
 - 아니오 → 멈추고, 기존 설정 조정은 rule-tune 소관이라고 알립니다.
 
 없으면 묻지 않고 진행합니다.
 
-### 2. 감지 결과 확인
+### 2. 구조 엔진 설치
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" python3 "${CLAUDE_PLUGIN_ROOT}/scripts/engine.py" ensure
+```
+
+훅이 읽는 플러그인 데이터 디렉터리에 tree-sitter 엔진을 설치하고 끝날 때까지 기다립니다 (이미 있으면 바로 끝남). `CLAUDE_PLUGIN_DATA` 를 빼면 `~/.cache` 에 설치돼 훅이 찾지 못합니다. 5단계 측정이 구조 조건까지 평가하려면 여기서 끝나 있어야 합니다.
+
+- 종료 코드 1: stderr 의 사유를 사용자에게 알리고 계속합니다. 엔진 없이도 검사는 돌고, 구조 조건이 있는 후보는 "구조 엔진 없음" 으로 보고됩니다. 오프라인이면 `CONVENTION_GUARD_WHEELS` (`${CLAUDE_PLUGIN_ROOT}/docs/guide/ko/installation.md`).
+- 엔진은 머신마다 설치됩니다. 이 스킬을 돌리지 않은 팀원은 첫 Stop 이 필요할 때 백그라운드로 설치합니다.
+
+### 3. 감지 결과 확인
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/detect_stack.py"
 ```
 
-- `stacks` 가 비었다: 마커 파일(`composer.json`, `package.json`, `pyproject.toml`, `requirements.txt`)이 루트에 없는 레포입니다. 3단계에서 `stacks:` 로 지정합니다.
+- `stacks` 가 비었다: 마커 파일(`composer.json`, `package.json`, `pyproject.toml`, `requirements.txt`)이 루트에 없는 레포입니다. 4단계에서 `stacks:` 로 지정합니다.
 - 린터 아래 `= 참고: 출력 파싱 불가 — 전체 출력으로 차단`: 이번 변경과 무관한 기존 에러로도 차단됩니다. `${CLAUDE_PLUGIN_ROOT}/stacks/*.yaml` 에 `parse:` 가 필요하다고 사용자에게 알리세요 (`${CLAUDE_PLUGIN_ROOT}/docs/guide/ko/configuration.md` 의 린터 절).
 - stderr 의 `convention-guard: error:` 노트는 반드시 해결하고 넘어갑니다 (이때 종료 코드 2).
 
-### 3. 설정 초안 쓰기
+### 4. 설정 초안 쓰기
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" init --stdout   # 확인
@@ -49,13 +61,13 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" init            # 1단계에서
 
 `init` 이 종료 코드 1 로 "이미 있습니다" 하고 멈추면 config.yaml 이 이미 있는 것입니다. 1단계에서 덮어쓰기로 정하지 않았다면 사용자에게 알리고 멈춥니다.
 
-### 4. 측정 → 조정 → 재측정
+### 5. 측정 → 조정 → 재측정
 
 추측으로 설정을 쓰지 말고, 실제로 걸리는 양을 봅니다.
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --range HEAD~20..HEAD --no-lint --fail-on never --no-color
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --severity error --no-lint --fail-on never --json
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --range HEAD~20..HEAD --no-lint --fail-on never --no-color
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --severity error --no-lint --fail-on never --json
 ```
 
 `--all` 결과는 나열하지 말고 규칙별 건수로 집계해서 봅니다. 찾은 것을 이 표에 대어 `config.yaml` 을 고칩니다.
@@ -72,9 +84,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --severity error --no-lint
 
 `disable` 보다 `exclude` 와 `severity` 를 먼저 씁니다. 되돌리기 쉽고 팀 표준에서 영구히 빠지지 않습니다.
 
-### 5. 컨벤션 전부를 AGENTS.md 로 내보내기
+### 6. 컨벤션 전부를 AGENTS.md 로 내보내기
 
-훅과 린터가 사후에 잡는 것도 **전부** 적습니다. 에이전트가 쓰기 전에 알면 차단이 줄어듭니다. 4단계 조정이 끝난 뒤에 내보내야 끈 규칙이 들어가지 않습니다.
+훅과 린터가 사후에 잡는 것도 **전부** 적습니다. 에이전트가 쓰기 전에 알면 차단이 줄어듭니다. 5단계 조정이 끝난 뒤에 내보내야 끈 규칙이 들어가지 않습니다.
 
 - 규칙: 적용되는 규칙마다 한 줄. `prevent:` 가 있으면 그 줄, 없으면 `제목 — message 첫 문단`
 - 린터: 설치돼 실제로 돌 린터마다 명령 한 줄
@@ -86,11 +98,12 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" emit --stdout               # .
 
 AGENTS.md 가 기본입니다. 레포가 `.claude/rules/` 를 쓰고 있을 때만 두 번째를 제안합니다. 미리보기를 사용자에게 보여주고 `--stdout` 없이 실행합니다. 관리 블록 밖의 내용은 보존되고, `--agents-md` 는 CLAUDE.md 에 `@AGENTS.md` 가져오기를 추가합니다. 생성물은 커밋 대상입니다.
 
-### 6. 보고
+### 7. 보고
 
 ```
 스택: laravel, php · 프리셋: common, laravel, php, psr12, security · 적용 규칙 23개
 설정: 새로 작성 (기존 config.yaml 덮어씀)
+구조 엔진: 설치됨
 모드: report — 2~3주 뒤 rule-tune 으로 fix 전환 검토
 조정:
 - core/php-line-too-long → warn (최근 20커밋 14건, 체이닝 관례)
