@@ -9,7 +9,7 @@
     {
       "name": "convention-guard",
       "source": "./",
-      "version": "4.2.1",
+      "version": "4.2.2",
       "description": "작업이 끝날 때마다 에이전트가 쓴 줄을 팀 컨벤션으로 검사하고, 고친 뒤 다시 검증합니다. 판정할 것이 있을 때만 서브에이전트가 의미 판정. Laravel·Next·Nest·Python.",
       "author": {
         "name": "shlee"
