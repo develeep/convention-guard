@@ -134,7 +134,7 @@ python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude/plugin
   - 실패하면: `config.yaml` 에 `stacks:`. 모노레포는 루트에서 한 번만 판정하므로 `applies_to.files` / `exclude` 로 나누세요.
 
 - [ ] **C4. 린터 위임이 의도대로다** [자동]
-  - 기대: 없는 린터는 `설치 안 됨 — 건너뜀`, 있는 린터는 `변경 줄만 차단 (parse: …)`. `출력 파싱 불가 — 전체 출력으로 차단` 이면 warn — 무관한 기존 에러로도 막힙니다.
+  - 기대: 없는 린터는 `설치 안 됨, 건너뜀`, 있는 린터는 `변경 줄만 차단 (parse: …)`. `출력을 읽지 못해 무관한 기존 에러로도 차단` 이면 warn — 무관한 기존 에러로도 막힙니다.
   - 번들 명령은 `npx --no-install`, `./vendor/bin/*` 처럼 **이미 있는 바이너리만** 씁니다.
   - 실패하면: `stacks/*.yaml` 에 `parse:`, 또는 `linters.enabled: false`.
 
@@ -250,7 +250,7 @@ python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude/plugin
 - [ ] **J2. 외부 네트워크 호출은 구조 엔진 설치뿐이다** [자동] — 실행 경로에서 네트워크 모듈을 임포트하는 것은 `scripts/lib/engine/install.py` 하나. 그것도 `files.pythonhosted.org` 의 고정 휠만 받고 `lock.json` 의 sha256 과 맞지 않으면 거부합니다. 린터는 `npx --no-install`.
 - [ ] **J3. 플러그인 산출물이 레포에 잡히지 않는다** [자동] — `git status` 에 `firings.jsonl`·`convention-guard.db` 가 없음. 레포에 커밋되는 것은 `.claude/convention-guard/` 의 `config.yaml`, `dismissed.yaml`, `rules/` 뿐.
 - [ ] **J4. 레포 로컬 규칙은 코드 리뷰 대상이다** [수동] — 로컬 규칙은 정규식을 추가할 수 있습니다. 폭발적 백트래킹 정규식이 들어가면 훅이 느려집니다.
-- [ ] **J5. 로그에 무엇이 남는지 팀이 안다** [수동] — `firings.jsonl` 은 규칙 id·파일 경로·지문, 기각·판정 사유에는 사람이 쓴 텍스트. 5MB 에서 `firings.jsonl.1` 로 1회 로테이션, 세션 상태·원장·판정 배치는 7일 후 정리. 원장에는 에이전트가 건드린 파일과, Bash·MCP 호출 직전에 이미 수정돼 있던 파일의 내용(압축)이 남고, 세션이 7일간 쓰이지 않으면 정리됩니다.
+- [ ] **J5. 로그에 무엇이 남는지 팀이 안다** [수동] — `firings.jsonl` 은 규칙 id·파일 경로·지문, 기각·판정 사유에는 사람이 쓴 텍스트. 5MB 에서 `firings.jsonl.1` 로 1회 로테이션, 세션 상태·원장·판정 배치는 7일 후 정리. 원장에는 에이전트가 건드린 파일과, Bash 호출 직전에 이미 수정돼 있던 파일의 내용(압축)이 남고, 세션이 7일간 쓰이지 않으면 정리됩니다.
 
 ---
 
@@ -270,7 +270,7 @@ python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude/plugin
 - [ ] **K3. 기계 판독 출력** [수동] — `--json`.
 - [ ] **K4. 플러그인을 포크했다면 자체 테스트를 CI 에** [수동]
   ```bash
-  python3 -m pip install -r requirements-dev.txt   # 먼저! hypothesis 가 없으면 structure/test_detect_conditions.py 가 FAIL
+  python3 -m pip install -r requirements-dev.txt   # 개발 의존성 (PyYAML 이 없으면 YAML 동등성 비교를 건너뜀)
   python3 tests/run_all.py --repo /path/to/your-repo
   ```
 

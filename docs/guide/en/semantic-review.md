@@ -136,7 +136,7 @@ Ask about one rule only, narrowly. An open question such as "find problems in th
 
 - A unit needs at least one added line with a letter or digit in it. A legacy function where only a closing brace or a blank line changed is not judged
 - While the unit's code stays the same, the cached verdict is used. Any line in the unit changing sends it for judgment again
-- Up to 50 units per rule are collected at a time. Past that, it says the units reached the cap and the rest were not judged this time
+- Up to 50 units per rule are collected at a time. Past that, it says "<rule>: 판정 단위가 상한 N개에 닿아 나머지는 이번에 판정하지 못했습니다" ("units reached the cap of N, the rest were not judged this time"). If `scan.py --max-hits` is above 50, that value is the cap
 - `once_per_session` does not apply to these rules. The verdict cache is what keeps the same code from being asked twice
 
 **Verification scope** — AI judgment is not deterministic. Asking about everything again after every fix finds something new each time, and the cycle never ends. So once a cycle is open:

@@ -134,7 +134,7 @@ rules: core(plugin)  <  user(~/.claude/convention-guard/rules)  <  local(<repo>/
   - If it fails: Set `stacks:` in `config.yaml`. A monorepo is decided only once at the root, so split it with `applies_to.files` / `exclude`.
 
 - [ ] **C4. Linter delegation is as intended** [auto]
-  - Expect: A missing linter shows `설치 안 됨 — 건너뜀` ("not installed — skipped"), an available linter shows `변경 줄만 차단 (parse: …)` ("block only changed lines"). If it shows `출력 파싱 불가 — 전체 출력으로 차단` ("output unparseable — block on the full output"), it is a warn — unrelated existing errors will also block.
+  - Expect: A missing linter shows `설치 안 됨, 건너뜀` ("not installed, skipped"), an available linter shows `변경 줄만 차단 (parse: …)` ("block only changed lines"). If it shows `출력을 읽지 못해 무관한 기존 에러로도 차단` ("output unreadable, so unrelated existing errors also block"), it is a warn — unrelated existing errors will also block.
   - Bundled commands use **only binaries that already exist**, such as `npx --no-install` and `./vendor/bin/*`.
   - If it fails: Add `parse:` in `stacks/*.yaml`, or set `linters.enabled: false`.
 
@@ -250,7 +250,7 @@ It is **off** by default. All items are [sandbox] — `tests/integration/test_se
 - [ ] **J2. The only external network call is the structure engine install** [auto] — The only module on the run path that imports network modules is `scripts/lib/engine/install.py`. Even it fetches only pinned wheels from `files.pythonhosted.org` and rejects them if they do not match the sha256 in `lock.json`. Linters use `npx --no-install`.
 - [ ] **J3. Plugin artifacts are not picked up by the repo** [auto] — `firings.jsonl` and `convention-guard.db` are not in `git status`. The only things committed to the repo are `config.yaml`, `dismissed.yaml` and `rules/` under `.claude/convention-guard/`.
 - [ ] **J4. Repo local rules are subject to code review** [manual] — Local rules can add regular expressions. A regex with catastrophic backtracking slows the hook down.
-- [ ] **J5. The team knows what is kept in the logs** [manual] — `firings.jsonl` holds rule ids, file paths and fingerprints; dismissal and verdict reasons hold human-written text. It rotates once to `firings.jsonl.1` at 5MB; session state, the ledger and review batches are cleaned up after 7 days. The ledger keeps the content (compressed) of files the agent touched and of files that were already modified right before a Bash or MCP call, and is cleaned up when the session goes unused for 7 days.
+- [ ] **J5. The team knows what is kept in the logs** [manual] — `firings.jsonl` holds rule ids, file paths and fingerprints; dismissal and verdict reasons hold human-written text. It rotates once to `firings.jsonl.1` at 5MB; session state, the ledger and review batches are cleaned up after 7 days. The ledger keeps the content (compressed) of files the agent touched and of files that were already modified right before a Bash call, and is cleaned up when the session goes unused for 7 days.
 
 ---
 
@@ -270,7 +270,7 @@ The hooks are a local safety net; enforcement happens in CI.
 - [ ] **K3. Machine-readable output** [manual] — `--json`.
 - [ ] **K4. If you forked the plugin, put its own tests in CI** [manual]
   ```bash
-  python3 -m pip install -r requirements-dev.txt   # first! without hypothesis, structure/test_detect_conditions.py FAILs
+  python3 -m pip install -r requirements-dev.txt   # dev dependencies (without PyYAML, the YAML parity comparison is skipped)
   python3 tests/run_all.py --repo /path/to/your-repo
   ```
 

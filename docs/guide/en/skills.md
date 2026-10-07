@@ -57,11 +57,12 @@ Sets up convention-guard in a repo **from scratch**. If a `config.yaml` already 
 
 The goal is not to turn on many rules. It is to make **everything that gets flagged real**.
 
-1. **Detect**: check stacks, presets, applied rules and linters (`detect_stack.py`). If no marker file (`composer.json`, `package.json`, `pyproject.toml`, `requirements.txt`, etc.) is at the root, set `stacks:` by hand.
-2. **Draft**: write `.claude/convention-guard/config.yaml` with `mode: report` (`setup.py init`).
-3. **Measure → adjust**: measure how many hits actually occur in the last 20 commits and in the whole repo. Lower the `severity` of rules that hit a lot, and take legacy areas out with `exclude`. Repeat until the remaining findings are real violations.
-4. **Export**: write all applied rules and linter commands into a managed block in `AGENTS.md` (`setup.py emit --agents-md`). If the agent knows them before writing, there are fewer blocks. Content outside the managed block is preserved, and an `@AGENTS.md` import is added to `CLAUDE.md`.
-5. **Report**: stacks, number of applied rules, adjustments, number of remaining findings.
+1. **Install the structure engine**: install the tree-sitter structure engine into the data directory the hooks read, and wait until it finishes (`engine.py ensure`; returns at once if already installed). If it fails, it says why and carries on. On a teammate's machine where this skill never ran, the first Stop that needs the engine installs it in the background.
+2. **Detect**: check stacks, presets, applied rules and linters (`detect_stack.py`). If no marker file (`composer.json`, `package.json`, `pyproject.toml`, `requirements.txt`, etc.) is at the root, set `stacks:` by hand.
+3. **Draft**: write `.claude/convention-guard/config.yaml` with `mode: report` (`setup.py init`).
+4. **Measure → adjust**: measure how many hits actually occur in the last 20 commits and in the whole repo. Lower the `severity` of rules that hit a lot, and take legacy areas out with `exclude`. Repeat until the remaining findings are real violations.
+5. **Export**: write all applied rules and linter commands into a managed block in `AGENTS.md` (`setup.py emit --agents-md`). If the agent knows them before writing, there are fewer blocks. Content outside the managed block is preserved, and an `@AGENTS.md` import is added to `CLAUDE.md`.
+6. **Report**: stacks, number of applied rules, structure engine status, adjustments, number of remaining findings.
 
 The resulting `.claude/convention-guard/config.yaml` and `AGENTS.md` are committed. For the first 2–3 weeks of adoption, use `report` to only collect records. Then decide on switching to `fix` with `rule-tune`.
 

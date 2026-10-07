@@ -113,8 +113,8 @@ Values chosen when installing the plugin.
 | `log_dir` | Location of `firings.jsonl` (do not choose a repo path — git picks it up) |
 
 4.0 has no setting that widens the hook's check scope (3.x `scope.base_ref`) and no list of MCP tools to collect
-(3.x `collect.edit_tools`). The hook checks only the **lines the agent wrote**, as recorded by the edit-event ledger,
-and observes every MCP tool call. To look at a whole branch, use `scan.py --range <base>..HEAD`.
+(3.x `collect.edit_tools`). The hook checks only the **lines the agent wrote**, as recorded by the edit-event ledger.
+MCP tool calls are not observed, so lines an MCP tool writes are not checked. To look at a whole branch, use `scan.py --range <base>..HEAD`.
 Leftover old keys become an "알 수 없는 설정 (무시)" ("unknown setting (ignored)") warning (in the hook, a `검사 경고` ("check warning") on a turn that ran the check).
 
 ## Environment variables

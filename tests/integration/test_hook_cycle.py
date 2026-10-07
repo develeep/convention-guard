@@ -484,20 +484,15 @@ def case_bash_without_pre_is_said(repo, data):
     check('once', '관찰 누락' not in (again.get('summary') or ''), again)
 
 
-def case_any_mcp_tool_is_watched(repo, data):
-    """D5 -- an MCP tool that writes files is watched like Bash, whatever its
-    name; one that writes nothing costs nothing."""
+def case_mcp_tools_are_not_watched(repo, data):
+    """MCP tools are outside the collect hooks: a call that reaches
+    collect.py anyway records nothing."""
     s = Session(repo, data, 'mcp')
     s.bash_hook('PreToolUse', tool='mcp__fs__write_file')
     write(repo, A, body())
     s.bash_hook('PostToolUse', tool='mcp__fs__write_file')
     out = s.stop('p1')
-    check('its write is checked', out['decision'] == 'block', out)
-    s2 = Session(repo, data, 'mcp-read')
-    write(repo, 'app/Svc/B.php', body(cls='B'))      # a person's work, before the call
-    s2.bash_hook('PreToolUse', tool='mcp__fs__read_file')
-    s2.bash_hook('PostToolUse', tool='mcp__fs__read_file')
-    check('a tool that changes nothing is not', s2.stop('p1')['decision'] is None)
+    check('its write is not the agent\'s', out['decision'] is None, out)
 
 
 # ---------------------------------------------------------------- display budget (R3)
@@ -686,7 +681,7 @@ CASES = [
     (case_other_terminal_commit, ''),
     (case_base_outlives_a_week, ''),
     (case_bash_without_pre_is_said, ''),
-    (case_any_mcp_tool_is_watched, ''),
+    (case_mcp_tools_are_not_watched, ''),
     (case_hidden_finding_is_not_a_pass, 'limits:\n  max_locations_per_rule: 1\n'),
     (case_hidden_rules_are_counted, 'limits:\n  max_error_rules: 1\n'),
     (case_verify_cap_is_not_new, 'once_per_session: false\n'),

@@ -18,7 +18,7 @@ the Stop only reads them (docs/design-4.0.md §1).
 Two ways of watching a call:
 
     file  Write, Edit, MultiEdit, NotebookEdit -- the tool names its paths
-    tree  Bash and every MCP tool -- anything in the work tree may change;
+    tree  Bash -- anything in the work tree may change;
           `git status` before and after tells which files did
 
 A Pre with no Post, a Post with no Pre, a change no call explains, a collect
@@ -45,7 +45,7 @@ FILE_TOOLS = ('Write', 'Edit', 'MultiEdit', 'NotebookEdit')
 POST_MISSING = 'post_missing'      # a call's Pre ran, its Post never came; its change is checked
 PRE_MISSING = 'pre_missing'        # a Post came with no Pre; what changed is taken as the agent's
 UNKNOWN_CHANGE = 'unknown_change'  # changed outside every call; not checked
-TREE_FAILED = 'tree_failed'        # git could not say what a Bash/MCP call changed
+TREE_FAILED = 'tree_failed'        # git could not say what a Bash call changed
 OUTSIDE = 'outside_root'           # a path outside the work tree
 NOT_A_REPO = 'not_a_repo'
 COLLECT_ERROR = 'collect_error'    # the collect hook itself failed
@@ -263,8 +263,7 @@ def collect(payload):
     if not isinstance(payload, dict):
         return
     tool = str(payload.get('tool_name') or '')
-    kind = 'file' if tool in FILE_TOOLS else (
-        'tree' if tool == 'Bash' or tool.startswith('mcp__') else None)
+    kind = 'file' if tool in FILE_TOOLS else ('tree' if tool == 'Bash' else None)
     if kind is None:
         return
     session = str(payload.get('session_id') or 'unknown')
@@ -429,7 +428,7 @@ def _forget_tree(conn, session, root, rels):
 
 
 def _tree_apply(conn, session, root, event, status, issue_kind):
-    """After a Bash or MCP call (or for one whose Post never came): every file
+    """After a Bash call (or for one whose Post never came): every file
     that is not what the ledger last saw changed during the call."""
     from . import gitdiff
     head_now, dirty = status

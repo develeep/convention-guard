@@ -382,10 +382,11 @@ convention-guard ✖ 차단 — error 1 · warn 1
 
 ■ 판정 대기 — 후보 1건 (core/laravel-n-plus-one 1)
   정규식만으로는 위반인지 알 수 없는 후보입니다.
+  (판정 단위 후보만 있으면 이 줄은 "규칙이 정한 파일에 추가한 코드입니다. 함수·파일 머리 단위로 판정합니다.")
   = 참고: 지난번 판정 요청이 실행되지 않았습니다. 이번에는 꼭 판정을 맡기세요.
 
 ■ 검사 경고
-⚠ 린터 ./vendor/bin/phpstan 을 돌리지 못했습니다 (시간 초과)
+⚠ 린터 ./vendor/bin/phpstan 를 돌리지 못했습니다 (시간 초과) — 이번 변경은 이 린터로 검사되지 않았습니다
 
 ■ 다음
 - convention-guard:convention-reviewer 에이전트에게 아래 명령 한 줄을 그대로 전달해 판정을 맡기세요. 돌려준 VIOLATION 만 고치세요.
@@ -420,6 +421,8 @@ convention-guard ✖ 재검증 차단 — 고쳐짐 0 · 기각 0 · 남음 2 ·
 
 머리말의 남음·새로 생김 수는 본문 항목 수와 같습니다. 차단 대상은 `■ 남음`·`■ 새로 생김`, 차단하지 않는 것은 `■ 참고` 에 나옵니다. `검사에서 빠짐 N` 은 후보가 결과에서 사라졌지만 코드가 에이전트 줄에 그대로 있을 때(사이클 도중 엔진 설치, 규칙 끄기·exclude — 의미 판정 규칙 제외)만 `기각` 뒤에 붙습니다.
 
+`when_code_added` 규칙의 새 지적은 `■ 보고만 — 고치지 않아도 이번 요청은 끝납니다` 에 나오고 머리말에 `보고만 N` 이 붙습니다. 판정을 다시 맡길 후보가 있으면 `■ 판정 대기` 섹션과 `판정 대기 N`, 이번 사이클 밖 판정 단위는 `재검증 범위 밖 판정 보류 N`, 검사 경고가 있으면 `검사 경고 N` 이 붙습니다.
+
 기각 문장은 규칙 후보가 남았을 때만, 린터 문장은 린터가 남았을 때만 씁니다.
 
 ### 3. Stop 훅 — 차단하지 않는 알림 (`systemMessage` 만)
@@ -428,6 +431,7 @@ convention-guard ✖ 재검증 차단 — 고쳐짐 0 · 기각 0 · 남음 2 ·
 convention-guard ✔ 재검증 통과 — 고쳐짐 2 · 기각 1
 convention-guard ✔ 재검증 통과 — 고쳐짐 0 · 기각 0 · 검사에서 빠짐 2
 convention-guard ⚠ 재검증 종료 — 고쳐짐 0 · 기각 0 · 남음 1 · 새로 생김 0 · 이후 기록만
+convention-guard ⚠ 재검증 종료 — 고쳐짐 1 · 기각 0 · 남음 0 · 새로 생김 0 · 보고만 1 · 이후 기록만
 convention-guard ⚠ 재검증 종료 — 고쳐짐 1 · 기각 0 · 미표시 1 · 다음 요청에서 다시 알림
 convention-guard ⚠ 재검증 종료 — 고쳐짐 0 · 기각 0 · 남음 0 · 새로 생김 0 · 린터 미확인 1 · 이후 기록만
 convention-guard ⚠ 기록 — warn 1 (core/php-no-empty-catch)
@@ -435,14 +439,14 @@ convention-guard ℹ 기록 — info 1
 convention-guard ✖ 기록 — error 1 · 차단 안 함: mode=report
 convention-guard ✖ 기록 — error 2 · 차단 안 함: 연속 차단 3회 상한
 convention-guard ⚠ 기록 — 판정 대기 1 · 차단 안 함: mode=report
-convention-guard ⚠ 기록 — 검사 경고 1: 린터 ./vendor/bin/phpstan 을 돌리지 못했습니다 (시간 초과)
+convention-guard ⚠ 기록 — 검사 경고 1: 린터 ./vendor/bin/phpstan 를 돌리지 못했습니다 (시간 초과) — 이번 변경은 이 린터로 검사되지 않았습니다
 convention-guard ⚠ 기록 — warn 1 (core/x) · 자동 수정 2 (app/Svc/A.php) — 편집 전에 다시 읽으세요 · 구조 미확인 1개 파일 (app/Svc/B.php)
 convention-guard ✖ 건너뜀 — 설정 오류: 레포 config.yaml: mode 는 report / fix / auto-fix 중 하나입니다 (지금: nope)
 convention-guard ✖ 건너뜀 — 내부 오류: <예외 한 줄>
 ```
 
 - 아이콘은 가장 높은 강도의 것(F7 과 같은 규칙), 통과는 `✔` 입니다.
-- `재검증 통과` 는 지금은 아무것도 출력하지 않는 경로입니다. 사용자가 사이클이 닫힌 것을 보도록 새로 냅니다.
+- `재검증 통과` 는 사용자가 사이클이 닫힌 것을 보도록 알림으로 냅니다.
 - 보여 준 것은 고쳤지만 표시 예산 밖 error 가 남았으면 `재검증 통과` 가 아니라 `⚠ 재검증 종료 — … 미표시 N` 입니다. 그 후보는 다음 요청에서 "지난 턴에도 지적했습니다"로 다시 올라오고, 그 규칙은 세션 동안 조용해지지 않습니다.
 - 차단 사유는 예산 밖을 숫자로 남깁니다: 규칙의 위치 아래 `… N곳 더`, 섹션 끝에 `… N개 규칙 더`.
 - 여러 줄 오류(YAML 파싱)는 첫 줄만 쓰고 ` … — 전체: python3 "…/scripts/detect_stack.py"` 를 붙입니다.
@@ -495,7 +499,7 @@ convention-guard scan — 워킹 트리 · 파일 5개 · 스택 laravel, php ·
 - `--fix --write` 는 `■ 자동 수정 — 3건 적용함 (아래 결과는 적용 후 남은 것)` 입니다.
 - `--review` 에서 배치를 만들었으면 `■ 다음` 에 리뷰어 위임과 `$ … review.py show "<batch>"` 를 둡니다. 배치가 없는데 미룬 것이 있으면 `- 판정 대기 N건은 예산 때문에 미뤘습니다. 다시 실행하세요:` + `$ … scan.py --review` 입니다. `--review` 일 때는 "판정하지 않았습니다" 문장을 쓰지 않습니다.
 - `■ 다음` 의 명령은 사용자가 준 범위 인자(`--range` 등)를 그대로 이어 받습니다.
-- 설정·엔진 노트는 stderr `convention-guard: warn: …` 입니다(F12). 검사 불가는 `convention-guard: error: git 레포가 아닙니다: …` 입니다.
+- 설정·파이프라인 노트(config, 기각 파일, 스택, 린터 미실행)는 stderr `convention-guard: warn: …` 입니다(F12). 구조 엔진 없음·구조 미확인·큰 파일 미검사는 stdout 의 `■ 검사 경고` 에 나옵니다. 검사 불가는 `convention-guard: error: git 레포가 아닙니다: …` 입니다.
 
 ### 5. scan.py `--json`
 
@@ -516,12 +520,13 @@ convention-guard scan — 워킹 트리 · 파일 5개 · 스택 laravel, php ·
   "fixes": [], "fixes_applied": false,
   "dismissed": 0,
   "unchecked": [],
+  "too_large": [],
   "notes": [],
   "next": [{"text": "semantic 규칙 후보 1건 판정", "command": "python3 \"…/scripts/scan.py\" --review"}]
 }
 ```
 
-- 줄이 없는 후보는 `"line": null` 입니다. 지금은 `1` 입니다.
+- 줄이 없는 후보(파일·변경 집합 단위)는 `"line": null` 입니다.
 - `hash`, `context_hash` 필드는 `key` 로 대신합니다(지문은 키에 들어 있음).
 
 ### 6. 의미 판정
@@ -628,7 +633,7 @@ convention-guard log_report — 이벤트 7 · 로그 …/firings.jsonl
   = 참고: VALID = 게이트는 적절했고 코드가 정상 / FALSE_POSITIVE = 게이트가 잘못 잡음
 
 ■ 손볼 규칙 — 2개
-⚠ core/no-orphan-todo — 기각이 많습니다
+⚠ core/no-orphan-todo — 오탐 확정 — 팀이 기각함, 조건을 좁히세요
   = 참고: 자주 걸린 파일 app/Svc/A.php, app/Svc/B.php
   = 이유: 기각 사유 — 테스트 픽스처
 
@@ -716,7 +721,7 @@ convention-guard setup emit — 규칙 24개 · 파일 4개
 ```
 
 - `init` 이미 있음: stderr `convention-guard: error: 이미 있습니다: … (덮어쓰려면 --force, 미리보기는 --stdout)`, 종료 1.
-- `emit --stdout`, `init --stdout` 은 파일 내용 그대로입니다.
+- `init --stdout` 은 파일 내용 그대로, `emit --stdout` 은 파일마다 `===== <경로> =====` 머리 줄 뒤에 내용입니다.
 - `emit` 이 쓰는 `.claude/rules/*.md` 는 에이전트 컨텍스트에 들어가는 Markdown 파일입니다. 규칙 줄을 `- **error** \`core/x\` 제목 — 안내` 로 바꿔 강도와 id 를 드러냅니다. 제목·관리 블록 주석은 유지합니다. `init` 이 쓰는 `config.yaml` 주석은 범위 밖입니다.
 
 ## 범위 밖 발견 (제안)

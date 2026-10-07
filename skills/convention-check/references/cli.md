@@ -24,14 +24,17 @@
 | `--json` | 기계가 읽을 형태 (`docs/output-format.md` F15 봉투). `summary`(개수·`exit_code`), `scope`, `findings`, `review`, `fixes`, `unchecked`, `next` |
 | `--fix` / `--fix --write` | 자동 수정안 보기 / 적용 |
 | `--review` | 의미 판정 배치 생성 + 캐시된 VIOLATION 판정을 결과에 포함 |
+| `--fail-on-pending` | `--review` 와 함께: 판정이 남은 후보가 있으면 종료 코드 1 |
+| `--require-engine` | 구조 엔진 없이 구조 조건을 건너뛴 파일이 있으면 종료 코드 2 |
+| `--cwd <경로>` | 레포 경로 (기본: 현재 디렉터리) |
 
 ## 종료 코드
 
 | 코드 | 뜻 |
 |---|---|
 | 0 | 통과 (`--fail-on` 기준 미만) |
-| 1 | `--fail-on` 이상의 지적, 또는 변경 줄에 걸린 린터 실패 |
-| 2 | 검사 불가 — git 아님, 범위 해석 실패, 레포 밖 경로, 규칙·설정·기각 파일 오류 |
+| 1 | `--fail-on` 이상의 지적, 변경 줄에 걸린 린터 실패, 또는 `--review --fail-on-pending` 에서 판정이 남은 후보 |
+| 2 | 검사 불가 — git 아님, 범위 해석 실패, 레포 밖 경로, 규칙·설정·기각 파일 오류, `--require-engine` 인데 구조 엔진이 없음 |
 
 `--fail-on`: `error`(기본) / `warn` / `info` / `never`.
 
@@ -49,4 +52,4 @@
 
 - shallow clone 이면 base ref 가 없어 종료 코드 2 가 납니다. `fetch-depth: 0` 이나 base 브랜치 fetch 가 필요합니다.
 - 도입 초기에는 `--fail-on never` 로 리포트만 남기고, 로그를 본 뒤 `error` 로 올립니다.
-- 의미 판정(`--review`)은 캐시가 있는 로컬에서만 의미가 있습니다. CI 에서는 쓰지 않습니다.
+- 의미 판정(`--review`)의 리뷰어는 CI 에서 돌릴 수 없습니다. 의미 판정 후보를 통과로 읽지 않게 하려면 `--review --fail-on-pending` 으로 판정 대기가 남으면 종료 코드 1 을 냅니다.

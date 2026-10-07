@@ -18,9 +18,7 @@ This page explains the behavior that plugin users need to know. The module struc
 ## What happens in one turn
 
 ```
-Session start    if the structure engine (tree-sitter) is missing, install it in the background
-   │
-Each tool call   compare before and after Write·Edit·MultiEdit·NotebookEdit·Bash·mcp__*
+Each tool call   compare before and after Write·Edit·MultiEdit·NotebookEdit·Bash
    │            and record "who wrote it" for each line (no output, 0 agent context)
    │
 Turn end (Stop) lines the agent wrote → regex gate → structure check → apply dismissals → candidates
@@ -31,7 +29,7 @@ Turn end (Stop) lines the agent wrote → regex gate → structure check → app
 Next Stop       check the same scope again → fixed / dismissed / still / new
 ```
 
-Stop means "turn end", not "task done". If the agent ends the turn with a question, the check is skipped (`skip_if_question`).
+Stop means "turn end", not "task done". If the agent ends the turn with a question, the check is skipped (`skip_if_question`). An open verification cycle is still re-verified, though.
 
 ## Who wrote the line: the edit-event ledger
 
@@ -87,7 +85,7 @@ A block opens a verification cycle. When the agent fixes things and ends the tur
 | still | Still there (reformatting in place or moving it as a whole also counts as still) |
 | new | A candidate that was not there at first — usually created by the fix just made |
 
-Blocking still and new items (errors) appear under `■ 남음` (still) and `■ 새로 생김` (new); non-blocking ones (warn) appear under `■ 참고` (note). If there is a blocking one, it blocks once more, up to `limits.max_verify_attempts` (default 1). After that, it only records what is left and closes. `limits.max_consecutive_blocks` (default 3) caps consecutive blocks within one request to prevent an infinite loop.
+Blocking still and new items (errors) appear under `■ 남음` (still) and `■ 새로 생김` (new); non-blocking ones (warn, info) appear under `■ 참고 — 차단하지 않습니다` (note — not blocking) when it blocks again. If there is a blocking one, it blocks once more, up to `limits.max_verify_attempts` (default 1). After that, it only records what is left and closes. `limits.max_consecutive_blocks` (default 3) caps consecutive blocks within one request to prevent an infinite loop.
 
 ```
 block → fix → re-verification: still → block (last) → fix → re-verification: still → record only and close
@@ -113,11 +111,11 @@ Anything that could not be checked is reported by name so that it does not look 
 
 | Notice | Meaning |
 |---|---|
-| `구조 엔진 없음 (설치 전 / 설치 중 / 설치 실패 / 미지원 플랫폼 / 꺼짐)` (no structure engine (not installed yet / installing / install failed / unsupported platform / off)) | Structure conditions could not be applied, so candidates are raised without filtering |
+| `구조 엔진 없음 (설치 전 / 설치 중 / 설치 실패 / 불러오기 실패 / 미지원 플랫폼 / 꺼짐)` (no structure engine (not installed yet / installing / install failed / import failed / unsupported platform / off)) | Structure conditions could not be applied, so candidates are raised without filtering |
 | `구조 미확인 N개 파일` (structure unverified in N files) | Matches after a spot the parser could not read are raised without checking |
 | `관찰 누락 — 실행 후 기록 없음` / `실행 전 기록 없음` (missed observation — no after-run record / no before-run record) | The collection hook's Pre or Post did not arrive. Changed lines are checked as the agent's |
 | `출처 미확인 변경` (change of unknown origin) | A file changed outside a tool (a person, an editor). Not checked |
-| `작업 트리 관찰 실패` (working tree observation failed) | `git status` failed, so the files changed by a Bash/MCP call are unknown |
+| `작업 트리 관찰 실패` (working tree observation failed) | `git status` failed, so the files changed by a Bash call are unknown |
 | `수집 훅 오류` (collection hook error) | The collection hook recorded its own exception |
 | `큰 파일 미검사` (large file not checked) | Files over 400KB are skipped |
 | `git 레포가 아니라 검사하지 않음` (not a git repo, not checked) | The project is not a git working tree |
@@ -131,7 +129,7 @@ If a candidate is not a violation, do not fix it. Dismiss it. The block message 
 $ python3 ".../scripts/dismiss.py" --key core/js-no-console:legacy.js:257280dd62 --by agent --reason "<one-line reason>"
 ```
 
-A dismissal is stored in `.claude/convention-guard/dismissed.yaml` as `rule:file:code fingerprint`. The fingerprint is the content of that line, so it survives lines being added above, and the line is flagged again when it changes. Commit the file to share it with the team. Dismissals are the evidence `rule-tune` uses to find rules with false positives.
+A dismissal is stored in `.claude/convention-guard/dismissed.yaml` as `rule:file:code fingerprint`. The fingerprint is the content of that line (ignoring whitespace), so it survives lines being added above or whitespace-only changes, and the line is flagged again when its code changes. Commit the file to share it with the team. Dismissals are the evidence `rule-tune` uses to find rules with false positives.
 
 ## Semantic review
 

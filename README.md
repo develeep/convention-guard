@@ -35,7 +35,7 @@ convention-guard ✔ 재검증 통과 — 고쳐짐 1 · 기각 0
 - **판정할 것이 없으면 AI 호출도 없습니다.** N+1·계층 경계처럼 정규식으로 안 되는 규칙만, 후보가 있고 판정 기록이 없을 때 서브에이전트가 함수 하나 분량을 보고 판정합니다. 정규식 신호가 아예 없는 컨벤션(컨트롤러에 비즈니스 로직 금지 등)은 정해 둔 파일에 에이전트가 코드를 추가할 때 함수 단위로 판정합니다.
 - **놓친 것은 말합니다.** 수집 훅이 죽었거나 구조를 읽지 못했으면 이름을 붙여 알립니다. 검사하지 못한 것이 통과로 보이지 않습니다.
 
-Laravel·PHP·Blade, Next·React·Nest·JS/TS, Python 규칙 34개가 들어 있고, 팀 규칙을 YAML 로 더할 수 있습니다.
+Laravel·PHP·Blade, Next·React·Nest·JS/TS, Python 규칙 36개가 들어 있고, 팀 규칙을 YAML 로 더할 수 있습니다.
 
 ## 빠른 시작 (5분)
 
@@ -83,7 +83,7 @@ legacy.js 맨 아래에 두 수를 더하는 add 함수를 추가하고, add(1, 
 
 에이전트가 코드를 쓰고 턴을 끝내려 하면 위에서 본 `✖ 차단` 메시지가 나오고, 에이전트가 새로 쓴 `console.log` 줄을 지운 뒤 `✔ 재검증 통과 — 고쳐짐 1` 로 끝납니다. 1번 줄의 레거시 `console.log` 는 그대로입니다.
 
-셋업을 돌리지 않은 첫 턴에는 구조 엔진이 백그라운드로 설치되는 중이라 `구조 엔진 없음 (설치 중)` 이 함께 보일 수 있습니다. 검사는 그대로 돌고, 설치가 끝나면 보이지 않습니다.
+셋업을 돌리지 않았다면 첫 턴에는 구조 엔진이 아직 없어 `구조 엔진 없음 (설치 전)` 이 함께 보이고, 그 턴에 백그라운드 설치가 시작됩니다. 설치가 도는 동안에는 `(설치 중)` 으로 보일 수 있습니다. 검사는 그대로 돌고, 설치가 끝나면 보이지 않습니다.
 
 다 봤으면 `cd .. && rm -rf cg-demo` 로 지웁니다.
 
@@ -126,7 +126,7 @@ legacy.js 맨 아래에 두 수를 더하는 add 함수를 추가하고, add(1, 
 ```bash
 CG=$(claude plugin list --json | python3 -c "import json,sys; print(next(p['installPath'] for p in json.load(sys.stdin) if p['id'].startswith('convention-guard@')))")
 
-python3 "$CG/scripts/scan.py" --staged                   # 커밋 직전 검사. 종료 코드 0 통과 / 1 지적 / 2 검사 불가
+python3 "$CG/scripts/scan.py" --staged                   # 커밋 직전 검사. 종료 코드 0 통과 / 1 지적(기본은 error 만) / 2 검사 불가
 python3 "$CG/scripts/scan.py" --range origin/main..HEAD  # 브랜치 변경분
 python3 "$CG/scripts/detect_stack.py"                    # 무엇이 감지되고 어떤 규칙이 왜 적용되나
 ```

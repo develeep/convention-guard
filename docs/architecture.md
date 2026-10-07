@@ -27,7 +27,7 @@ Instruction → Execution → Verification → Feedback → Fix → Verification
 
 ```
 PreToolUse / PostToolUse / PostToolUseFailure      collect.py → lib/ledger.py
-  (Write|Edit|MultiEdit|NotebookEdit|Bash|mcp__*)    도구 호출 전후 내용을 비교해 줄마다 출처를 기록
+  (Write|Edit|MultiEdit|NotebookEdit|Bash)           도구 호출 전후 내용을 비교해 줄마다 출처를 기록
         │                                          (출력·컨텍스트 0)
 Stop                   check.py → lib/stop.py (셸) → lib/decide.py (순수 결정)
         │
@@ -65,7 +65,7 @@ Stop                   check.py → lib/stop.py (셸) → lib/decide.py (순수 
 | `observe.py` | stat 서명, git 방식 줄 읽기, `git status` 한 번으로 HEAD 와 dirty 경로, blob 읽기 |
 | `store.py` | sqlite 저장소 (`convention-guard.db`): 스키마, 트랜잭션, GC |
 | `state.py` | Stop 의 사이클 상태 읽기·쓰기 |
-| `decide.py` | 사이클 전이를 모은 순수 함수 `decide()`, 분류(fixed/dismissed/dropped/still/new) |
+| `decide.py` | 사이클 전이를 모은 순수 함수 `decide()`, 분류(fixed/dismissed/dropped/still/new/reported) |
 | `stop.py` | Stop 셸: 관찰 → decide → 저장·로그·렌더, 알림 붙이기 |
 | `scope.py` | ChangeScope — 원장(`from_ledger`) 또는 git(working tree / staged / range / files / all) |
 | `gitdiff.py` | CLI 범위의 배치 git diff, 남의 커밋이 들여온 줄 |
@@ -95,7 +95,7 @@ Stop                   check.py → lib/stop.py (셸) → lib/decide.py (순수 
 | 방식 | 도구 | Pre | Post / PostToolUseFailure |
 |---|---|---|---|
 | 파일 | Write, Edit, MultiEdit, NotebookEdit | 경로마다 현재 내용을 기억 (원장에 없으면 전부 `p`, 그 사이 바뀌었으면 `u`) | 바뀐 줄을 `a` 로 |
-| 작업 트리 | Bash, 모든 `mcp__*` | `git status` 한 번 + HEAD. 원장이 모르는 dirty 파일의 내용을 `p` 로 | 다시 `git status`. 바뀐 파일을 `a` 로, HEAD 가 움직였으면 남의 커밋 줄은 `o` |
+| 작업 트리 | Bash | `git status` 한 번 + HEAD. 원장이 모르는 dirty 파일의 내용을 `p` 로 | 다시 `git status`. 바뀐 파일을 `a` 로, HEAD 가 움직였으면 남의 커밋 줄은 `o` |
 
 `apply(이전, 출처, 새 내용, 라벨)` 은 공통 접두·접미를 잘라 낸 뒤 가운데만 `difflib` 로 정렬합니다. 접미는 바뀐 줄 수만큼 `difflib` 에 되돌려 줍니다. 그러지 않으면 레거시 메서드 아래 같은 줄(`return ...;`, `}`)로 끝나는 메서드를 추가했을 때, 레거시 메서드의 끝 줄이 에이전트 줄로 잡힙니다. 같은 사건 안에서 지운 줄과 텍스트가 똑같은 새 줄은 지운 줄의 출처를 이어받습니다 — 파일 안에서 줄을 옮기거나 `mv` 로 파일을 옮긴 것은 쓴 것이 아닙니다. 공백만 바뀐 줄은 바뀐 줄입니다.
 
@@ -111,7 +111,7 @@ Stop                   check.py → lib/stop.py (셸) → lib/decide.py (순수 
 | (알리지 않음) | Pre 만 있고 파일이 그대로 — 권한 거부나 PreToolUse 차단으로 실행되지 않은 도구 | — |
 | 관찰 누락 — 실행 전 기록 없음 | Pre 없이 온 Post | 바뀐 줄을 에이전트 것으로 검사 |
 | 출처 미확인 변경 | 원장 파일이 도구 밖에서 바뀜, 또는 원장 밖 dirty 경로가 지난 Stop 이후 바뀜 | 안 함 |
-| 작업 트리 관찰 실패 | `git status` 가 실패해 Bash/MCP 호출이 바꾼 파일을 모름 | — |
+| 작업 트리 관찰 실패 | `git status` 가 실패해 Bash 호출이 바꾼 파일을 모름 | — |
 | 검사되지 않음 (레포 밖) | 작업 트리 밖 경로를 쓴 도구 | — |
 | git 레포가 아니라 검사하지 않음 | 프로젝트가 git 작업 트리가 아님 | — |
 | 수집 훅 오류 | 수집 훅이 자기 예외를 원장에 적음 | — |
@@ -170,10 +170,12 @@ scope → stacks → rules (프리셋 → 비활성 규칙 제외 → 적용 가
 |---|---|
 | fixed | 지적한 후보가 사라짐 |
 | dismissed | 오탐으로 기각됨 |
+| dropped | 후보는 사라졌지만 코드는 에이전트 줄에 그대로 (사이클 도중 엔진 설치, 규칙 끄기·exclude) — 고쳐짐으로 세지 않음, "검사에서 빠짐 N". 의미 판정 규칙과 린터는 해당 없음 |
 | still | 그대로 남음 (제자리 재포맷·통째 이동도 still) |
 | new | 사이클을 열 때 없던 후보 — 대개 수정이 만든 것 |
+| reported | `when_code_added` 규칙이 재검증 중 새로 낸 위반 — 보고만, 차단하지 않음 ("보고만 N") |
 
-still 이나 new 중 error 가 있으면 `limits.max_verify_attempts` 까지 다시 차단하고, 그다음에는 남은 것을 기록만 하고 닫습니다. `limits.max_consecutive_blocks` 가 요청마다 루프를 묶습니다. 표시 예산 밖의 error 는 차단하지 않지만 통과로 닫지도 않습니다("미표시 N"). 사용자가 요청을 중단하고 새 요청을 보내면 열린 사이클은 abandoned 로 닫힙니다.
+still 이나 new 중 error 가 있으면 `limits.max_verify_attempts` 까지 다시 차단하고(차단하지 않는 still·new 는 본문의 "■ 참고 — 차단하지 않습니다" 에), 그다음에는 남은 것을 기록만 하고 닫습니다. `limits.max_consecutive_blocks` 가 요청마다 루프를 묶습니다. 표시 예산 밖의 error 는 차단하지 않지만 통과로 닫지도 않습니다("미표시 N"). 사용자가 요청을 중단하고 새 요청을 보내면 열린 사이클은 abandoned 로 닫힙니다.
 
 후보 식별은 `규칙:파일:코드 지문` 키입니다 (줄 전체를 공백 정규화한 sha1 앞 10자리). 위쪽에 줄이 추가돼도 같은 후보이고, 줄 자체가 바뀌면 다른 후보입니다.
 
@@ -193,7 +195,7 @@ still 이나 new 중 error 가 있으면 `limits.max_verify_attempts` 까지 다
 - 사람이 에이전트가 쓴 줄을 다시 고치면 그 줄은 `u` 가 되어 검사에서 빠집니다 (이름은 남습니다).
 - 남의 커밋을 들여오는 바로 그 Bash 호출 안에서 에이전트가 그 커밋과 똑같은 줄을 쓰면 `o` 로 봅니다.
 - `.gitignore` 에 걸린 파일, 400KB 를 넘는 파일(이름 붙여 알림), 바이너리는 검사하지 않습니다.
-- Bash/MCP Pre 는 원장이 모르는 dirty 파일의 내용을 세션당 한 번 읽습니다. 무시되지 않는 거대한 미추적 트리는 비용입니다.
+- Bash Pre 는 원장이 모르는 dirty 파일의 내용을 세션당 한 번 읽습니다. 무시되지 않는 거대한 미추적 트리는 비용입니다.
 
 린터에는 단계 전체의 예산(`stop.LINT_BUDGET`)이 있어 Stop 훅 시간 제한을 넘기지 않고, 돌리지 못한 린터는 경고로 남깁니다.
 

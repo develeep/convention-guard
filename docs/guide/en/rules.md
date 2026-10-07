@@ -117,7 +117,7 @@ Supported languages are JavaScript (JSX), TypeScript, TSX, PHP, Blade, and Pytho
 
 **What could not be read is not a pass.** In the following cases the condition is not applied, the candidate is kept, and a `systemMessage` reports which file it was.
 
-- No structure engine — "구조 엔진 없음 (설치 전 / 설치 중 / 설치 실패 / 미지원 플랫폼 / 꺼짐)" ("no structure engine (not installed yet / installing / install failed / unsupported platform / off)"). In CI, install it first with `scripts/engine.py ensure`, and use `scan.py --require-engine` to keep runs from passing without verification
+- No structure engine — "구조 엔진 없음 (설치 전 / 설치 중 / 설치 실패 / 불러오기 실패 / 미지원 플랫폼 / 꺼짐)" ("no structure engine (not installed yet / installing / install failed / import failed / unsupported platform / off)"). In CI, install it first with `scripts/engine.py ensure`, and use `scan.py --require-engine` to keep runs from passing without verification
 - The file has a spot the parser could not read — matches from the first read error onward are "구조 미확인" (an unclosed quote changes everything after it). Matches before it are judged normally
 - Unsupported language (e.g. `not_in: [comment]` hitting a `.yaml`)
 

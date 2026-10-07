@@ -3,7 +3,6 @@
 #
 #     python3 -m pip install -r requirements-dev.txt
 #
-hypothesis>=6.0
 coverage>=7.0
 
 # 플러그인은 내장 miniyaml 만 쓴다. PyYAML 은 tests/unit/test_yaml_parity.py 가 miniyaml 의

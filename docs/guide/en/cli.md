@@ -60,7 +60,7 @@ python3 "$CG/scripts/scan.py" --all --severity error  # full-repo audit (legacy 
 | Option | Effect |
 |---|---|
 | `--severity error\|warn\|info` | **Print** only this severity and above (default info). The exit code is still based on all findings |
-| `--rule <part of id>` | Only the one rule whose id contains this string |
+| `--rule <part of id>` | Only rules whose id contains this string (all of them if several match) |
 | `--no-lint` | Skip linter delegation (faster) |
 | `--no-dismiss` | Ignore dismissal records and show everything — use it to see what is suppressed |
 | `--max-hits N` | Number of locations per rule (default 10) |
@@ -96,7 +96,7 @@ Without `--review`, semantic review candidates do not affect the exit code. They
 python3 "$CG/scripts/detect_stack.py"            # --cwd <repo>, --json
 ```
 
-Shows the config file location, detected stack tags, enabled presets, the status of each linter, and all 34 rules as `✔ on` / `○ off` with the reason (`preset 비활성` (preset disabled), `스택/버전 불일치` (stack/version mismatch), superseded, config disable, or a severity change such as `warn->error`).
+Shows the config file location, detected stack tags, enabled presets, the status of each linter, and every bundled rule as `✔ on` / `○ off` with the reason (`preset 비활성` (preset disabled), `스택/버전 불일치` (stack/version mismatch), superseded, config disable, or a severity change such as `warn->error`).
 
 Read the `= 참고:` (note) on a linter line like this.
 

@@ -60,7 +60,7 @@ def parse_args(argv=None):
                        help='레포 전수조사. 레거시 감사용이며 결과가 많습니다')
     parser.add_argument('--severity', choices=['error', 'warn', 'info'], default='info',
                         help='이 강도 이상만 출력 (종료 코드에는 영향 없음)')
-    parser.add_argument('--rule', help='이 규칙 하나만 실행 (id 또는 일부 문자열)')
+    parser.add_argument('--rule', help='id 에 이 문자열이 들어간 규칙만 실행 (여러 개가 맞으면 모두)')
     parser.add_argument('--no-lint', action='store_true', help='린터 위임 생략')
     parser.add_argument('--json', action='store_true', help='JSON 출력')
     parser.add_argument('--no-color', action='store_true')

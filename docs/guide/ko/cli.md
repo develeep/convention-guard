@@ -60,7 +60,7 @@ python3 "$CG/scripts/scan.py" --all --severity error  # 레포 전수조사 (레
 | 옵션 | 효과 |
 |---|---|
 | `--severity error\|warn\|info` | 이 강도 이상만 **출력** (기본 info). 종료 코드는 모든 지적으로 판단 |
-| `--rule <id 일부>` | id 에 이 문자열이 들어간 규칙 하나만 |
+| `--rule <id 일부>` | id 에 이 문자열이 들어간 규칙만 (여러 개가 맞으면 모두) |
 | `--no-lint` | 린터 위임 생략 (빠름) |
 | `--no-dismiss` | 기각 기록을 무시하고 전부 — 무엇이 억제돼 있는지 볼 때 |
 | `--max-hits N` | 규칙당 위치 수 (기본 10) |
@@ -96,7 +96,7 @@ python3 "$CG/scripts/scan.py" --all --severity error  # 레포 전수조사 (레
 python3 "$CG/scripts/detect_stack.py"            # --cwd <레포>, --json
 ```
 
-설정 파일 위치, 감지된 스택 태그, 켜진 프리셋, 린터마다 상태, 그리고 34개 규칙 전부를 `✔ on` / `○ off` 와 사유(`preset 비활성`, `스택/버전 불일치`, superseded, config disable, `warn->error` 같은 강도 조정)로 보여 줍니다.
+설정 파일 위치, 감지된 스택 태그, 켜진 프리셋, 린터마다 상태, 그리고 번들 규칙 전부를 `✔ on` / `○ off` 와 사유(`preset 비활성`, `스택/버전 불일치`, superseded, config disable, `warn->error` 같은 강도 조정)로 보여 줍니다.
 
 린터 줄의 `= 참고:` 는 이렇게 읽습니다.
 

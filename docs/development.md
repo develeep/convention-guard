@@ -21,7 +21,7 @@
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-dev.txt     # hypothesis, coverage, PyYAML (테스트 전용)
+.venv/bin/python -m pip install -r requirements-dev.txt     # coverage, PyYAML (테스트 전용)
 python3 scripts/engine.py ensure --dir .engine              # 개발용 구조 엔진 (.gitignore)
 ```
 
@@ -120,7 +120,7 @@ python3 tests/perf/fp_reduction.py              # 구조 조건이 걸러 내는
 1. `python3 scripts/engine.py ensure --dir .engine`
 2. `.venv/bin/python tests/run_all.py` — 엔진 있음
 3. `CONVENTION_GUARD_NO_ENGINE=1 .venv/bin/python tests/run_all.py` — 엔진 없음
-4. 하한 인터프리터: `uv run --no-project --python 3.10 python scripts/engine.py ensure --dir .engine` 후 `uv run --no-project --python 3.10 --with hypothesis --with pyyaml python tests/run_all.py`
+4. 하한 인터프리터: `uv run --no-project --python 3.10 python scripts/engine.py ensure --dir .engine` 후 `uv run --no-project --python 3.10 --with pyyaml python tests/run_all.py`
 5. `python3 scripts/engine.py verify-lock` — lock 의 모든 휠이 PyPI 와 같은지 (네트워크)
 6. `python3 tests/perf/run.py` — 목표 값 기록
 7. 실제 세션 점검: 임시 레포에서 `claude -p --plugin-dir <이 레포>` 로 위반 → 차단 → 수정 → 재검증 통과

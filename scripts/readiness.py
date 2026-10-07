@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Adoption check: does every part of convention-guard work in this repo?
 
-    python3 readiness.py                 # 전체 점검 (샌드박스 테스트 포함, ~30초)
-    python3 readiness.py --quick         # 레포·설치 상태만 (샌드박스·측정 생략, ~2초)
+    python3 readiness.py                 # 전체 점검 (샌드박스 테스트 포함, ~10초)
+    python3 readiness.py --quick         # 레포·설치 상태만 (샌드박스·측정 생략, ~1초)
     python3 readiness.py --all           # + 레포 전수조사 error 건수
     python3 readiness.py --json
 

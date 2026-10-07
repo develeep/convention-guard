@@ -39,7 +39,7 @@ The `console.log("legacy")` that was already on line 1 of the same file was not 
 - **Nothing to judge, no AI calls.** Only rules that regexes cannot decide, such as N+1 queries or layer boundaries, go to a subagent, and only when there is a candidate with no recorded verdict. The subagent judges from about one function's worth of context. Conventions with no regex signal at all (no business logic in controllers, for example) are judged per function when the agent adds code to the files they name.
 - **It tells you what it missed.** If a collect hook died or the structure could not be read, it says so by name. Something it could not check never looks like a pass.
 
-It ships 34 rules for Laravel·PHP·Blade, Next·React·Nest·JS/TS and Python, and you can add your team's rules in YAML.
+It ships 36 rules for Laravel·PHP·Blade, Next·React·Nest·JS/TS and Python, and you can add your team's rules in YAML.
 
 ## Quick start (5 minutes)
 
@@ -87,7 +87,7 @@ At the bottom of legacy.js, add an add function that adds two numbers, and print
 
 When the agent writes the code and tries to end its turn, the `✖ 차단` (blocked) message above appears. The agent deletes the `console.log` line it just wrote, and the turn ends with `✔ 재검증 통과 — 고쳐짐 1` (re-verification passed — fixed 1). The legacy `console.log` on line 1 stays as it was.
 
-On the first turn without setup, the structure engine may still be installing in the background, so you may also see `구조 엔진 없음 (설치 중)` ("structure engine missing (installing)"). The check still runs, and the notice goes away once the install finishes.
+If you skipped setup, the first turn has no structure engine yet, so you also see `구조 엔진 없음 (설치 전)` ("structure engine missing (not installed yet)"), and that turn starts a background install. While it runs you may see `(설치 중)` ("installing"). The check still runs, and the notice goes away once the install finishes.
 
 When you are done, remove it with `cd .. && rm -rf cg-demo`.
 
@@ -130,7 +130,7 @@ You can run the scripts the skills call yourself. They use the same pipeline, so
 ```bash
 CG=$(claude plugin list --json | python3 -c "import json,sys; print(next(p['installPath'] for p in json.load(sys.stdin) if p['id'].startswith('convention-guard@')))")
 
-python3 "$CG/scripts/scan.py" --staged                   # check before a commit. exit 0 pass / 1 findings / 2 could not check
+python3 "$CG/scripts/scan.py" --staged                   # check before a commit. exit 0 pass / 1 findings (errors only by default) / 2 could not check
 python3 "$CG/scripts/scan.py" --range origin/main..HEAD  # changes on a branch
 python3 "$CG/scripts/detect_stack.py"                    # what was detected, and which rules apply and why
 ```

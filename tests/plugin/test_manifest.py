@@ -60,8 +60,8 @@ def case_hooks():
 
     # the matcher is what decides whether collect.py is ever called: a tool in
     # it and not in the ledger fires for nothing, one in the ledger and not in
-    # it is an edit never recorded. Every MCP tool is watched (design D5).
-    wanted = set(ledger.FILE_TOOLS) | {'Bash', 'mcp__.*'}
+    # it is an edit never recorded. MCP tools are not watched.
+    wanted = set(ledger.FILE_TOOLS) | {'Bash'}
     for event in ('PreToolUse', 'PostToolUse', 'PostToolUseFailure'):
         matcher = events[event][0].get('matcher') or ''
         check('%s matcher equals what the ledger watches' % event,

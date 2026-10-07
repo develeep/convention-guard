@@ -17,7 +17,7 @@
 
 ## 부르는 법
 
-평소 말로 요청하면 Claude Code 가 설명에 맞는 스킬을 고릅니다.
+평소 말로 요청하면 Claude Code 가 설명에 맞는 스킬을 고릅니다. 요청은 어떤 언어로 해도 됩니다.
 
 ```
 convention-guard 세팅해줘
@@ -57,11 +57,12 @@ convention-check: 언제든 (커밋·PR 직전, 브랜치 점검)
 
 목표는 규칙을 많이 켜는 것이 아니라 **걸리는 것이 전부 진짜이게** 만드는 것입니다.
 
-1. **감지**: 스택·프리셋·적용 규칙·린터를 확인합니다 (`detect_stack.py`). 마커 파일(`composer.json`, `package.json`, `pyproject.toml`, `requirements.txt` 등)이 루트에 없으면 `stacks:` 를 직접 지정합니다.
-2. **초안**: `.claude/convention-guard/config.yaml` 을 `mode: report` 로 씁니다 (`setup.py init`).
-3. **측정 → 조정**: 최근 20커밋과 레포 전체에서 실제로 몇 건이 걸리는지 재고, 많이 걸리는 규칙은 `severity` 를 낮추고 레거시 구역은 `exclude` 로 뺍니다. 남은 지적이 진짜 위반일 때까지 반복합니다.
-4. **내보내기**: 적용되는 규칙 전부와 린터 명령을 `AGENTS.md` 관리 블록으로 씁니다 (`setup.py emit --agents-md`). 에이전트가 쓰기 전에 알면 차단이 줄어듭니다. 관리 블록 밖의 내용은 보존되고, `CLAUDE.md` 에 `@AGENTS.md` 가져오기가 추가됩니다.
-5. **보고**: 스택, 적용 규칙 수, 조정 내역, 남는 지적 수.
+1. **구조 엔진 설치**: 훅이 읽는 데이터 디렉터리에 tree-sitter 구조 엔진을 설치하고 끝날 때까지 기다립니다 (`engine.py ensure`, 이미 있으면 바로 끝남). 실패하면 사유를 알리고 계속합니다. 이 스킬을 돌리지 않은 팀원 머신은 첫 Stop 이 엔진을 필요로 할 때 백그라운드로 설치합니다.
+2. **감지**: 스택·프리셋·적용 규칙·린터를 확인합니다 (`detect_stack.py`). 마커 파일(`composer.json`, `package.json`, `pyproject.toml`, `requirements.txt` 등)이 루트에 없으면 `stacks:` 를 직접 지정합니다.
+3. **초안**: `.claude/convention-guard/config.yaml` 을 `mode: report` 로 씁니다 (`setup.py init`).
+4. **측정 → 조정**: 최근 20커밋과 레포 전체에서 실제로 몇 건이 걸리는지 재고, 많이 걸리는 규칙은 `severity` 를 낮추고 레거시 구역은 `exclude` 로 뺍니다. 남은 지적이 진짜 위반일 때까지 반복합니다.
+5. **내보내기**: 적용되는 규칙 전부와 린터 명령을 `AGENTS.md` 관리 블록으로 씁니다 (`setup.py emit --agents-md`). 에이전트가 쓰기 전에 알면 차단이 줄어듭니다. 관리 블록 밖의 내용은 보존되고, `CLAUDE.md` 에 `@AGENTS.md` 가져오기가 추가됩니다.
+6. **보고**: 스택, 적용 규칙 수, 구조 엔진 상태, 조정 내역, 남는 지적 수.
 
 결과로 생기는 `.claude/convention-guard/config.yaml` 과 `AGENTS.md` 는 커밋 대상입니다. 도입 첫 2~3주는 `report` 로 기록만 쌓고, 그다음 `rule-tune` 으로 `fix` 전환을 판단합니다.
 
