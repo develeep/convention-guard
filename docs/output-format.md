@@ -558,7 +558,7 @@ convention-guard scan — 워킹 트리 · 파일 5개 · 스택 laravel, php ·
 판정을 모두 적어 한 번에 기록하세요:
 
 (```bash 펜스) python3 "…/scripts/review.py" record "…/convention-guard.db#3f2a9c…" <<'JSON'
-[{"id": 1, "verdict": "…", "reason": "…"}, …]
+[{"id": 1, "reason": "…", "verdict": "…"}, …]
 JSON
 ```
 

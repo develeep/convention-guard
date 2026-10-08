@@ -200,7 +200,7 @@ python3 "$CG/scripts/review.py" summary "<batch ref>"   # verdict summary
 python3 "$CG/scripts/review.py" record  "<batch ref>" < verdicts.json   # record verdicts (for the reviewer)
 ```
 
-`record` reads a JSON array from stdin with `{"id": 1, "verdict": "VIOLATION", "reason": "…"}` for each candidate id. A verdict is one of `VIOLATION`, `VALID`, `FALSE_POSITIVE`, and every id must have a reason or nothing is recorded.
+`record` reads a JSON array from stdin with `{"id": 1, "reason": "…", "verdict": "VIOLATION"}` for each candidate id. A verdict is one of `VIOLATION`, `VALID`, `FALSE_POSITIVE`, and every id must have a reason or nothing is recorded. Key order does not matter, but the template puts `reason` first so the reviewer argues before it decides.
 
 For the batch ref (`<db path>#<number>`), use the exact string the Stop hook or `scan.py --review` gave you.
 

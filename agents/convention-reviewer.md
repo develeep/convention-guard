@@ -50,12 +50,12 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/review.py" show "<배치 참조>"
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/review.py" record "<배치 참조>" <<'JSON'
-[{"id": 1, "verdict": "VIOLATION", "reason": "orders 를 with() 없이 반복하며 ->items 접근"},
- {"id": 2, "verdict": "VALID", "reason": "38줄에서 with('customer') 로 eager load 됨"}]
+[{"id": 1, "reason": "orders 를 with() 없이 반복하며 ->items 접근", "verdict": "VIOLATION"},
+ {"id": 2, "reason": "38줄에서 with('customer') 로 eager load 됨", "verdict": "VALID"}]
 JSON
 ```
 
-`reason`은 코드에 근거한 한 줄입니다. 명령이 오류를 내면(빠진 id, 잘못된 verdict, 빈 reason) 메시지대로 고친 뒤 **전체를 다시** 기록하세요. 기록이 성공해야 끝납니다.
+`reason`은 코드에 근거한 한 줄이고, `verdict`보다 먼저 씁니다. 근거를 먼저 적고 결론을 내립니다. 명령이 오류를 내면(빠진 id, 잘못된 verdict, 빈 reason) 메시지대로 고친 뒤 **전체를 다시** 기록하세요. 기록이 성공해야 끝납니다.
 
 **4. 위반만 보고** — `record`가 출력한 `■ 메인 에이전트에게 돌려줄 것` 섹션을 그대로 응답으로 씁니다. 형식은 이렇습니다.
 

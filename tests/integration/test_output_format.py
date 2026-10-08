@@ -321,6 +321,10 @@ def case_review(tmp):
           heads and all(re.match(r'^## (✖ error|⚠ warn|ℹ info)\[[^\]]+\]: \S', h) for h in heads), heads)
     check('show: 컨텍스트 절 제목 ####', any(l.startswith('#### ') for l in lines), shown.stdout[:600])
     check('show: 끝에 ## 다음', '## 다음' in lines, lines[-12:])
+    template = [l for l in lines if '"id": ' in l and '"verdict"' in l]
+    check('show: 기록 템플릿은 reason 을 verdict 보다 먼저 쓰게 한다',
+          template and all(l.index('"reason"') < l.index('"verdict"') for l in template),
+          template[:2])
     widths = []
     block = []
     for line in lines + ['']:
@@ -335,6 +339,8 @@ def case_review(tmp):
     ids = [int(i) for i in re.findall(r'^### 후보 (\d+)', shown.stdout, re.M)]
     answers = json.dumps([{'id': i, 'verdict': 'VIOLATION', 'reason': '근거 %d' % i} for i in ids])
     recorded = run_script('review.py', ['record', batch], stdin=answers, env=env)
+    check('record: verdict 가 reason 보다 먼저 와도 받는다', recorded.returncode == 0,
+          recorded.stdout + recorded.stderr)
     ok('record: 머리말', outfmt.header(recorded.stdout, 'review record'))
     ok('record: 공통 문법', outfmt.text_output(recorded.stdout))
     check('record: 이유는 = 이유:', '  = 이유: 근거 ' in recorded.stdout, recorded.stdout)

@@ -10,8 +10,8 @@ BATCH is the reference the Stop hook or scan.py --review printed,
 
 `record` reads a JSON array from stdin, one entry per candidate id in the batch:
 
-    [{"id": 1, "verdict": "VIOLATION", "reason": "orders 가 eager load 없이 반복됨"},
-     {"id": 2, "verdict": "VALID", "reason": "with('items') 로 이미 로드됨"}]
+    [{"id": 1, "reason": "orders 가 eager load 없이 반복됨", "verdict": "VIOLATION"},
+     {"id": 2, "reason": "with('items') 로 이미 로드됨", "verdict": "VALID"}]
 
     VIOLATION        실제 컨벤션 위반
     VALID            위반 아님
@@ -70,10 +70,11 @@ def show(batch, path):
             for section in item['context']['sections']:
                 out += ['#### %s' % section['title'], section['text'], '']
     # ponytail: a fence, not the 4-space block: an indented `JSON` would not
-    # end the heredoc if the reviewer pasted it as shown
+    # end the heredoc if the reviewer pasted it as shown. The reason comes
+    # before the verdict so the reviewer argues first and decides after
     out += ['## 다음', '판정을 모두 적어 한 번에 기록하세요:', '', '```bash',
             "%s <<'JSON'" % record_command(path),
-            '[' + ',\n '.join('{"id": %d, "verdict": "…", "reason": "…"}' % item['id']
+            '[' + ',\n '.join('{"id": %d, "reason": "…", "verdict": "…"}' % item['id']
                               for item in items) + ']',
             'JSON', '```', '',
             '- verdict: VIOLATION (실제 위반) · VALID (위반 아님) · FALSE_POSITIVE (게이트가 잘못 잡음)',
@@ -93,7 +94,7 @@ def show_json(batch, path):
 def validate(batch, answers):
     problems = []
     if not isinstance(answers, list):
-        return None, ['JSON 배열이어야 합니다: [{"id": 1, "verdict": "VALID", "reason": "…"}]']
+        return None, ['JSON 배열이어야 합니다: [{"id": 1, "reason": "…", "verdict": "VALID"}]']
     items = {item['id']: item for item in batch['items']}
     seen = {}
     for n, answer in enumerate(answers, 1):

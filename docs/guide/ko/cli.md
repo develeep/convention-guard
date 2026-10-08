@@ -200,7 +200,7 @@ python3 "$CG/scripts/review.py" summary "<배치 참조>"   # 판정 요약
 python3 "$CG/scripts/review.py" record  "<배치 참조>" < verdicts.json   # 판정 기록 (리뷰어용)
 ```
 
-`record` 는 후보 id 마다 `{"id": 1, "verdict": "VIOLATION", "reason": "…"}` 를 담은 JSON 배열을 stdin 으로 받습니다. 판정은 `VIOLATION`·`VALID`·`FALSE_POSITIVE` 중 하나이고, 모든 id 에 이유가 있어야 기록됩니다.
+`record` 는 후보 id 마다 `{"id": 1, "reason": "…", "verdict": "VIOLATION"}` 를 담은 JSON 배열을 stdin 으로 받습니다. 판정은 `VIOLATION`·`VALID`·`FALSE_POSITIVE` 중 하나이고, 모든 id 에 이유가 있어야 기록됩니다. 키 순서는 상관없지만, 템플릿은 리뷰어가 근거를 먼저 적도록 `reason` 을 앞에 둡니다.
 
 배치 참조(`<db 경로>#<번호>`)는 Stop 훅이나 `scan.py --review` 가 알려 준 문자열을 그대로 씁니다.
 
