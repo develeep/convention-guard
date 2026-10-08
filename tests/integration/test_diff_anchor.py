@@ -28,7 +28,7 @@ from lib.scope import ChangeScope  # noqa: E402
 def hit_ids(tmp, tags, changed, new_files):
     all_rules = rulelib.load(tmp, ROOT, config.DEFAULTS, tags).rules
     scope = ChangeScope(tmp, changed, new_files, 'test')
-    return {rule['id'] for rule, _ in detect.run(all_rules, scope, detect.Stacks(tags), 5)}
+    return {rule['id'] for rule, _ in detect.run(all_rules, scope, rulelib.Reach(detect.Stacks(tags)), 5)}
 
 
 def laravel_repo(tmp):
@@ -290,7 +290,7 @@ def case_gates_read_what_they_gate(tmp):
              if r['id'] == 'core/php-no-empty-catch']
 
     def found(scope):
-        return [c.line for c in detect.scan(rules[0], scope, detect.Stacks({'php'}), 10)]
+        return [c.line for c in detect.scan(rules[0], scope, rulelib.Reach(detect.Stacks({'php'})), 10)]
 
     write(tmp, rel, code)
     git(tmp, 'add', rel)

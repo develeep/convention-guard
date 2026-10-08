@@ -93,7 +93,7 @@ def case_stale_line_and_crlf():
         rules = [r for r in rulelib.load(path, ROOT, {'presets': 'auto'}, {'php'}).rules
                  if r.get('fix')]
         scope = ChangeScope.working_tree(path)
-        hits = detect.run(rules, scope, detect.Stacks({'php'}), 10)
+        hits = detect.run(rules, scope, rulelib.Reach(detect.Stacks({'php'})), 10)
         fixes = autofix.plan(path, hits)
         check('two fixes are planned', len(fixes) == 2, [f.to_dict() for f in fixes])
 
@@ -119,7 +119,7 @@ def case_bom_first_line():
             fh.write(body)
         rules = [r for r in rulelib.load(path, ROOT, {'presets': 'auto'}, {'php'}).rules
                  if r.get('fix')]
-        hits = detect.run(rules, ChangeScope.working_tree(path), detect.Stacks({'php'}), 10)
+        hits = detect.run(rules, ChangeScope.working_tree(path), rulelib.Reach(detect.Stacks({'php'})), 10)
         applied = autofix.apply(path, autofix.plan(path, hits))
         check('line 1 of a BOM file is fixed', len(applied) == 1,
               [f.to_dict() for f in applied])
@@ -151,7 +151,7 @@ def case_bytes_are_respected():
         rules = [r for r in rulelib.load(path, ROOT, {'presets': 'auto'}, {'php'}).rules
                  if r.get('fix')]
         hits = detect.run(rules, ChangeScope.files(path, ['app/Svc/M.php']),
-                          detect.Stacks({'php'}), 10)
+                          rulelib.Reach(detect.Stacks({'php'})), 10)
         applied = autofix.apply(path, autofix.plan(path, hits))
         with open(os.path.join(path, 'app/Svc/M.php'), 'rb') as fh:
             after = fh.read()

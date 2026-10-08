@@ -28,7 +28,7 @@ def offenders(tmp):
     stacks = detect.Stacks({'js', 'react', 'next'})
     rules = rulelib.load(tmp, ROOT, config.DEFAULTS, stacks.tags).rules
     scope = ChangeScope.working_tree(tmp)
-    return [c.file for _, cands in detect.run(rules, scope, stacks, 10) for c in cands
+    return [c.file for _, cands in detect.run(rules, scope, rulelib.Reach(stacks), 10) for c in cands
             if '.claude' in c.file]
 
 

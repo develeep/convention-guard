@@ -195,7 +195,7 @@ def _never_dismissed(_rule_id, _relpath, _digest):
     return False
 
 
-def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None):
+def scan(rule, scope, reach, cap, is_dismissed=_never_dismissed, unchecked=None):
     """Candidates this rule reports for this change, at most `cap`."""
     kind = rule.get('kind', 'line')
     found = []
@@ -224,24 +224,17 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
         found.append(cand)
         return len(found) >= cap
 
+    # the stack gate holds for every kind -- without it a Laravel rule fires
+    # in a Go repo
+    if reach.rule_reason(rule):
+        return []
+
     if kind == 'paired':
-        # changeset-level: A changed, B did not. This branch never reaches
-        # `applies()`, so the stack gate is applied by hand -- without it a
-        # Laravel rule fires in a Go repo.
-        if not rulelib.stack_ok(rule, stacks.tags, stacks.versions):
-            return []
-        visible = [f for f in scope.paths()
-                   if not rulelib.match_any(rule.get('repo_exclude'), f)
-                   and not rulelib.match_any(rule.get('exclude'), f)]
-        # `generated` keeps a path from being the change a rule answers for,
-        # not from being the evidence: a route rule is satisfied by a test
-        # changing, and tests are on the generated list
-        touched = [f for f in visible if rulelib.match_any(rule['when_changed'], f)
-                   and (rule.get('include_generated')
-                        or not rulelib.match_any(rule.get('generated'), f))]
+        # changeset-level: A changed, B did not
+        touched = [f for f in scope.paths() if reach.reads(rule, f, 'trigger')]
         if not touched:
             return []
-        if any(rulelib.match_any(rule['require_changed'], f) for f in visible):
+        if any(reach.reads(rule, f, 'evidence') for f in scope.paths()):
             return []
         for relpath in touched:
             if add(relpath, 1, '(짝이 되는 파일 변경 없음)'):
@@ -249,7 +242,7 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
         return found
 
     for relpath in scope.paths():
-        if not rulelib.applies(rule, relpath, stacks.tags, stacks.versions):
+        if not reach.reads(rule, relpath):
             continue
 
         if kind == 'line':
@@ -342,12 +335,12 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
     return found
 
 
-def run(rules, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None):
+def run(rules, scope, reach, cap, is_dismissed=_never_dismissed, unchecked=None):
     """[(rule, [Candidate])] for every rule with at least one candidate,
     most severe first, then most candidates first."""
     hits = []
     for rule in rules:
-        found = scan(rule, scope, stacks, cap, is_dismissed, unchecked)
+        found = scan(rule, scope, reach, cap, is_dismissed, unchecked)
         if found:
             hits.append((rule, found))
     hits.sort(key=lambda h: (rulelib.severity_rank(h[0]), -len(h[1])))

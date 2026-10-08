@@ -97,7 +97,7 @@ python3 "$CG/scripts/detect_stack.py"            # --cwd <레포>, --json
 python3 "$CG/scripts/detect_stack.py" --path src/a.js --path dist/app.js   # 경로별 적용 여부
 ```
 
-`--path <파일>`(여러 번 가능)을 주면 그 경로마다 규칙 전부를 적용 여부와 사유로 보여 줍니다. 사유는 `꺼짐`, `프리셋 비활성`, `포맷터 설정이 대신함`, `스택/버전 불일치`, `규칙 exclude`, `files 글롭 밖`, `기본 제외 (generated)`, `convention-guard 자체 설정`, `설정 exclude` 중 하나이고, 둘 이상이면 규칙 자체의 것(exclude·files)을 먼저 씁니다. `--json` 에서는 `paths: [{path, rules: [{id, severity, applies, reason}]}]` 이고 `reason` 은 `disabled`·`preset`·`superseded`·`stack`·`rule_exclude`·`files`·`generated`·`self`·`config_exclude` 코드입니다. 레포 밖 경로는 오류(종료 코드 2)이고, 상대 경로는 `scan.py --files` 처럼 현재 디렉터리 → 레포 루트 순으로 읽습니다. 파일이 아직 없어도 됩니다.
+`--path <파일>`(여러 번 가능)을 주면 그 경로마다 규칙 전부를 적용 여부와 사유로 보여 줍니다. 사유는 `꺼짐`, `프리셋 비활성`, `포맷터 설정이 대신함`, `스택/버전 불일치`, `규칙 exclude`, `files 글롭 밖`, `기본 제외 (generated)`, `convention-guard 자체 설정`, `설정 exclude` 중 하나이고, 둘 이상이면 규칙 자체의 것(exclude·files)을 먼저 씁니다. `--json` 에서는 `paths: [{path, rules: [{id, severity, applies, reason}]}]` 이고 `reason` 은 `disabled`·`preset`·`superseded`·`stack`·`rule_exclude`·`files`·`generated`·`self`·`config_exclude` 코드입니다. paired 규칙(`when_changed`/`require_changed`)은 경로를 두 역할로 읽으므로 행에 둘 다 보입니다. 텍스트는 `트리거: … · 증거: …`, `--json` 은 `roles: {trigger, evidence}` 이고, 역할 사유에는 `not_trigger`(`when_changed 밖`)·`not_evidence`(`require_changed 밖`)도 있습니다. `applies`·`reason` 은 트리거 기준입니다. 예를 들어 테스트 파일은 트리거는 아니지만 증거로는 셉니다. 레포 밖 경로는 오류(종료 코드 2)이고, 상대 경로는 `scan.py --files` 처럼 현재 디렉터리 → 레포 루트 순으로 읽습니다. 파일이 아직 없어도 됩니다.
 
 설정 파일 위치, 감지된 스택 태그, 켜진 프리셋, 린터마다 상태, 그리고 번들 규칙 전부를 `✔ on` / `○ off` 와 사유(`preset 비활성`, `스택/버전 불일치`, superseded, config disable, `warn->error` 같은 강도 조정)로 보여 줍니다.
 

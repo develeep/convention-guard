@@ -207,8 +207,6 @@ def normalize(raw, path, source):
         'message': str(raw.get('message') or '').strip(),
         'prevent': str(raw.get('prevent') or '').strip(),
         'tests': raw.get('tests') or {},
-        'repo_exclude': [],
-        'generated': [],
     }
     _detect(rule, raw.get('detect'))
     rule['review'] = _review(raw.get('semantic_review'))

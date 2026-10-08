@@ -160,9 +160,6 @@ def load(root, plugin_root, cfg, tags):
 
     disabled = {str(r) for r in cfg.get('disable') or []}
     severity = {str(k): str(v).lower() for k, v in (cfg.get('severity') or {}).items()}
-    exclude = cfg.get('exclude') or []
-    exclude = ([exclude] if isinstance(exclude, str) else list(exclude)) + SELF_PATHS
-    generated = list(cfg.get('generated') or [])
     for rid in sorted((disabled | set(severity)) - set(raws)):
         result.notes.append(('warn', 'config: 없는 규칙 %s' % rid))
     for name in result.presets:
@@ -181,8 +178,6 @@ def load(root, plugin_root, cfg, tags):
             result.notes.append(('error', '%s: %s' % (entry['path'], exc)))
             continue
         rule['id'], rule['source'] = rid, entry['source']
-        rule['repo_exclude'] = exclude
-        rule['generated'] = generated
         if entry.get('patched_from'):
             rule['patched_from'] = entry['patched_from']
             base = str(entry.get('base_severity') or 'warn').lower()

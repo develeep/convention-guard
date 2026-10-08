@@ -221,18 +221,20 @@ def tracked_files(root):
     return [p for p in out.split('\0') if p] if code == 0 else []
 
 
-def reach(rule, paths):
-    if rule['kind'] == 'paired':
-        return sum(1 for p in paths if rulelib.match_any(rule['when_changed'], p))
-    return sum(1 for p in paths if rulelib.path_ok(rule, p))
+def reach_count(reach, rule, paths):
+    role = 'trigger' if rule['kind'] == 'paired' else 'line'
+    return sum(1 for p in paths if reach.reads(rule, p, role))
 
 
 def check_reach(rep, root, info, cfg):
     """An active rule whose globs match no file in the repo can never fire."""
     active = {r['id'] for r in info['rules'] if r['status'] == 'active'}
-    ruleset = pipeline.load_rules(root, cfg, pipeline.detect_stacks(root, cfg))
+    stacks = pipeline.detect_stacks(root, cfg)
+    ruleset = pipeline.load_rules(root, cfg, stacks)
+    reach = rulelib.Reach.from_config(cfg, stacks)
     paths = tracked_files(root)
-    dead = [r['id'] for r in ruleset.rules if r['id'] in active and not reach(r, paths)]
+    dead = [r['id'] for r in ruleset.rules
+            if r['id'] in active and not reach_count(reach, r, paths)]
     if dead:
         rep.add('D2', 'WARN', '적용 규칙 %d개 중 %d개가 레포의 어떤 파일에도 닿지 않습니다: %s'
                 % (len(active), len(dead), ', '.join(dead)),

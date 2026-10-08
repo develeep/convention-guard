@@ -39,7 +39,6 @@ def core_rules():
     out = {}
     for path in rulelib.iter_rule_files(os.path.join(ROOT, 'rules')):
         rule = rulelib.normalize(read_yaml(path), path, 'core')
-        rule['repo_exclude'] = list(rulelib.SELF_PATHS)
         out[rule['id']] = rule
     return out
 
@@ -56,7 +55,7 @@ def run_case(rule, stacks, case):
             else:
                 write(repo, rel, body)
         scope = ChangeScope.working_tree(repo)
-        found = detect.scan(rule, scope, detect.Stacks(stacks), cap=50)
+        found = detect.scan(rule, scope, rulelib.Reach(detect.Stacks(stacks)), cap=50)
         return sorted('%s:%d' % (c.file, c.line) for c in found)
 
 

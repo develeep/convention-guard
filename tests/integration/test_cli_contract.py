@@ -252,11 +252,40 @@ def case_detect_stack_explains_a_path(tmp):
                           for rules in by_path.values() for r in rules.values()), by_path)
 
 
+def case_detect_stack_explains_paired_roles(tmp):
+    """A paired rule reads a path in two roles: the change it answers for and
+    the evidence that satisfies it. A test file is no trigger but is the
+    evidence, and --path says both."""
+    repo = os.path.join(tmp, 'repo')
+    make_repo(repo, {'composer.json': LARAVEL_COMPOSER})
+    data = os.path.join(tmp, 'data')
+    proc, by_path = path_report(repo, data, 'tests/Feature/UserTest.php', 'routes/web.php')
+    check('detect_stack.py --path exits 0', proc.returncode == 0, proc.stderr)
+    rid = 'core/laravel-route-needs-test'
+    got = by_path.get('tests/Feature/UserTest.php', {}).get(rid) or {}
+    check('a test file is no trigger but is the evidence',
+          got.get('applies') is False and got.get('reason') == 'not_trigger'
+          and got.get('roles') == {'trigger': 'not_trigger', 'evidence': None}, got)
+    got = by_path.get('routes/web.php', {}).get(rid) or {}
+    check('a route file is the trigger, not the evidence',
+          got.get('applies') is True and got.get('reason') is None
+          and got.get('roles') == {'trigger': None, 'evidence': 'not_evidence'}, got)
+    other = by_path.get('routes/web.php', {}).get('core/php-no-debug-output') or {}
+    check('a rule with one role carries no roles field', 'roles' not in other, other)
+    text = run_script('detect_stack.py', ['--cwd', repo, '--path', 'tests/Feature/UserTest.php'],
+                      env=isolated_env(data), cwd=repo)
+    line = [l for l in text.stdout.splitlines() if rid in l][-1:] or ['']
+    line = line[0]   # the path section comes after the rules section
+    check('the text names both roles once each',
+          line.count('트리거:') == 1 and line.count('증거:') == 1 and '증거: 읽음' in line, line)
+
+
 if __name__ == '__main__':
     sys.exit(run_cases([case_scan_exit_codes, case_severity_filter_does_not_hide_exit_code,
                         case_all_includes_rules_without_globs, case_dismiss_is_exact,
                         case_collect_survives_garbage,
                         case_bash_changes_are_collected_precisely, case_cap_holds,
                         case_broken_config_is_not_silence, case_hook_scope_errors_are_visible,
-                        case_detect_stack_reports, case_detect_stack_explains_a_path],
+                        case_detect_stack_reports, case_detect_stack_explains_a_path,
+                        case_detect_stack_explains_paired_roles],
                        'CLI 계약'))

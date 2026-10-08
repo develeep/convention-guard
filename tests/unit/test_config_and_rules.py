@@ -344,6 +344,64 @@ def case_globs():
                      rule_yaml(**extra), field)
 
 
+def case_reach():
+    """One answer to "does rule R read path P in role X, and if not why" --
+    the checks, detect_stack.py --path and readiness all ask it."""
+    print('case_reach:')
+    stacks = stacklib_stacks(['php', 'laravel'])
+    reach = rulelib.Reach.from_config({'exclude': 'legacy/**', 'generated': ['**/tests/**']},
+                                      stacks)
+    line = rulelib.normalize(rule_yaml(applies_to={
+        'stacks': ['php'], 'files': ['app/**', 'tests/**', 'legacy/**', '.claude/**'],
+        'exclude': ['app/Skip/**']}), 'x.yaml', 'local')
+    wide = rulelib.normalize(rule_yaml(applies_to={
+        'stacks': ['php'], 'files': ['app/**', 'tests/**'], 'include_generated': True}),
+        'x.yaml', 'local')
+    paired = rulelib.normalize(rule_yaml(
+        applies_to={'stacks': ['laravel'], 'exclude': ['routes/old/**', 'tests/Old/**']},
+        detect={'when_changed': ['routes/**/*.php', 'tests/Route*.php'],
+                'require_changed': ['tests/**/*.php']}), 'x.yaml', 'local')
+    for name, rule, path, role, want in (
+            ('plain source', line, 'app/A.php', 'line', None),
+            ('the rule exclude', line, 'app/Skip/A.php', 'line', 'rule_exclude'),
+            ('outside files', line, 'src/A.php', 'line', 'files'),
+            ('generated', line, 'tests/ATest.php', 'line', 'generated'),
+            ('include_generated reads generated', wide, 'tests/ATest.php', 'line', None),
+            ('own config', line, '.claude/convention-guard/config.yaml', 'line', 'self'),
+            ('config exclude (a string)', line, 'legacy/a.php', 'line', 'config_exclude'),
+            ('the rule names itself before the repo', line, 'src/tests/a.php', 'line', 'files'),
+            ('trigger', paired, 'routes/web.php', 'trigger', None),
+            ('not a trigger', paired, 'app/A.php', 'trigger', 'not_trigger'),
+            ('excluded trigger', paired, 'routes/old/web.php', 'trigger', 'rule_exclude'),
+            ('generated trigger', paired, 'tests/RouteA.php', 'trigger', 'generated'),
+            ('generated evidence still counts', paired, 'tests/Feature/ATest.php',
+             'evidence', None),
+            ('not evidence', paired, 'app/A.php', 'evidence', 'not_evidence'),
+            ('excluded evidence', paired, 'tests/Old/ATest.php', 'evidence', 'rule_exclude'),
+            ('not evidence either', paired, 'tests/a.js', 'evidence', 'not_evidence')):
+        got = reach.reason(rule, path, role)
+        check('%s: %s as %s -> %s' % (name, path, role, want), got == want, got)
+
+    skip = rulelib.Reach.from_config({'exclude': ['tests/Skip/**']}, stacks)
+    check('the config exclude holds for evidence too',
+          skip.reason(paired, 'tests/Skip/ATest.php', 'evidence') == 'config_exclude')
+    paired_wide = dict(paired, include_generated=True)
+    check('include_generated reads a generated trigger',
+          reach.reason(paired_wide, 'tests/RouteA.php', 'trigger') is None)
+    check('the stack gate is per rule', reach.rule_reason(line) is None
+          and rulelib.Reach.from_config({}, stacklib_stacks(['go'])).rule_reason(line)
+          == 'stack')
+    off = rulelib.Reach.from_config({'generated': []}, stacks)
+    check('generated: [] turns the list off', off.reason(line, 'tests/ATest.php') is None)
+    check('loaded rules carry no repo-wide globs',
+          not ({'repo_exclude', 'generated'} & set(line)), sorted(line))
+
+
+def stacklib_stacks(tags):
+    from lib.detect import Stacks
+    return Stacks(tags=tags)
+
+
 def case_version_constraints():
     """R23g -- a version constraint means what it says, or the rule does not load."""
     print('case_version_constraints:')
@@ -368,6 +426,7 @@ def case_version_constraints():
 if __name__ == '__main__':
     case_schema()
     case_globs()
+    case_reach()
     case_version_constraints()
     case_structure_conditions()
     case_code_added_anchor()

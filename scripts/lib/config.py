@@ -104,7 +104,7 @@ def _read(path, label, notes):
 # `severity` maps rule ids the team picks, so its keys are not a closed set --
 # checking them against DEFAULTS would drop every override the team wrote.
 OPEN_MAPS = {'severity'}
-# keys whose value may also take a second shape (loader.py accepts both)
+# keys whose value may also take a second shape (loader.py / rules.Reach accept both)
 ALSO = {'presets': list, 'exclude': str}
 # path globs every rule matches against: one bad entry would raise on every path
 GLOBS = ('exclude', 'generated')

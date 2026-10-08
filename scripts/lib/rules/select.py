@@ -142,30 +142,60 @@ def stack_ok(rule, tags, versions):
     return version_ok(rule.get('version'), versions, stack)
 
 
-def path_reason(rule, relpath):
-    """Why this rule does not read `relpath`, or None when it does. The one
-    path test: the checks and `detect_stack.py --path` cannot disagree. When
-    several reasons hold, the rule's own definition is named before the
-    repo-wide lists, since that is the one a rule author can act on."""
-    if match_any(rule.get('exclude'), relpath):
-        return 'rule_exclude'
-    if rule.get('files') and not match_any(rule['files'], relpath):
-        return 'files'
-    if not rule.get('include_generated') and match_any(rule.get('generated'), relpath):
-        return 'generated'
-    if match_any(SELF_PATHS, relpath):
-        return 'self'
-    if match_any(rule.get('repo_exclude'), relpath):
-        return 'config_exclude'
-    return None
+class Reach:
+    """Where rules look: the stacks in play and the repo-wide path lists.
 
+    The one answer to "does rule R read path P, and if not why" -- the checks,
+    `detect_stack.py --path` and readiness all ask it, so they cannot disagree.
+    A paired rule reads a path in one of two roles: `trigger` (the change it
+    answers for) or `evidence` (the change that satisfies it); every other
+    rule reads it as a `line`.
+    """
 
-def path_ok(rule, relpath):
-    return path_reason(rule, relpath) is None
+    def __init__(self, stacks, exclude=(), generated=()):
+        self.tags = stacks.tags
+        self.versions = stacks.versions
+        self.exclude = tuple(exclude)
+        self.generated = tuple(generated)
 
+    @classmethod
+    def from_config(cls, cfg, stacks):
+        exclude = cfg.get('exclude') or []
+        return cls(stacks, [exclude] if isinstance(exclude, str) else exclude,
+                   cfg.get('generated') or ())
 
-def applies(rule, relpath, tags, versions):
-    return path_ok(rule, relpath) and stack_ok(rule, tags, versions)
+    def rule_reason(self, rule):
+        """'stack' when the rule's stack/version gate is closed, else None."""
+        return None if stack_ok(rule, self.tags, self.versions) else 'stack'
+
+    def reason(self, rule, relpath, role='line'):
+        """Why `rule` does not read `relpath` in `role`, or None when it does.
+        When several reasons hold, the rule's own definition is named before
+        the repo-wide lists, since that is the one a rule author can act on.
+        `generated` keeps a path from being the change a rule answers for, not
+        from being the evidence: a route rule is satisfied by a test changing,
+        and tests are on the list."""
+        if match_any(rule.get('exclude'), relpath):
+            return 'rule_exclude'
+        if role == 'trigger':
+            if not match_any(rule['when_changed'], relpath):
+                return 'not_trigger'
+        elif role == 'evidence':
+            if not match_any(rule['require_changed'], relpath):
+                return 'not_evidence'
+        elif rule.get('files') and not match_any(rule['files'], relpath):
+            return 'files'
+        if (role != 'evidence' and not rule.get('include_generated')
+                and match_any(self.generated, relpath)):
+            return 'generated'
+        if match_any(SELF_PATHS, relpath):
+            return 'self'
+        if match_any(self.exclude, relpath):
+            return 'config_exclude'
+        return None
+
+    def reads(self, rule, relpath, role='line'):
+        return self.reason(rule, relpath, role) is None
 
 
 def superseded(rule, root):
@@ -177,21 +207,18 @@ def superseded(rule, root):
     return None
 
 
-def applicable(rules, stacks, paths, root=None, respect_supersede=True):
+def applicable(rules, reach, paths, root=None, respect_supersede=True):
     """Rule filtering before any detector runs: stack/version gate, supersede
     markers, and whether any changed path could possibly be in the rule's
     reach. A rule that cannot fire costs nothing afterwards."""
     out = []
     for rule in rules:
-        if not stack_ok(rule, stacks.tags, stacks.versions):
+        if reach.rule_reason(rule):
             continue
         if respect_supersede and root and superseded(rule, root):
             continue
-        reach = rule['when_changed'] if rule['kind'] == 'paired' else None
-        if reach is not None:
-            if not any(match_any(reach, p) for p in paths):
-                continue
-        elif not any(path_ok(rule, p) for p in paths):
+        role = 'trigger' if rule['kind'] == 'paired' else 'line'
+        if not any(reach.reads(rule, p, role) for p in paths):
             continue
         out.append(rule)
     return out

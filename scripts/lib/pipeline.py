@@ -93,13 +93,14 @@ def run(scope, cfg, plugin_root=None, run_lint=True, cap=None, use_dismiss=True,
                                       '켜져 있지 않습니다 — presets 에 architecture / '
                                       'performance 를 추가하세요'))
 
-    applicable = rulelib.applicable(rules, stacks, scope.paths(), root,
+    reach = rulelib.Reach.from_config(cfg, stacks)
+    applicable = rulelib.applicable(rules, reach, scope.paths(), root,
                                     respect_supersede=cfg.get('respect_supersede', True))
     cap = int(cap if cap is not None else cfg.limit('max_locations_per_rule'))
     unchecked = detect.Unchecked()
-    hits = detect.run([r for r in applicable if not r['review']], scope, stacks, cap,
+    hits = detect.run([r for r in applicable if not r['review']], scope, reach, cap,
                       is_dismissed, unchecked)
-    semantic_hits = detect.run([r for r in applicable if r['review']], scope, stacks, cap,
+    semantic_hits = detect.run([r for r in applicable if r['review']], scope, reach, cap,
                                is_dismissed, unchecked)
     for rule, cands in semantic_hits:
         if rule['kind'] == 'unit' and len(cands) >= detect.unit_cap(cap):

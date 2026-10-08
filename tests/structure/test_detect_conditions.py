@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import check, finish, fixtures, needs_engine, tempdir  # noqa: E402
-from lib import detect, report, stop, structure  # noqa: E402
+from lib import detect, report, rules, stop, structure  # noqa: E402
 from lib.rules import fixtures as rulefixtures, schema  # noqa: E402
 
 PHP = '<?php\n'
@@ -58,7 +58,7 @@ def rule(**detect_spec):
 
 
 def stacks():
-    return detect.Stacks(tags=['*'])
+    return rules.Reach(detect.Stacks(tags=['*']))
 
 
 def scan(rule_obj, scope, cap=10, unchecked=None):

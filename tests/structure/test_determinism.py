@@ -144,7 +144,7 @@ def _first_difference(left, right):
 def case_detection_is_deterministic():
     """Same change, same rule -> same candidates and the same notice."""
     print('case_detection_is_deterministic:')
-    from lib import detect, report
+    from lib import detect, report, rules
     from lib.rules import schema
 
     class Scope:
@@ -184,7 +184,7 @@ def case_detection_is_deterministic():
     runs = []
     for _ in range(3):
         unchecked = detect.Unchecked()
-        found = detect.scan(rule, Scope(files), detect.Stacks(tags=['*']), 20,
+        found = detect.scan(rule, Scope(files), rules.Reach(detect.Stacks(tags=['*'])), 20,
                             unchecked=unchecked)
         runs.append(([(c.file, c.line, c.code_hash) for c in found],
                      report.unchecked_note(unchecked)))

@@ -37,7 +37,7 @@ CORPUS = os.path.join(HERE, 'corpus', 'fp')
 SCAN_PATH = {
     'laravel-n-plus-one': 'app/Http/Controllers/OrderController.php',
 }
-STACKS = detect.Stacks(tags=['*', 'php', 'laravel', 'js', 'ts', 'python'])
+REACH = rulelib.Reach(detect.Stacks(tags=['*', 'php', 'laravel', 'js', 'ts', 'python']))
 
 
 class _Scope:
@@ -110,9 +110,9 @@ def corpus_files():
 
 def count(rule, relpath, text):
     scope = _Scope(relpath, text)
-    if not rulelib.applies(rule, relpath, STACKS.tags, STACKS.versions):
+    if REACH.rule_reason(rule) or not REACH.reads(rule, relpath):
         return None
-    return len(detect.scan(rule, scope, STACKS, 100))
+    return len(detect.scan(rule, scope, REACH, 100))
 
 
 def measure():

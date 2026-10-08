@@ -19,12 +19,15 @@ from lib import (config as configlib, dismiss as dismisslib, fmt, lint, pipeline
 from lib.paths import git_toplevel, project_dir, repo_relative  # noqa: E402
 
 # why a rule does not read a path: the repo-level reasons first, then
-# rules.path_reason's -- machine codes in --json, these words in the text
+# rules.Reach.reason's -- machine codes in --json, these words in the text
 REASONS = {'disabled': '꺼짐', 'preset': '프리셋 비활성', 'superseded': '포맷터 설정이 대신함',
            'stack': '스택/버전 불일치', 'config_exclude': '설정 exclude',
            'generated': '기본 제외 (generated)', 'rule_exclude': '규칙 exclude',
            'self': 'convention-guard 자체 설정',
-           'files': 'files 글롭 밖'}
+           'files': 'files 글롭 밖', 'not_trigger': 'when_changed 밖',
+           'not_evidence': 'require_changed 밖'}
+# a paired rule reads a path in two roles (rules.Reach)
+ROLES = (('trigger', '트리거'), ('evidence', '증거'))
 
 
 def collect(root, paths=()):
@@ -33,13 +36,14 @@ def collect(root, paths=()):
     ruleset = pipeline.load_rules(root, cfg, stacks)
     presets, _ = rulelib.load_presets(pipeline.default_plugin_root())
     dismissals = dismisslib.load(root)
+    reach = rulelib.Reach.from_config(cfg, stacks)
 
     rows = []
     for rule in ruleset.rules:
         marker = rulelib.superseded(rule, root) if cfg['respect_supersede'] else None
         if marker:
             status, reason, code = 'inactive', 'superseded by %s' % marker, 'superseded'
-        elif not rulelib.stack_ok(rule, stacks.tags, stacks.versions):
+        elif reach.rule_reason(rule):
             status, reason, code = 'inactive', '스택/버전 불일치', 'stack'
         else:
             status, reason, code = 'active', '', None
@@ -69,7 +73,7 @@ def collect(root, paths=()):
                   for rule, status, reason, _ in sorted(
                       rows, key=lambda r: (r[1] != 'active', rulelib.severity_rank(r[0]),
                                            r[0]['id']))],
-        'paths': [explain(rows, rel) for rel in paths],
+        'paths': [explain(rows, reach, rel) for rel in paths],
         'dismissals': {'path': dismisslib.path(root), 'count': len(dismissals)},
         'notes': [{'level': level, 'text': text}
                   for level, text in list(cfg.notes) + list(ruleset.notes)
@@ -88,14 +92,26 @@ def resolve(raw, root):
     return repo_relative(path, root)
 
 
-def explain(rows, relpath):
-    """Every rule against one path: does it read it, and if not, why."""
+def explain(rows, reach, relpath):
+    """Every rule against one path: does it read it, and if not, why. A
+    paired rule answers per role; `applies`/`reason` are the trigger's."""
     out = []
     for rule, _status, _reason, code in sorted(rows, key=lambda r: r[0]['id']):
-        code = code or rulelib.path_reason(rule, relpath)
-        out.append({'id': rule['id'], 'severity': rule['severity'], 'applies': code is None,
-                    'reason': code})
+        row = {'id': rule['id'], 'severity': rule['severity']}
+        if code is None and rule['kind'] == 'paired':
+            row['roles'] = {role: reach.reason(rule, relpath, role) for role, _ in ROLES}
+            code = row['roles']['trigger']
+        else:
+            code = code or reach.reason(rule, relpath)
+        out.append(dict(row, applies=code is None, reason=code))
     return {'path': relpath, 'rules': out}
+
+
+def reason_text(row):
+    if 'roles' in row:
+        return ' · '.join('%s: %s' % (word, REASONS.get(code, code) if code else '읽음')
+                          for word, code in ((word, row['roles'][role]) for role, word in ROLES))
+    return REASONS.get(row['reason'], row['reason'] or '')
 
 
 def render_paths(info, style):
@@ -104,7 +120,7 @@ def render_paths(info, style):
         on = [r for r in entry['rules'] if r['applies']]
         rows = [('%s %s' % (fmt.GLYPH['on' if r['applies'] else 'off'],
                             'on' if r['applies'] else 'off'),
-                 r['severity'], r['id'], REASONS.get(r['reason'], r['reason'] or ''))
+                 r['severity'], r['id'], reason_text(r))
                 for r in sorted(entry['rules'], key=lambda r: (not r['applies'], r['id']))]
         blocks.append([fmt.section('경로 %s' % entry['path'],
                                    '%d개 중 %d개 적용' % (len(entry['rules']), len(on)),
