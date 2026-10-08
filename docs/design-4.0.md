@@ -419,6 +419,8 @@ scripts/lib/
 | `scan.py --require-engine` | 추가 | CI 가 엔진 없이 구조 조건을 건너뛴 결과를 통과로 읽지 않게 |
 | Python 스택·규칙 | `stacks/python.yaml`, `py-no-debug-output`, `py-no-bare-except` 추가 (범위 밖 추가, 단계 4 보고) | 지원 언어인데 규칙이 없어 엔진이 Python 에 쓰이는 경로가 없었다 |
 | YAML | miniyaml 은 여러 줄 흐름 목록을 읽지 못한다 — 문서(rules.md)에 제약으로 적음 | 파서를 하나로 고정한 대가 |
+| 엔진 설치 시점 (4.2.0) | `SessionStart` 훅과 `scripts/session_start.py` 를 없애고, convention-setup 스킬이 `engine.py ensure` 로 설치한다. Stop 의 백그라운드 설치(§4.5 의 2)는 그대로 | 릴리스 커밋(221ceb8)에 이유는 적혀 있지 않다. 오래된 세션 정리는 check.py 가 이미 하므로 옮길 것이 없었다. §4.5 의 1 과 §9 의 서술은 이 행으로 대신한다 |
+| MCP 도구 관찰 (4.2.2) | MCP 도구는 관찰하지 않는다. matcher 는 `Write\|Edit\|MultiEdit\|NotebookEdit\|Bash` 이고, D5 와 §1 의 "MCP 를 작업 트리로 관찰" 은 따르지 않는다 | 커밋(8e56f22)에 이유는 적혀 있지 않다. 결과로 MCP 도구가 쓴 줄은 검사하지 않는다 |
 
 ### 실측 (WSL2, Python 3.12, 2026-10-02)
 

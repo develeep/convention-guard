@@ -37,7 +37,7 @@ claude --plugin-dir /root/convention-guard        # 임시 레포에서 실제 �
 - **Python 3.10 이상.** 실행 경로는 표준 라이브러리 + 플러그인이 스스로 설치하는 구조 엔진(tree-sitter, `scripts/lib/engine/`)뿐이다. YAML 은 내장 `miniyaml` 하나만 쓴다(PyYAML 은 동등성 테스트의 정답지). 네트워크는 엔진 설치기만 쓰고, `lock.json` 의 sha256 으로 고정한다.
 - **진입점(`scripts/*.py`)은 인자와 입출력만 다룬다.** 결정 로직은 `scripts/lib/` 에 둔다. Stop 의 결정은 순수 함수 `lib/decide.py` (I/O 모듈을 임포트하지 않음 — 테스트가 강제).
 - `.gitattributes` 때문에 CRLF 로 체크아웃되므로 스크립트는 항상 `python3 <경로>` 로 실행한다 (shebang 은 쓰지 않는다). 생성하거나 수정하는 파일은 원본의 줄바꿈을 따른다.
-- 성능은 목표다(실패 조건 아님, [docs/design-4.0.md](docs/design-4.0.md) §7): 게이트에 걸리는 것 없는 60개 파일 Stop ~60ms, 수집 훅 1회 ~25ms(Edit)·~35ms(Bash). 수집 훅(`collect.py`)은 원장 모듈 밖을 임포트하지 않는다. 엔진은 정규식 게이트에 걸린 매치가 있을 때만 임포트한다.
+- 성능은 목표다(실패 조건 아님, [docs/design-4.0.md](docs/design-4.0.md) §7): 게이트에 걸리는 것 없는 60개 파일 Stop ~60ms, 수집 훅 1회 ~25ms(Edit)·~35ms(Bash). 수집 훅(`collect.py`)은 원장과 그 아래(`observe`·`gitdiff`·`store`·`paths`)만 임포트하고 규칙·엔진 모듈은 임포트하지 않는다. 엔진은 정규식 게이트에 걸린 매치가 있을 때만 임포트한다.
 
 ## 아키텍처 (큰 그림)
 

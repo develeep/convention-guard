@@ -48,7 +48,7 @@
 | `semantic_review.verdict_ttl_days` | 30 | 판정 캐시 유효 기간 |
 | `skip_if_question` | `true` | 에이전트가 질문으로 턴을 끝내면 검사 생략 |
 | `respect_supersede` | `true` | 포맷터 설정이 있으면 해당 포맷 규칙 비활성 |
-| `once_per_session` | `true` | 세션에서 고쳐진 규칙은 다시 지적하지 않음 (기각은 예산을 쓰지 않음) |
+| `once_per_session` | `true` | 세션에서 고쳐진 규칙은 다시 지적하지 않음 (기각은 예산을 쓰지 않음). `when_code_added` 규칙은 해당 없음 — 같은 코드를 두 번 묻지 않는 것은 판정 캐시가 맡음 |
 
 ## mode
 

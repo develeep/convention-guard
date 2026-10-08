@@ -48,7 +48,7 @@ Generate a draft: `python3 scripts/setup.py init --stdout`
 | `semantic_review.verdict_ttl_days` | 30 | Verdict cache lifetime |
 | `skip_if_question` | `true` | Skip the check when the agent ends its turn with a question |
 | `respect_supersede` | `true` | Disable the matching format rules when a formatter config exists |
-| `once_per_session` | `true` | A rule fixed in the session is not flagged again (dismissals do not use the budget) |
+| `once_per_session` | `true` | A rule fixed in the session is not flagged again (dismissals do not use the budget). Does not apply to `when_code_added` rules — the verdict cache is what keeps the same code from being asked twice |
 
 ## mode
 

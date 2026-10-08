@@ -134,7 +134,7 @@ stop.py (셸)
 ```
 scope → stacks → rules (프리셋 → 비활성 규칙 제외 → 적용 가능성 필터)
       → linters (변경 줄에 걸린 실패만 차단)
-      → detect (앵커별 정규식 게이트 → 구조 확인) → 기각 적용
+      → detect (앵커별 정규식 게이트 → 기각 확인 → 구조 확인)
       → hits (결정론) + semantic_hits (의미 판정 대상)
 ```
 

@@ -31,4 +31,4 @@ semantic_review:
 
 skip_if_question: true       # 에이전트가 질문으로 턴을 끝내면 검사 생략
 respect_supersede: true      # pint.json 등이 있으면 해당 포맷 규칙 비활성화
-once_per_session: true       # 통과한 규칙은 세션 동안 다시 지적하지 않음 (기각은 예외)
+once_per_session: true       # 사이클에서 고쳐진 규칙은 세션 동안 다시 지적하지 않음 (기각은 예외, when_code_added 규칙은 해당 없음)
