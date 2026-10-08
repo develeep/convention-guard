@@ -67,3 +67,17 @@ claude --plugin-dir /root/convention-guard        # 임시 레포에서 실제 �
 ## Git
 
 사용자가 커밋이나 푸시를 명시적으로 요청하면 `master` 에서 직접 진행한다 (브랜치를 따로 만들 필요 없음). 커밋 전 diff 를 읽고, 이번 작업과 관련된 경로만 명시적으로 스테이징한다. 다른 작업의 변경은 포함하지도 되돌리지도 않는다. force push, hard reset, amend 는 별도 승인이 있어야 한다.
+
+## Agent skills
+
+### Issue tracker
+
+이슈는 GitHub Issues(`develeep/convention-guard`)에서 `gh` CLI 로 다룬다. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+기본 라벨 다섯 개(`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`)를 그대로 쓴다. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+single-context — 루트 `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
