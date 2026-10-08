@@ -5,6 +5,8 @@ prevent: 새 PHP 파일은 여는 태그 다음에 빈 줄 하나를 두고 decl
 applies_to:
   stacks: [php]
   files: ["app/**/*.php", "src/**/*.php", "routes/**/*.php", "tests/**/*.php"]
+  # tests/ 는 설정 generated 기본 목록에 들어 있습니다. 테스트 파일에도 선언을 요구하므로 읽습니다
+  include_generated: true
   exclude: ["**/vendor/**", "**/*.blade.php", "**/migrations/**"]
 detect:
   when_file_added: true

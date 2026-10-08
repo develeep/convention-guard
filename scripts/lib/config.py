@@ -12,12 +12,29 @@ CI run and a hook run of the same change use the same settings.
 
 import copy
 import os
+import re
 
 from .paths import user_option
 from .rules.loader import deep_merge, repo_dir
 from .yamlio import read as read_yaml
 
 MODES = ('report', 'fix', 'auto-fix')
+
+# Paths no rule reads: build output, generated code, lock files and tests.
+# `.gitignore` already keeps what a repo does not commit; this is what it does
+# commit, or has not ignored yet, which a build or generator run through Bash
+# hands to the agent line by line. A repo replaces the list, or empties it.
+GENERATED = [
+    '**/node_modules/**', '**/vendor/**', '**/dist/**', '**/build/**', '**/.next/**',
+    '**/coverage/**', '**/public/build/**', '**/bootstrap/cache/**',
+    '**/*.min.js', '**/*.min.css', '**/*.map', '**/*.bundle.js',
+    '**/*.generated.*', '**/*.gen.*', '**/__generated__/**',
+    '**/*.pb.*', '**/*_pb2.py', '**/*_pb2_grpc.py',
+    '**/package-lock.json', '**/npm-shrinkwrap.json', '**/pnpm-lock.yaml',
+    '**/__snapshots__/**', '**/*.snap',
+    '**/tests/**', '**/test/**', '**/__tests__/**', '**/fixtures/**', '**/testdata/**',
+    '**/*.test.*', '**/*.spec.*', '**/test_*.py', '**/*_test.py', '**/*Test.php',
+]
 
 DEFAULTS = {
     'mode': 'report',
@@ -26,6 +43,7 @@ DEFAULTS = {
     'disable': [],
     'severity': {},
     'exclude': [],
+    'generated': GENERATED,
     'limits': {
         'max_error_rules': 4,
         'max_warn_rules': 3,
@@ -88,6 +106,8 @@ def _read(path, label, notes):
 OPEN_MAPS = {'severity'}
 # keys whose value may also take a second shape (loader.py accepts both)
 ALSO = {'presets': list, 'exclude': str}
+# path globs every rule matches against: one bad entry would raise on every path
+GLOBS = ('exclude', 'generated')
 
 
 def _typed(label, path, value, default, notes, also=None):
@@ -115,6 +135,23 @@ def _typed(label, path, value, default, notes, also=None):
     return ok
 
 
+def _globs(label, key, value, notes):
+    """The entries that are globs; the rest dropped with an error note."""
+    from .rules.select import glob_re
+    good = []
+    for entry in ([value] if isinstance(value, str) else value):
+        try:
+            if not isinstance(entry, str):
+                raise TypeError('문자열이 아님')
+            glob_re(entry)
+        except (TypeError, re.error) as exc:
+            notes.append(('error', '%s: %s 의 %r 는 경로 글롭이 아닙니다 (%s)'
+                          % (label, key, entry, exc)))
+            continue
+        good.append(entry)
+    return good if isinstance(value, list) else (good[0] if good else [])
+
+
 def _validate(data, label, notes):
     """Drop what cannot be used and say why."""
     clean = {}
@@ -140,6 +177,8 @@ def _validate(data, label, notes):
                     del value['timeout']
         elif not _typed(label, key, value, DEFAULTS[key], notes, ALSO.get(key)):
             continue
+        if key in GLOBS:
+            value = _globs(label, key, value, notes)
         clean[key] = value
     if 'mode' in clean and clean['mode'] not in MODES:
         notes.append(('error', '%s: mode 는 %s 중 하나입니다 (지금: %s)'

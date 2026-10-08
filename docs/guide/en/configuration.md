@@ -34,6 +34,7 @@ Generate a draft: `python3 scripts/setup.py init --stdout`
 | `disable` | `[]` | Rule ids to turn off |
 | `severity` | `{}` | Per-rule severity. `core/php-line-too-long: warn` |
 | `exclude` | `[]` | Path globs not to check. (Files over 400KB and binaries with a NUL in the first 8KB are skipped regardless of settings, and large files are reported as "큰 파일 미검사" ("large file not checked")) Same syntax as rules; here `legacy/` reads as `legacy/**`, and a leading `/` means the repo root |
+| `generated` | built-in list | Path globs no rule reads: build output (`**/dist/**`, `**/build/**`, `**/*.min.js` …), generated code (`**/*.generated.*`, `**/*_pb2.py` …), lock files (`package-lock.json`, `pnpm-lock.yaml`) and tests (`**/tests/**`, `**/*.test.*`, `**/test_*.py` …). The full list is `GENERATED` in `scripts/lib/config.py`. Paths in `.gitignore` are already skipped, separately from this. Setting it in the repo config **replaces** the whole list; `[]` turns it off. Check a path with `detect_stack.py --path` |
 | `limits.max_error_rules` | 4 | Number of error rules shown at once |
 | `limits.max_warn_rules` | 3 | Number of warn rules sent along when blocking |
 | `limits.max_locations_per_rule` | 3 | Locations per rule |

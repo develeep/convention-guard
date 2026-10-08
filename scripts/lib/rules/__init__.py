@@ -5,4 +5,4 @@ from .loader import (REPO_DIRNAME, SELF_PATHS, RuleSet,  # noqa: F401
                      local_rules_dir, repo_dir, user_rules_dir)
 from .schema import RuleError, normalize  # noqa: F401
 from .select import (SEVERITIES, applicable, applies, glob_re, match_any,  # noqa: F401
-                     path_ok, severity_rank, stack_ok, superseded)
+                     path_ok, path_reason, severity_rank, stack_ok, superseded)

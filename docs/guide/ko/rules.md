@@ -36,6 +36,7 @@ applies_to:
   stacks: [laravel]                 # 필수
   files: ["app/Http/Controllers/**/*.php"]
   exclude: ["**/vendor/**"]
+  # include_generated: true         # 선택. 설정 generated 기본 목록(테스트·빌드 산출물 등)에 든 경로도 읽음
 detect:
   when_line_added: 'public\s+function\s+(store|update|create)\s*\('
   must_contain_in_file: '(FormRequest|Http\\Requests|->validate\(|->validated\(\)|Validator::make\()'

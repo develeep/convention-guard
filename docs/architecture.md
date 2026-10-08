@@ -194,7 +194,7 @@ still 이나 new 중 error 가 있으면 `limits.max_verify_attempts` 까지 다
 - 도구 호출 구간(Pre → Post) 안에서 사람이 같은 파일을 고치면 에이전트 줄로 봅니다. 구간이 도구 실행 시간뿐이라 받아들입니다.
 - 사람이 에이전트가 쓴 줄을 다시 고치면 그 줄은 `u` 가 되어 검사에서 빠집니다 (이름은 남습니다).
 - 남의 커밋을 들여오는 바로 그 Bash 호출 안에서 에이전트가 그 커밋과 똑같은 줄을 쓰면 `o` 로 봅니다.
-- `.gitignore` 에 걸린 파일, 400KB 를 넘는 파일(이름 붙여 알림), 바이너리는 검사하지 않습니다.
+- `.gitignore` 에 걸린 파일, 400KB 를 넘는 파일(이름 붙여 알림), 바이너리, 설정 `generated` 목록(`config.GENERATED`)에 든 경로는 검사하지 않습니다. `generated` 는 검사 대상에만 적용되고(규칙이 `applies_to.include_generated: true` 면 적용하지 않음), paired 규칙의 `require_changed` 근거(예: 테스트가 함께 바뀜)로는 여전히 셉니다.
 - Bash Pre 는 원장이 모르는 dirty 파일의 내용을 세션당 한 번 읽습니다. 무시되지 않는 거대한 미추적 트리는 비용입니다.
 
 린터에는 단계 전체의 예산(`stop.LINT_BUDGET`)이 있어 Stop 훅 시간 제한을 넘기지 않고, 돌리지 못한 린터는 경고로 남깁니다.

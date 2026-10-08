@@ -92,6 +92,8 @@ core 규칙은 레포에서 `override: core/<id>` 파일로 좁힙니다 (형식
 
 ### 5. 정리하고 보고
 
+좁힌 뒤 원하는 파일까지 빠지지 않았는지는 `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/detect_stack.py" --path <파일>` 로 확인합니다(규칙마다 적용 여부와 사유).
+
 좁혀서 더 이상 걸리지 않게 된 기각 항목은 `dismissed.yaml` 에서 지웁니다. 남겨두면 다음 점검에서 규칙이 실제로 좁혀졌는지 판단하기 어렵습니다.
 
 ```

@@ -94,7 +94,10 @@ Without `--review`, semantic review candidates do not affect the exit code. They
 
 ```bash
 python3 "$CG/scripts/detect_stack.py"            # --cwd <repo>, --json
+python3 "$CG/scripts/detect_stack.py" --path src/a.js --path dist/app.js   # per-path applicability
 ```
+
+With `--path <file>` (repeatable) it lists every rule for that path with whether it applies and why not. The reason is one of `꺼짐` (disabled), `프리셋 비활성` (preset disabled), `포맷터 설정이 대신함` (superseded by a formatter config), `스택/버전 불일치` (stack/version mismatch), `규칙 exclude` (the rule's own exclude), `files 글롭 밖` (outside the rule's files globs), `기본 제외 (generated)` (default generated exclusion), `convention-guard 자체 설정` (convention-guard's own config) or `설정 exclude` (config exclude); when several hold, the rule's own (exclude, files) is named first. In `--json` it is `paths: [{path, rules: [{id, severity, applies, reason}]}]`, with `reason` as one of the codes `disabled`, `preset`, `superseded`, `stack`, `rule_exclude`, `files`, `generated`, `self`, `config_exclude`. A path outside the repo is an error (exit 2); a relative path is read like `scan.py --files`, from the current directory and then the repo root, and the file need not exist yet.
 
 Shows the config file location, detected stack tags, enabled presets, the status of each linter, and every bundled rule as `✔ on` / `○ off` with the reason (`preset 비활성` (preset disabled), `스택/버전 불일치` (stack/version mismatch), superseded, config disable, or a severity change such as `warn->error`).
 

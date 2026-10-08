@@ -16,14 +16,7 @@ import os
 
 from ..yamlio import read_cached
 from . import schema
-from .select import SEVERITIES
-
-REPO_DIRNAME = '.claude/convention-guard'
-
-# convention-guard's own config and generated context are never content to
-# check: an uncommitted config reads as a "new file", and its plain-language
-# comments would trip the very rules they explain.
-SELF_PATHS = ['%s/**' % REPO_DIRNAME, '.claude/rules/**']
+from .select import REPO_DIRNAME, SELF_PATHS, SEVERITIES  # noqa: F401
 
 
 def repo_dir(root):
@@ -169,6 +162,7 @@ def load(root, plugin_root, cfg, tags):
     severity = {str(k): str(v).lower() for k, v in (cfg.get('severity') or {}).items()}
     exclude = cfg.get('exclude') or []
     exclude = ([exclude] if isinstance(exclude, str) else list(exclude)) + SELF_PATHS
+    generated = list(cfg.get('generated') or [])
     for rid in sorted((disabled | set(severity)) - set(raws)):
         result.notes.append(('warn', 'config: 없는 규칙 %s' % rid))
     for name in result.presets:
@@ -188,6 +182,7 @@ def load(root, plugin_root, cfg, tags):
             continue
         rule['id'], rule['source'] = rid, entry['source']
         rule['repo_exclude'] = exclude
+        rule['generated'] = generated
         if entry.get('patched_from'):
             rule['patched_from'] = entry['patched_from']
             base = str(entry.get('base_severity') or 'warn').lower()

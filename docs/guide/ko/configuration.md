@@ -34,6 +34,7 @@
 | `disable` | `[]` | 끌 규칙 id |
 | `severity` | `{}` | 규칙별 강도. `core/php-line-too-long: warn` |
 | `exclude` | `[]` | 검사하지 않을 경로 글롭. (400KB 넘는 파일과 앞 8KB 에 NUL 이 있는 바이너리는 설정과 관계없이 건너뛰고, 큰 파일은 "큰 파일 미검사"로 알립니다) 규칙과 같은 문법이고, 여기서는 `legacy/` 를 `legacy/**` 로, 앞의 `/` 를 레포 루트로 읽습니다 |
+| `generated` | 기본 목록 | 어떤 규칙도 읽지 않는 경로 글롭: 빌드 산출물(`**/dist/**`, `**/build/**`, `**/*.min.js` …), 생성 코드(`**/*.generated.*`, `**/*_pb2.py` …), lock 파일(`package-lock.json`, `pnpm-lock.yaml`), 테스트(`**/tests/**`, `**/*.test.*`, `**/test_*.py` …). 목록 전체는 `scripts/lib/config.py` 의 `GENERATED`. `.gitignore` 된 경로는 이것과 별개로 이미 빠집니다. 레포 config 에 쓰면 목록이 **통째로** 바뀌고, `[]` 이면 끕니다. 경로마다 확인은 `detect_stack.py --path` |
 | `limits.max_error_rules` | 4 | 한 번에 보여줄 error 규칙 수 |
 | `limits.max_warn_rules` | 3 | 차단할 때 함께 보낼 warn 규칙 수 |
 | `limits.max_locations_per_rule` | 3 | 규칙당 위치 수 |

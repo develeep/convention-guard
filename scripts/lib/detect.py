@@ -233,7 +233,12 @@ def scan(rule, scope, stacks, cap, is_dismissed=_never_dismissed, unchecked=None
         visible = [f for f in scope.paths()
                    if not rulelib.match_any(rule.get('repo_exclude'), f)
                    and not rulelib.match_any(rule.get('exclude'), f)]
-        touched = [f for f in visible if rulelib.match_any(rule['when_changed'], f)]
+        # `generated` keeps a path from being the change a rule answers for,
+        # not from being the evidence: a route rule is satisfied by a test
+        # changing, and tests are on the generated list
+        touched = [f for f in visible if rulelib.match_any(rule['when_changed'], f)
+                   and (rule.get('include_generated')
+                        or not rulelib.match_any(rule.get('generated'), f))]
         if not touched:
             return []
         if any(rulelib.match_any(rule['require_changed'], f) for f in visible):

@@ -20,6 +20,7 @@ applies_to:
   stacks: [php]                   # 필수. 감지된 스택 태그 중 하나라도 맞으면 적용. ["*"] = 전부
   files: ["app/**/*.php"]         # 생략 = 모든 파일
   exclude: ["app/Services/NotificationService.php"]
+  include_generated: true         # 선택. 테스트·빌드 산출물 등 설정 generated 목록의 경로도 읽음. 없으면 그 경로는 files 가 겨냥해도 빠짐
   version: ">=10"                 # 선택. ">=10 <12"(공백 = 그리고), {laravel: ">=10"}. ^ ~ || 는 로드 오류
 superseded_by: [pint.json]        # 이 파일이 레포에 있으면 규칙이 물러남 (포맷 규칙용)
 detect: {...}                     # 아래

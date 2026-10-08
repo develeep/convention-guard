@@ -47,7 +47,7 @@ claude --plugin-dir /root/convention-guard        # 임시 레포에서 실제 �
 - `check.py` → `lib/stop.py`(셸): 원장 정리 → `ChangeScope.from_ledger` → `pipeline.run` → `decide.decide(state, observation, cfg)` → 배치·상태·로그 저장 → 출력. 결정론 후보 / 의미 판정 후보 / 없음(AI 호출 0).
 - 구조 엔진 설치: convention-setup 스킬이 `engine.py ensure` 로 설치한다(SessionStart 훅은 없다). Stop 은 엔진이 필요한데 없으면 백그라운드 설치를 시작한다(셋업을 돌리지 않은 팀원 머신).
 - **`pipeline.run` 하나를 `scan.py`, `dismiss.py`, `review.py` 가 모두 쓴다.** 각 진입점은 ChangeScope 를 만드는 방식(훅: 원장 / CLI: working tree·staged·range·files·all)만 다르다.
-- 파이프라인 순서: stacks → rules(프리셋 → disable → 적용 필터: 스택·버전·supersede·files 글롭) → linters(변경 줄에 걸린 것만) → `detect.py`(앵커별 정규식 게이트) → 구조 조건 → 기각 적용.
+- 파이프라인 순서: stacks → rules(프리셋 → disable → 적용 필터: 스택·버전·supersede·경로 — 경로 판정은 `select.path_reason` 하나: 규칙 exclude·files 글롭·`generated` 기본 제외·설정 exclude) → linters(변경 줄에 걸린 것만) → `detect.py`(앵커별 정규식 게이트) → 기각 확인 → 구조 조건(기각된 후보는 구조 엔진을 부르지 않는다).
 - **앵커** (`when_line_added` 등): 추가된 줄, 새 파일, 변경 집합처럼 "이번 변경의 책임"을 정의한다. 앵커 종류는 [docs/guide/ko/rules.md](docs/guide/ko/rules.md)에 있다. 정규식 신호가 없는 규칙은 `when_code_added` 로 파일 글롭만 정하고, 추가된 줄을 판정 단위(가장 바깥 함수 / 파일 머리 / 엔진 없으면 파일 전체, `lib/units.py`)로 묶어 단위마다 리뷰어에게 묻는다. 사이클이 열린 뒤 이 규칙들은 VIOLATION 을 낸 규칙만 다시 묻고, 그 밖의 새 지적은 보고만 한다(`decide.py` 머리말).
 - **구조 엔진 `scripts/lib/structure/`**: tree-sitter 트리를 언어별 노드 대응표(`nodes.py`)로 읽어 주석·문자열(그 안의 코드는 코드)·함수·루프(콜백 반복 포함)·catch 범위를 만든다(`treesitter.py`, Blade 는 `blade.py`). `not_in`·`in_scope`·`block_empty` 를 ACCEPT/REJECT/UNKNOWN 으로 평가한다. **필터일 뿐**이어서 후보의 스니펫·줄 번호·지문을 바꾸지 않는다. 첫 읽기 오류 뒤의 매치와 엔진이 없을 때는 UNKNOWN. 노드 이름은 `nodes.py` 에만 둔다.
 - **후보 키 = `규칙:파일:코드 지문`.** 줄이 밀려도 같은 후보로 본다. 기각(`dismissed.yaml`, `version: 4`)과 검증 사이클(`decide.classify`: fixed/dismissed/dropped/still/new/reported)이 이 키에 의존한다.

@@ -195,11 +195,68 @@ def case_detect_stack_reports(tmp):
           info['rules'][:2])
 
 
+def path_report(repo, data, *paths):
+    proc = run_script('detect_stack.py', ['--cwd', repo, '--json']
+                      + [arg for p in paths for arg in ('--path', p)],
+                      env=isolated_env(data), cwd=repo)
+    try:
+        info = json.loads(proc.stdout)
+    except ValueError:
+        return proc, {}
+    return proc, {entry['path']: {r['id']: r for r in entry['rules']}
+                  for entry in info.get('paths', [])}
+
+
+def case_detect_stack_explains_a_path(tmp):
+    repo = os.path.join(tmp, 'repo')
+    make_repo(repo, {'package.json': '{"name": "x"}\n',
+                     '.claude/convention-guard/config.yaml': 'exclude: ["legacy/**"]\n'})
+    data = os.path.join(tmp, 'data')
+    proc, by_path = path_report(repo, data, 'src/a.js', 'dist/app.min.js', 'tests/x.test.js',
+                                'app/Foo.php', 'legacy/a.js')
+    check('detect_stack.py --path exits 0', proc.returncode == 0, proc.stderr)
+
+    def row(path, rule):
+        return by_path.get(path, {}).get(rule) or {}
+
+    check('src/a.js: js-no-console applies', row('src/a.js', 'core/js-no-console').get('applies')
+          is True, row('src/a.js', 'core/js-no-console'))
+    got = row('dist/app.min.js', 'core/js-no-console')
+    check('dist/app.min.js: js-no-console is out, as generated',
+          got.get('applies') is False and got.get('reason') == 'generated', got)
+    got = row('tests/x.test.js', 'core/no-hardcoded-secret')
+    check('tests/x.test.js: no-hardcoded-secret is out by its own exclude',
+          got.get('applies') is False and got.get('reason') == 'rule_exclude', got)
+    got = row('app/Foo.php', 'core/php-no-debug-output')
+    check('app/Foo.php in a js repo: a php rule is out, preset inactive',
+          got.get('applies') is False and got.get('reason') == 'preset', got)
+    got = row('legacy/a.js', 'core/js-no-console')
+    check('legacy/a.js: out by the repo config exclude',
+          got.get('applies') is False and got.get('reason') == 'config_exclude', got)
+    proc, dotted = path_report(repo, data, './legacy/a.js')
+    check('./legacy/a.js reads as legacy/a.js',
+          (dotted.get('legacy/a.js', {}).get('core/js-no-console') or {}).get('reason')
+          == 'config_exclude', dotted)
+    proc, _ = path_report(repo, data, '../x.js')
+    check('a path outside the repo exits 2', proc.returncode == 2, (proc.returncode, proc.stderr))
+    os.makedirs(os.path.join(repo, 'src'), exist_ok=True)
+    inside = run_script('detect_stack.py', ['--json', '--path', 'a.js'],
+                        env=isolated_env(data), cwd=os.path.join(repo, 'src'))
+    seen = [p['path'] for p in json.loads(inside.stdout).get('paths', [])] if inside.stdout else []
+    check('from src/, --path a.js is src/a.js', seen == ['src/a.js'], (seen, inside.stderr))
+    _, own = path_report(repo, data, '.claude/convention-guard/config.yaml')
+    got = own.get('.claude/convention-guard/config.yaml', {}).get('core/no-hardcoded-secret') or {}
+    check("convention-guard's own config is out as self", got.get('reason') == 'self', got)
+    check('every rule row carries applies and a reason when it does not apply',
+          by_path and all(isinstance(r.get('applies'), bool) and (r['applies'] or r.get('reason'))
+                          for rules in by_path.values() for r in rules.values()), by_path)
+
+
 if __name__ == '__main__':
     sys.exit(run_cases([case_scan_exit_codes, case_severity_filter_does_not_hide_exit_code,
                         case_all_includes_rules_without_globs, case_dismiss_is_exact,
                         case_collect_survives_garbage,
                         case_bash_changes_are_collected_precisely, case_cap_holds,
                         case_broken_config_is_not_silence, case_hook_scope_errors_are_visible,
-                        case_detect_stack_reports],
+                        case_detect_stack_reports, case_detect_stack_explains_a_path],
                        'CLI 계약'))

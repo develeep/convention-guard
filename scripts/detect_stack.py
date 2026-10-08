@@ -5,6 +5,7 @@ and which rules are in play and why the others are not.
     python3 detect_stack.py
     python3 detect_stack.py --cwd /path/to/repo
     python3 detect_stack.py --json
+    python3 detect_stack.py --path src/a.js     # 이 경로에 어떤 규칙이 왜 적용되는지
 """
 
 import argparse
@@ -15,10 +16,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from lib import (config as configlib, dismiss as dismisslib, fmt, lint, pipeline,  # noqa: E402
                  rules as rulelib)
-from lib.paths import git_toplevel, project_dir  # noqa: E402
+from lib.paths import git_toplevel, project_dir, repo_relative  # noqa: E402
+
+# why a rule does not read a path: the repo-level reasons first, then
+# rules.path_reason's -- machine codes in --json, these words in the text
+REASONS = {'disabled': '꺼짐', 'preset': '프리셋 비활성', 'superseded': '포맷터 설정이 대신함',
+           'stack': '스택/버전 불일치', 'config_exclude': '설정 exclude',
+           'generated': '기본 제외 (generated)', 'rule_exclude': '규칙 exclude',
+           'self': 'convention-guard 자체 설정',
+           'files': 'files 글롭 밖'}
 
 
-def collect(root):
+def collect(root, paths=()):
     cfg = configlib.load(root)
     stacks = pipeline.detect_stacks(root, cfg)
     ruleset = pipeline.load_rules(root, cfg, stacks)
@@ -29,13 +38,14 @@ def collect(root):
     for rule in ruleset.rules:
         marker = rulelib.superseded(rule, root) if cfg['respect_supersede'] else None
         if marker:
-            status, reason = 'inactive', 'superseded by %s' % marker
+            status, reason, code = 'inactive', 'superseded by %s' % marker, 'superseded'
         elif not rulelib.stack_ok(rule, stacks.tags, stacks.versions):
-            status, reason = 'inactive', '스택/버전 불일치'
+            status, reason, code = 'inactive', '스택/버전 불일치', 'stack'
         else:
-            status, reason = 'active', ''
-        rows.append((rule, status, reason))
-    rows += [(rule, 'inactive', reason) for rule, reason in ruleset.inactive]
+            status, reason, code = 'active', '', None
+        rows.append((rule, status, reason, code))
+    rows += [(rule, 'inactive', reason, 'preset' if reason == 'preset 비활성' else 'disabled')
+             for rule, reason in ruleset.inactive]
 
     return {
         'root': root,
@@ -56,14 +66,51 @@ def collect(root):
                    'override': bool(rule.get('patched_from')),
                    'severity_changed': ('%s->%s' % (rule['base_severity'], rule['severity'])
                                         if rule.get('base_severity') else '')}
-                  for rule, status, reason in sorted(
+                  for rule, status, reason, _ in sorted(
                       rows, key=lambda r: (r[1] != 'active', rulelib.severity_rank(r[0]),
                                            r[0]['id']))],
+        'paths': [explain(rows, rel) for rel in paths],
         'dismissals': {'path': dismisslib.path(root), 'count': len(dismissals)},
         'notes': [{'level': level, 'text': text}
                   for level, text in list(cfg.notes) + list(ruleset.notes)
                   + ([('error', dismissals.error)] if dismissals.error else [])],
     }
+
+
+def resolve(raw, root):
+    """A --path the way scan.py --files reads one: from the current directory,
+    else from the repo root. The file need not exist (asking about a file
+    before writing it is the point); outside the repo is None."""
+    path = os.path.abspath(raw if os.path.isabs(raw) else os.path.join(os.getcwd(), raw))
+    if not os.path.exists(path) and not os.path.isabs(raw) \
+            and os.path.exists(os.path.join(root, raw)):
+        path = os.path.join(root, raw)
+    return repo_relative(path, root)
+
+
+def explain(rows, relpath):
+    """Every rule against one path: does it read it, and if not, why."""
+    out = []
+    for rule, _status, _reason, code in sorted(rows, key=lambda r: r[0]['id']):
+        code = code or rulelib.path_reason(rule, relpath)
+        out.append({'id': rule['id'], 'severity': rule['severity'], 'applies': code is None,
+                    'reason': code})
+    return {'path': relpath, 'rules': out}
+
+
+def render_paths(info, style):
+    blocks = []
+    for entry in info['paths']:
+        on = [r for r in entry['rules'] if r['applies']]
+        rows = [('%s %s' % (fmt.GLYPH['on' if r['applies'] else 'off'],
+                            'on' if r['applies'] else 'off'),
+                 r['severity'], r['id'], REASONS.get(r['reason'], r['reason'] or ''))
+                for r in sorted(entry['rules'], key=lambda r: (not r['applies'], r['id']))]
+        blocks.append([fmt.section('경로 %s' % entry['path'],
+                                   '%d개 중 %d개 적용' % (len(entry['rules']), len(on)),
+                                   style=style)]
+                      + fmt.table(['상태', '강도', '규칙', '사유'], rows, style=style))
+    return blocks
 
 
 def render(info, style=fmt.PLAIN):
@@ -108,15 +155,24 @@ def render(info, style=fmt.PLAIN):
                      rule['source'], ', '.join(extra)))
     rules = [fmt.section('규칙', '%d개 중 %d개 적용' % (len(info['rules']), len(active)), style=style)]
     rules += fmt.table(['상태', '강도', '규칙', '출처', '사유'], rows, style=style)
-    return style.finish(fmt.blocks([head], config, linters, rules))
+    return style.finish(fmt.blocks([head], config, linters, rules,
+                                   *render_paths(info, style)))
 
 
 def main():
     parser = argparse.ArgumentParser(description='스택 감지 결과와 적용 규칙을 보여줍니다')
     parser.add_argument('--cwd', help='레포 경로 (기본: 현재 디렉터리)')
     parser.add_argument('--json', action='store_true')
+    parser.add_argument('--path', action='append', default=[], metavar='PATH',
+                        help='이 경로에 규칙마다 적용되는지와 사유 (여러 번 줄 수 있음)')
     args = parser.parse_args()
-    info = collect(git_toplevel(project_dir(args.cwd)))
+    root = git_toplevel(project_dir(args.cwd))
+    paths = [resolve(p, root) for p in args.path]
+    outside = [raw for raw, rel in zip(args.path, paths) if rel in (None, '.')]
+    if outside:
+        fmt.eprint('error', '레포 안의 경로가 아닙니다: %s' % ', '.join(outside))
+        return 2
+    info = collect(root, paths)
     notes = [(n['level'], n['text']) for n in info['notes']]
     if args.json:
         body = {k: v for k, v in info.items() if k != 'notes'}

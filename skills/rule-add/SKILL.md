@@ -74,6 +74,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/scan.py" --all --rule <id> --no-lint --fa
 2. 전수조사 결과에서 **서너 곳을 `Read` 로 열어** 실제 위반인지 확인합니다.
 3. 정상 코드가 걸렸으면 그 코드를 `no_match` 에 추가하고 정규식을 좁힌 뒤 1로 돌아갑니다.
 4. 수백 건이 나오면 규칙이 아니라 레거시 신호입니다. 파일 경로(`applies_to.exclude`)로 좁히거나 강도를 낮춥니다.
+5. 걸려야 할 파일에서 0건이면 그 파일에 규칙이 적용되는지부터 봅니다: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/detect_stack.py" --path <파일>`. 사유(프리셋 비활성·files 글롭 밖·규칙 exclude·기본 제외 generated 등)가 규칙 줄에 나옵니다.
 
 플러그인 규칙이라면 앵커가 `when_line_added` 단독이 아닐 때 `tests/rules/scenarios/` 에 git 시나리오(새 코드는 걸림 / 손대지 않은 레거시는 조용함)도 추가하고 `python3 "${CLAUDE_PLUGIN_ROOT}/tests/run_all.py"` 를 돌립니다.
 

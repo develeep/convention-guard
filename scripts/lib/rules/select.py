@@ -8,6 +8,13 @@ from ..stack import version_ok
 
 SEVERITIES = ('error', 'warn', 'info')
 
+REPO_DIRNAME = '.claude/convention-guard'
+
+# convention-guard's own config and generated context are never content to
+# check: an uncommitted config reads as a "new file", and its plain-language
+# comments would trip the very rules they explain.
+SELF_PATHS = ['%s/**' % REPO_DIRNAME, '.claude/rules/**']
+
 
 @functools.lru_cache(maxsize=4096)
 def glob_re(pattern):
@@ -19,13 +26,25 @@ def glob_re(pattern):
     either (schema.py refuses them) so a rule reads one way only. Matching is
     case-sensitive, like git paths (R22).
     """
+    return re.compile('(?s)\\A' + _translate(_normalize(pattern)) + '\\Z')
+
+
+@functools.lru_cache(maxsize=256)
+def globs_re(patterns):
+    """One regex for a tuple of globs: a list checked against every path by
+    every rule (`generated` has dozens) costs one match, not one per glob."""
+    return re.compile('(?s)\\A(?:%s)\\Z' % '|'.join(_translate(_normalize(p))
+                                                    for p in patterns))
+
+
+def _normalize(pattern):
     p = pattern.replace('\\', '/')
     if p.startswith('./'):
         p = p[2:]
     p = p.lstrip('/')
     if p.endswith('/'):
         p += '**'
-    return re.compile('(?s)\\A' + _translate(p) + '\\Z')
+    return p
 
 
 def _translate(p):
@@ -108,7 +127,7 @@ def _char_class(body):
 
 
 def match_any(patterns, relpath):
-    return any(glob_re(pat).match(relpath) for pat in patterns or ())
+    return bool(patterns) and globs_re(tuple(patterns)).match(relpath) is not None
 
 
 def severity_rank(rule):
@@ -123,12 +142,26 @@ def stack_ok(rule, tags, versions):
     return version_ok(rule.get('version'), versions, stack)
 
 
-def path_ok(rule, relpath):
-    if match_any(rule.get('repo_exclude'), relpath):
-        return False
+def path_reason(rule, relpath):
+    """Why this rule does not read `relpath`, or None when it does. The one
+    path test: the checks and `detect_stack.py --path` cannot disagree. When
+    several reasons hold, the rule's own definition is named before the
+    repo-wide lists, since that is the one a rule author can act on."""
     if match_any(rule.get('exclude'), relpath):
-        return False
-    return not rule.get('files') or match_any(rule['files'], relpath)
+        return 'rule_exclude'
+    if rule.get('files') and not match_any(rule['files'], relpath):
+        return 'files'
+    if not rule.get('include_generated') and match_any(rule.get('generated'), relpath):
+        return 'generated'
+    if match_any(SELF_PATHS, relpath):
+        return 'self'
+    if match_any(rule.get('repo_exclude'), relpath):
+        return 'config_exclude'
+    return None
+
+
+def path_ok(rule, relpath):
+    return path_reason(rule, relpath) is None
 
 
 def applies(rule, relpath, tags, versions):

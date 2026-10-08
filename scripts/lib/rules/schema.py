@@ -188,6 +188,8 @@ def normalize(raw, path, source):
         raise RuleError('applies_to 는 매핑이어야 합니다')
     if 'stacks' not in applies:
         raise RuleError('applies_to.stacks 가 필요합니다 (전 스택이면 ["*"])')
+    if not isinstance(applies.get('include_generated', False), bool):
+        raise RuleError('applies_to.include_generated 는 true / false 입니다')
 
     rule = {
         'id': rid,
@@ -199,12 +201,14 @@ def normalize(raw, path, source):
         'stack': [str(s) for s in _as_list(applies.get('stacks'), 'applies_to.stacks')],
         'files': _globs(applies.get('files'), 'applies_to.files'),
         'exclude': _globs(applies.get('exclude'), 'applies_to.exclude'),
+        'include_generated': applies.get('include_generated', False),
         'version': _version(applies.get('version')),
         'superseded_by': _as_list(raw.get('superseded_by'), 'superseded_by'),
         'message': str(raw.get('message') or '').strip(),
         'prevent': str(raw.get('prevent') or '').strip(),
         'tests': raw.get('tests') or {},
         'repo_exclude': [],
+        'generated': [],
     }
     _detect(rule, raw.get('detect'))
     rule['review'] = _review(raw.get('semantic_review'))

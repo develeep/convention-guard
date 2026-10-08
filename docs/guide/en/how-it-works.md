@@ -157,6 +157,6 @@ The log keeps rule ids, file paths, code fingerprints, and dismissal and verdict
 - **Human edits during a tool call**: if a person edits the same file at the moment an agent tool is running, those lines count as the agent's. If a person later edits a line the agent wrote, that line becomes unknown origin and drops out of the check.
 - **A turn that ends with a progress report** can also be checked, because Stop means turn end.
 - **The main agent can ignore a semantic review request.** It is asked once more, and after that it is recorded as `review_skipped`.
-- **Files not checked**: files matched by `.gitignore`, files over 400KB (reported by name), and binaries.
+- **Files not checked**: files matched by `.gitignore`, files over 400KB (reported by name), binaries, and the `generated` default list in the config (build output, generated code, lock files, tests — see [configuration](configuration.md)). Paths on that list are skipped even when a rule's `files` aims at them, unless the rule sets `applies_to.include_generated: true`.
 - **Structure engine platforms**: musl aarch64 and free-threaded Python have no wheels, so they run without the engine.
 - **Native Windows** is not tested. Use WSL.

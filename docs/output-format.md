@@ -616,6 +616,7 @@ convention-guard detect_stack — … · mode fix · 스택 laravel, php
 - 설정이 없으면 `config    (없음 — 기본값)`, 스택이 없으면 머리말 `스택 감지 실패`.
 - 설정 노트는 stderr 로 옮깁니다(F12). 종료 코드는 지금처럼 error 노트가 있으면 2 입니다.
 - `--json` 은 `convention-guard/detect-stack@1` 봉투, 본문 필드는 지금 이름을 유지하고 `severity_changed` 는 `"error->warn"` 입니다.
+- `--path <파일>` 을 주면 규칙 섹션 뒤에 경로마다 `■ 경로 <파일> — N개 중 M개 적용` 섹션과 `상태 · 강도 · 규칙 · 사유` 표가 붙습니다(적용되는 규칙 먼저). `--json` 본문에는 `paths: [{"path", "rules": [{"id", "severity", "applies", "reason"}]}]` 가 들어가고, `reason` 은 `null`(적용) 또는 `disabled`·`preset`·`superseded`·`stack`·`rule_exclude`·`files`·`generated`·`self`·`config_exclude` 입니다. 레포 밖 경로는 stderr error 와 종료 코드 2 입니다.
 
 ### 8. log_report.py
 

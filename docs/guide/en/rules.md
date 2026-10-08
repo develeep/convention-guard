@@ -36,6 +36,7 @@ applies_to:
   stacks: [laravel]                 # required
   files: ["app/Http/Controllers/**/*.php"]
   exclude: ["**/vendor/**"]
+  # include_generated: true         # optional. Also read paths on the config's generated default list (tests, build output, ...)
 detect:
   when_line_added: 'public\s+function\s+(store|update|create)\s*\('
   must_contain_in_file: '(FormRequest|Http\\Requests|->validate\(|->validated\(\)|Validator::make\()'
