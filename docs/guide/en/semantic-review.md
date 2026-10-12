@@ -135,6 +135,7 @@ Ask about one rule only, narrowly. An open question such as "find problems in th
 | file head | The lines added outside functions (imports, namespace, class declaration, properties), one per file. Shown as the file skeleton with function bodies folded |
 | whole file | When the structure engine is missing or the file could not be read to the end (a syntax error included). Marked `함수 경계 미확인` ("function boundaries unknown") |
 
+- The reviewer reads the whole unit as context, but answers VIOLATION only when the violation is in the unit title's `추가된 줄` (added lines, the ones the agent wrote). A violation only in lines that were already there, or that changed outside the agent's tools, is VALID. The rule of not reacting to legacy code holds for judgments too
 - `units` picks which units are asked. The default is `[function, header]`. A rule whose answer for the file head is always VALID (no logic in controllers, where an import or a class declaration cannot violate it) sets `[function]`. In the session-path experiment (#6), 22 of 36 review requests for such rules were file heads, all VALID. Keep the default when the file head is what the rule judges, such as infrastructure imports in a domain file. A whole-file unit is judged regardless of `units`
 - A unit needs at least one added line with a letter or digit in it. A legacy function where only a closing brace or a blank line changed is not judged
 - While the unit's code stays the same, the cached verdict is used. Any line in the unit changing sends it for judgment again
