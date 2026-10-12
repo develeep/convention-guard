@@ -416,6 +416,22 @@ def case_human_lines_are_not_the_agents(repo, data):
           'dd($human)' not in loud['reason'], loud['reason'])
 
 
+def case_block_names_lines_changed_outside(repo, data):
+    """A line changed outside the agent's tools is not checked -- but the agent
+    must hear where they are, or its fix may overwrite someone else's work."""
+    s = Session(repo, data, 'outside-lines')
+    s.edit(A, method_file('return 1;'))
+    write(repo, A, method_file('$h = 1;', 'return 1;'))          # outside every tool call
+    body = method_file('$h = 1;', 'dd($agent);', 'return 1;')
+    s.edit(A, body)
+    out = s.stop('p1')
+    at = body.split('\n').index(next(l for l in body.split('\n') if '$h = 1;' in l)) + 1
+    check('the block names the lines changed outside the tools',
+          out['decision'] == 'block' and '에이전트 도구 밖에서 바뀐 줄' in out['reason']
+          and '%s:%d' % (A, at) in out['reason'], out.get('reason'))
+    check('and does not check them', '$h = 1;' not in out['reason'].split('■')[1], out['reason'])
+
+
 def case_same_line_twice_is_counted(repo, data):
     write(repo, A, method_file('dd($x);', 'return 1;'))
     s = Session(repo, data, 'counted')
@@ -733,6 +749,7 @@ CASES = [
     (case_empty_repo_commit, ''),
     (case_nested_repo_file_is_checked, ''),
     (case_human_lines_are_not_the_agents, 'once_per_session: false\n'),
+    (case_block_names_lines_changed_outside, ''),
     (case_same_line_twice_is_counted, ''),
     (case_bash_keeps_human_lines_out, ''),
     (case_pulled_commits_are_not_the_agents, 'once_per_session: false\n'),

@@ -216,6 +216,18 @@ def autofix_section(fixes):
     return out
 
 
+def outside_section(ranges, cap=5):
+    """■ lines in the agent's files that changed outside its tools: not checked,
+    and not the agent's to rewrite. ranges: [(file, start, end)]."""
+    shown = ranges[:cap]
+    out = [fmt.section('에이전트 도구 밖에서 바뀐 줄',
+                       '검사하지 않았습니다. 사람이나 다른 도구의 작업일 수 있으니 고치지 말고 그대로 두세요')]
+    out += ['  %s:%d' % (f, a) if a == b else '  %s:%d-%d' % (f, a, b) for f, a, b in shown]
+    if len(ranges) > cap:
+        out.append('  외 %d곳' % (len(ranges) - cap))
+    return out
+
+
 def with_section(reason, lines):
     """`reason` with a section right after its header line."""
     head, _, rest = reason.partition('\n\n')

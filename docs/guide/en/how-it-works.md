@@ -40,7 +40,7 @@ convention-guard does not read `git diff` at Stop time. It reads a ledger that r
 | Original line | A line that already existed when the ledger first saw the file (legacy) | No |
 | Agent | A line that appeared between before and after an agent tool call | **Yes** |
 | Someone else's commit | A line brought in when a Bash call moved HEAD, as with `git pull` | No |
-| Unknown origin | A line changed outside a tool call (a person, an editor, a background process) | No, reported by name |
+| Unknown origin | A line changed outside a tool call (a person, an editor, a background process) | No, reported by name. A block also tells the agent where these lines are so its fix does not overwrite them |
 
 - Moving lines inside a file, or moving a file with `mv`, is not "writing". A line where only whitespace changed is a changed line.
 - A spot where the agent only deleted lines (for example, emptying a catch block) is also recorded and gets checked.

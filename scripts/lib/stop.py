@@ -246,6 +246,7 @@ def on_stop(payload, started=None):
                 record['wait_s'] = round(record['wait_s'] + record['hook_ms'] / 1000, 3)
         shell.event(record)
     out = render(decision.action)
+    out = with_outside_lines(out, shell.ledger.owned())
     return with_notes(with_autofix_note(out, shell.autofixed), shell.scan, shell.ledger.issues)
 
 
@@ -264,6 +265,37 @@ def _install_engine_if_missing(scan):
 
 
 # ---------------------------------------------------------------- notices
+
+def outside_ranges(entries):
+    """[(file, start, end)] of lines in the agent's files whose provenance is
+    unknown -- changed outside its tool calls."""
+    out = []
+    for entry in entries:
+        start = prev = None
+        for n, mark in enumerate(ledger.marks_of(entry.origins), 1):
+            if mark != ledger.UNKNOWN:
+                continue
+            if prev is not None and n == prev + 1:
+                prev = n
+                continue
+            if start is not None:
+                out.append((entry.path, start, prev))
+            start = prev = n
+        if start is not None:
+            out.append((entry.path, start, prev))
+    return out
+
+
+def with_outside_lines(out, entries):
+    """A block also tells the agent which lines in its files someone else
+    changed, so the fix it is asked for does not overwrite them."""
+    if not out or out.get('decision') != 'block':
+        return out
+    ranges = outside_ranges(entries)
+    if ranges:
+        out['reason'] = report.with_section(out['reason'], report.outside_section(ranges))
+    return out
+
 
 def with_autofix_note(out, autofixed):
     """Files auto-fix rewrote changed under the agent; it must hear about it."""
