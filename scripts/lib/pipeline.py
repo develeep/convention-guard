@@ -44,7 +44,7 @@ class Result:
 
 def detect_stacks(root, cfg, plugin_root=None):
     detected = stacklib.detect(plugin_root or default_plugin_root(), root,
-                               forced=cfg.get('stacks') or None)
+                               forced=cfg.get('stacks') or None, app_root=cfg.get('app_root'))
     return Stacks.from_detected(detected)
 
 

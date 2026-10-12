@@ -25,7 +25,7 @@ REASONS = {'disabled': '꺼짐', 'preset': '프리셋 비활성', 'superseded': 
            'generated': '기본 제외 (generated)', 'rule_exclude': '규칙 exclude',
            'self': 'convention-guard 자체 설정',
            'files': 'files 글롭 밖', 'not_trigger': 'when_changed 밖',
-           'not_evidence': 'require_changed 밖'}
+           'not_evidence': 'require_changed 밖', 'outside_app': '앱 루트(app_root) 밖'}
 # a paired rule reads a path in two roles (rules.Reach)
 ROLES = (('trigger', '트리거'), ('evidence', '증거'))
 

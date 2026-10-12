@@ -155,6 +155,10 @@ class Reach:
     def __init__(self, stacks, exclude=(), generated=()):
         self.tags = stacks.tags
         self.versions = stacks.versions
+        # a plugin rule's globs (app/**, config/**) name places in the app,
+        # which may live below the repo root; a team's own rule names repo paths
+        app = str(getattr(stacks, 'app_root', '') or '').strip('/')
+        self.app_prefix = app + '/' if app else ''
         self.exclude = tuple(exclude)
         self.generated = tuple(generated)
 
@@ -175,15 +179,21 @@ class Reach:
         `generated` keeps a path from being the change a rule answers for, not
         from being the evidence: a route rule is satisfied by a test changing,
         and tests are on the list."""
-        if match_any(rule.get('exclude'), relpath):
+        own = relpath
+        if self.app_prefix and str(rule.get('source') or '').split('<-')[0] == 'core':
+            if relpath.startswith(self.app_prefix):
+                own = relpath[len(self.app_prefix):]
+            elif rule.get('files') or role != 'line':
+                return 'outside_app'
+        if match_any(rule.get('exclude'), own):
             return 'rule_exclude'
         if role == 'trigger':
-            if not match_any(rule['when_changed'], relpath):
+            if not match_any(rule['when_changed'], own):
                 return 'not_trigger'
         elif role == 'evidence':
-            if not match_any(rule['require_changed'], relpath):
+            if not match_any(rule['require_changed'], own):
                 return 'not_evidence'
-        elif rule.get('files') and not match_any(rule['files'], relpath):
+        elif rule.get('files') and not match_any(rule['files'], own):
             return 'files'
         if (role != 'evidence' and not rule.get('include_generated')
                 and match_any(self.generated, relpath)):

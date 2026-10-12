@@ -1,6 +1,7 @@
 """Repo-root stack detection.
 
-One repo == one stack set (monorepos are out of scope for now).
+One repo == one stack set, read at the repo root or at one app root below it
+(monorepos with several apps are out of scope for now).
 Each stacks/*.yaml declares marker-file detection, the tags it contributes,
 and the linters to delegate deterministic checks to.
 """
@@ -68,34 +69,94 @@ def _version(det, content):
     return match.group(1) if match else None
 
 
-def detect(plugin_root, cwd=None, forced=None):
-    """Return {'root', 'tags': set, 'versions': dict, 'stacks': [id], 'lint': [...]}"""
+def _matches(spec, base):
+    """(matched, version) for one stack definition's markers under `base`."""
+    det = spec.get('detect') or {}
+    markers = det.get('file')
+    if isinstance(markers, str):
+        markers = [markers]
+    for marker in markers or []:
+        content = _read_marker(base, marker)
+        if content is not None and _match_marker(det, content):
+            return True, _version(det, content)
+    return False, None
+
+
+# where an app below the repo root is looked for: one or two levels down, not
+# in dependency, build or hidden directories
+SKIP_DIRS = {'node_modules', 'vendor', 'dist', 'build', 'storage', 'logs'}
+
+
+def _app_candidates(root, defs):
+    """{dir: stack ids} for directories one or two levels below `root` that
+    hold a stack marker."""
+    found = {}
+    level = [root]
+    for _depth in (1, 2):
+        nxt = []
+        for base in level:
+            try:
+                names = sorted(os.listdir(base))
+            except OSError:
+                continue
+            for name in names:
+                path = os.path.join(base, name)
+                if name.startswith('.') or name in SKIP_DIRS or not os.path.isdir(path):
+                    continue
+                ids = {spec['id'] for spec in defs if _matches(spec, path)[0]}
+                if ids:
+                    found[os.path.relpath(path, root).replace(os.sep, '/')] = ids
+                nxt.append(path)
+        level = nxt
+    return found
+
+
+def _pick_app(candidates):
+    """The one candidate whose stacks cover every other's, or None. A shared
+    composer.json next to the real Laravel app says only `php`; the app says
+    `laravel, php` and is the one meant."""
+    for path, ids in candidates.items():
+        if all(other <= ids for p, other in candidates.items() if p != path) and \
+                all(other != ids for p, other in candidates.items() if p != path):
+            return path
+    return None
+
+
+def detect(plugin_root, cwd=None, forced=None, app_root=None):
+    """Return {'root', 'app_root', 'tags': set, 'versions': dict, 'stacks': [id], 'lint': [...]}
+
+    The markers are read at the repo root, or at `app_root` (repo-relative)
+    when the app lives below it. With no app_root and no marker at the root,
+    a single app one or two levels down is taken and said; several are not
+    guessed between."""
     root = project_dir(cwd)
-    result = {'root': root, 'tags': set(), 'versions': {}, 'stacks': [], 'lint': [],
-              'notes': []}
+    result = {'root': root, 'app_root': '', 'tags': set(), 'versions': {}, 'stacks': [],
+              'lint': [], 'notes': []}
     forced = set(forced or [])
+    defs = load_defs(plugin_root, result['notes'])
 
-    for spec in load_defs(plugin_root, result['notes']):
+    app = str(app_root or '').strip().strip('/')
+    if not app and not any(_matches(spec, root)[0] for spec in defs):
+        candidates = _app_candidates(root, defs)
+        app = _pick_app(candidates) or ''
+        if app:
+            result['notes'].append(('info', '앱 루트 자동 감지: %s — 다르면 config 의 app_root 로 '
+                                            '지정하세요' % app))
+        elif candidates:
+            result['notes'].append(('warn', '앱 루트 후보가 여럿이라 스택을 감지하지 않았습니다 (%s) — '
+                                            'config 의 app_root 로 하나를 지정하세요'
+                                    % ', '.join(sorted(candidates))))
+    result['app_root'] = app
+    base = os.path.join(root, app) if app else root
+
+    for spec in defs:
         sid = spec['id']
-        det = spec.get('detect') or {}
-        markers = det.get('file')
-        if isinstance(markers, str):
-            markers = [markers]
-
         # Marker detection always runs, even for a forced stack: forcing says
         # "this stack is here", not "skip looking", and skipping would throw
         # away the version we could have read from the marker file.
-        matched = False
-        for marker in markers or []:
-            content = _read_marker(root, marker)
-            if content is None or not _match_marker(det, content):
-                continue
-            matched = True
-            version = _version(det, content)
-            if version:
-                result['versions'][sid] = version
-            break
-
+        matched, version = _matches(spec, base)
+        if version:
+            result['versions'][sid] = version
         if not (matched or sid in forced):
             continue
         result['stacks'].append(sid)

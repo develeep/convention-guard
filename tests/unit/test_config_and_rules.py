@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from helpers import ROOT, check, finish, tempdir, write  # noqa: E402
 from lib import config, rules as rulelib, stack as stacklib  # noqa: E402
+from lib.pipeline import detect_stacks  # noqa: E402
 
 
 def rule_yaml(**extra):
@@ -453,6 +454,70 @@ def case_fixture_language():
           fixtures.fixture_language({'files': ['src/**/*.{ts,tsx}']}) in ('ts', 'tsx'))
 
 
+
+LARAVEL = '{"require": {"laravel/framework": "^10.0"}}'
+
+
+def case_app_root():
+    print('case_app_root:')
+    with tempdir() as repo:
+        write(repo, 'source/app/composer.json', LARAVEL)
+        write(repo, 'docker-compose.yml', 'x: 1\n')
+        found = stacklib.detect(ROOT, repo)
+        check('an app one or two levels down is found when the root has none',
+              'laravel' in found['stacks'] and found['app_root'] == 'source/app', found)
+        check('and the guess is said', any('source/app' in text for _, text in found['notes']),
+              found['notes'])
+        stacks = detect_stacks(repo, config.load(repo, ROOT))
+        ruleset = rulelib.load(repo, ROOT, config.load(repo, ROOT), stacks.tags)
+        rules = {r['id']: r for r in ruleset.rules}
+        reach = rulelib.Reach.from_config(config.load(repo, ROOT), stacks)
+        env = rules['core/laravel-no-env-outside-config']
+        check('a core glob reads paths under the app root',
+              reach.reads(env, 'source/app/app/Http/A.php'), reach.reason(env, 'source/app/app/Http/A.php'))
+        check('and its exclude is the app root\'s too',
+              not reach.reads(env, 'source/app/config/app.php'))
+        check('a core glob does not read paths outside the app root',
+              not reach.reads(env, 'app/Http/A.php'), reach.reason(env, 'app/Http/A.php'))
+
+    with tempdir() as repo:
+        write(repo, 'a/composer.json', LARAVEL)
+        write(repo, 'b/composer.json', LARAVEL)
+        found = stacklib.detect(ROOT, repo)
+        check('two candidates are not guessed between', found['stacks'] == [] and not found['app_root'],
+              found)
+        check('the person is told to set app_root',
+              any('app_root' in text and 'a' in text and 'b' in text for _, text in found['notes']),
+              found['notes'])
+        chosen = stacklib.detect(ROOT, repo, app_root='b')
+        check('app_root picks one', 'laravel' in chosen['stacks'] and chosen['app_root'] == 'b', chosen)
+
+    with tempdir() as repo:
+        # a shared composer.json next to the real app (seen in a real repo)
+        write(repo, 'source/composer.json', '{"require": {"firebase/php-jwt": "^5.5"}}')
+        write(repo, 'source/app/composer.json', LARAVEL)
+        found = stacklib.detect(ROOT, repo)
+        check('the candidate whose stacks cover the others wins',
+              found['app_root'] == 'source/app' and 'laravel' in found['stacks'], found)
+
+    with tempdir() as repo:
+        write(repo, 'composer.json', LARAVEL)
+        write(repo, 'tools/composer.json', LARAVEL)
+        found = stacklib.detect(ROOT, repo)
+        check('a stack at the root is never second-guessed', found['app_root'] == '', found)
+
+    local = rulelib.normalize(rule_yaml(applies_to={'stacks': ['php'], 'files': ['source/app/app/**/*.php']}),
+                              'x.yaml', 'local')
+    reach = rulelib.Reach(StacksStub('source/app'))
+    check("a team's own rule stays repo-relative", reach.reads(local, 'source/app/app/A.php'),
+          reach.reason(local, 'source/app/app/A.php'))
+
+
+class StacksStub:
+    def __init__(self, app_root):
+        self.tags, self.versions, self.app_root = {'php'}, {}, app_root
+
+
 if __name__ == '__main__':
     case_schema()
     case_globs()
@@ -465,4 +530,5 @@ if __name__ == '__main__':
     case_presets_and_overrides()
     case_stack_parse_errors()
     case_fixture_language()
+    case_app_root()
     sys.exit(finish('설정·프리셋·오버라이드·스키마'))

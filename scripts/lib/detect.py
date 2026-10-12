@@ -178,7 +178,8 @@ def _note(unchecked, relpath, reason):
 class Stacks:
     """What stack detection concluded, in the shape the gates need."""
 
-    def __init__(self, tags=(), versions=None, ids=(), lint=(), notes=()):
+    def __init__(self, tags=(), versions=None, ids=(), lint=(), notes=(), app_root=''):
+        self.app_root = app_root            # repo-relative dir the app lives in, or ''
         self.tags = set(tags)
         self.versions = dict(versions or {})
         self.ids = list(ids)
@@ -188,7 +189,7 @@ class Stacks:
     @classmethod
     def from_detected(cls, detected):
         return cls(detected['tags'], detected['versions'], detected['stacks'],
-                   detected['lint'], detected.get('notes') or ())
+                   detected['lint'], detected.get('notes') or (), detected.get('app_root') or '')
 
 
 def _never_dismissed(_rule_id, _relpath, _digest):

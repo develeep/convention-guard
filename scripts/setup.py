@@ -82,10 +82,22 @@ def pick(root):
     stacks = pipeline.detect_stacks(root, cfg)
     ruleset = pipeline.load_rules(root, cfg, stacks)
     errors = [t for lv, t in list(cfg.notes) + list(ruleset.notes) if lv == 'error']
-    picked = [dict(rule, prevent=line_of(rule)) for rule in ruleset.rules
-              if rulelib.stack_ok(rule, stacks.tags, stacks.versions)]
+    picked = [repo_globs(dict(rule, prevent=line_of(rule)), stacks.app_root)
+              for rule in ruleset.rules if rulelib.stack_ok(rule, stacks.tags, stacks.versions)]
     picked.sort(key=lambda r: (rulelib.severity_rank(r), r['id']))
     return picked, linter_lines(root, cfg, stacks), errors
+
+
+def repo_globs(rule, app_root):
+    """A plugin rule's globs name places in the app; the `paths:` Claude Code
+    reads are repo-relative, so an app below the root goes in front."""
+    if not app_root or str(rule.get('source') or '').split('<-')[0] != 'core':
+        return rule
+    prefix = app_root.strip('/') + '/'
+    for key in ('files', 'when_changed'):
+        if rule.get(key):
+            rule[key] = [prefix + g for g in rule[key]]
+    return rule
 
 
 def body_for(group, rules, heading_level=1, with_preface=True):

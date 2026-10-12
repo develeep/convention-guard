@@ -96,6 +96,20 @@ def case_groups_and_stale_files(tmp):
           not os.path.exists(os.path.join(repo, '.claude', 'rules', 'convention-lint.md')))
 
 
+
+def case_app_below_root(tmp):
+    """Claude Code reads a rule file's `paths:` from the repo root: a plugin
+    glob that names the app (app/**) must carry the app root in front (#8)."""
+    repo, data = os.path.join(tmp, 'repo'), os.path.join(tmp, 'data')
+    make_repo(repo, {'source/app/composer.json': LARAVEL_COMPOSER})
+    proc = emit(repo, data)
+    check('emit succeeds', proc.returncode == 0, proc.stdout + proc.stderr)
+    php = read(repo, '.claude/rules/convention-php.md')
+    head = php.split('---', 2)[1]
+    check('paths name the app below the root',
+          '"source/app/' in head and '\n  - "app/' not in head, head)
+
+
 if __name__ == '__main__':
     sys.exit(run_cases([case_agents_md, case_manual_import_respected,
-                        case_groups_and_stale_files], 'setup.py emit'))
+                        case_groups_and_stale_files, case_app_below_root], 'setup.py emit'))

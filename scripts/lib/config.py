@@ -40,6 +40,7 @@ DEFAULTS = {
     'mode': 'fix',
     'presets': 'auto',
     'stacks': [],
+    'app_root': '',
     'disable': [],
     'severity': {},
     'exclude': [],

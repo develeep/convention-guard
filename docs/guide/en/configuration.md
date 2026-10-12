@@ -31,6 +31,7 @@ Generate a draft: `python3 scripts/setup.py init --stdout`
 | `mode` | `report` | `report` record only / `fix` block / `auto-fix` auto-fix safe rules, then block |
 | `presets` | `auto` | `auto` or a list. Can be mixed, like `[auto, architecture]` |
 | `stacks` | `[]` | Force only when detection misses |
+| `app_root` | `''` | The app's directory when it sits below the repo root (for example `source/portal`). Stack markers are read there, and plugin rule globs (`app/**` and so on) are read relative to it. Your own rules' globs stay repo-relative. Left empty, a single app one or two levels down is used and said when the root has no marker; several candidates are not guessed between |
 | `disable` | `[]` | Rule ids to turn off |
 | `severity` | `{}` | Per-rule severity. `core/php-line-too-long: warn` |
 | `exclude` | `[]` | Path globs not to check. (Files over 400KB and binaries with a NUL in the first 8KB are skipped regardless of settings, and large files are reported as "큰 파일 미검사" ("large file not checked")) Same syntax as rules; here `legacy/` reads as `legacy/**`, and a leading `/` means the repo root |
