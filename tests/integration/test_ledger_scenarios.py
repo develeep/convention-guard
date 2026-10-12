@@ -66,6 +66,28 @@ def case_person_elsewhere(repo, data):
     check('once', '출처 미확인' not in again['summary'], again['summary'])
 
 
+def case_person_before_bash(repo, data):
+    s = Session(repo, data, 'before-bash')
+    s.edit(A, methods('$a = 1;'))
+    write(repo, B, methods('dd($human);', cls='B'))               # after the session started
+    s.bash_hook('PreToolUse')
+    s.bash_hook('PostToolUse')
+    out = s.stop('p1')
+    check('a file a person changed before a Bash call is not taken in silently',
+          '출처 미확인 변경 1개 파일' in out['summary'] and B in out['summary'], out['summary'])
+    check('nor checked', out['decision'] is None, out)
+
+
+def case_dirt_before_bash(repo, data):
+    write(repo, B, methods('dd($human);', cls='B'))               # before the session
+    s = Session(repo, data, 'dirt-bash')
+    s.bash_hook('PreToolUse')
+    s.bash_hook('PostToolUse')
+    out = s.stop('p1')
+    check('dirt from before the session is taken in without a word',
+          '출처 미확인' not in out['summary'] and out['decision'] is None, out)
+
+
 def case_bash_writes(repo, data):
     s = Session(repo, data, 'sed')
     s.bash_hook('PreToolUse')
@@ -217,7 +239,8 @@ def case_shared_ending_is_not_the_agents(repo, data):
           and '%s:%d' % (A, line - 4) not in out['reason'], out['reason'])
 
 
-CASES = [case_person_between_calls, case_person_elsewhere, case_bash_writes, case_moved_file,
+CASES = [case_person_between_calls, case_person_elsewhere, case_person_before_bash,
+         case_dirt_before_bash, case_bash_writes, case_moved_file,
          case_post_without_pre, case_pre_without_post, case_denied_call, case_background_write,
          case_parallel_calls, case_failed_call, case_collect_error, case_outside_root,
          case_new_file_is_the_agents, case_shared_ending_is_not_the_agents]

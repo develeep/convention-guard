@@ -21,6 +21,9 @@ The verification cycle, in order:
        DISMISSED   a flagged candidate was recorded as a false positive
        DROPPED     a flagged candidate is gone but its code is still written (the
                    engine arrived, the rule was turned off) -- not a fix
+       OUTSIDE     a flagged candidate is gone because its line changed outside the
+                   agent's tools (밖에서 바뀜) -- not a fix, never blocks again; the
+                   user, not the agent, is told to check it
        STILL       a flagged candidate is still there
        NEW         a blocking candidate that did not exist when the cycle opened
      STILL or NEW at blocking severity earns one more block, up to
@@ -33,6 +36,13 @@ The verification cycle, in order:
 Detect -> Fix -> Verify cannot become a loop. Identity is the candidate key
 (rule:file:code hash): a line moving because code was added above it is the
 same candidate, a rewritten line is a different one.
+
+Every Stop leaves one `stop` event (outcome block | notice | silent |
+config_error; check.py logs `error` when the hook itself fails). A request's clock (state['request']) runs from its first Stop
+to the Stop that lets the turn end, which logs `wait_s`: the intervals after
+a block that only asked a reviewer count (review_s); the intervals after a
+block that demanded fixes do not (fix_s) -- a block that did both counts as
+fixing, so the tool's own wait is never overstated.
 
 Semantic review never runs on its own. Only when candidates of a
 semantic_review rule exist and the verdict cache has nothing for them does
@@ -62,6 +72,7 @@ from .candidate import VIOLATION
 FIXED, DISMISSED, STILL, NEW = 'fixed', 'dismissed', 'still', 'new'
 DROPPED = 'dropped'        # gone from the scan, not from the code: neither fixed nor still
 REPORTED = 'reported'      # a unit rule's violation found while verifying: said, not blocked
+OUTSIDE = 'outside'        # its line changed outside the agent's tools: not fixed, not blocked
 BLOCKING = ('error',)
 
 DEFAULT_STATE = {
@@ -71,6 +82,7 @@ DEFAULT_STATE = {
     'cycle': None,             # the open verification cycle, if any
     'unresolved': [],          # candidate keys a closed cycle left unfixed
     'closed_in_continuation': False,
+    'request': None,           # the clock of the request being blocked, if any (wait time)
 }
 
 
@@ -133,17 +145,19 @@ class BatchSlot:
 
 
 class Observation:
-    __slots__ = ('request', 'config_error', 'scan', 'is_dismissed', 'still_written',
+    __slots__ = ('request', 'config_error', 'scan', 'is_dismissed', 'still_written', 'outside',
                  'cycle_verdicts', 'batch', 'now')
 
     def __init__(self, request, config_error=None, scan=None, is_dismissed=None,
-                 still_written=None, cycle_verdicts=None, batch=None, now=0.0):
+                 still_written=None, cycle_verdicts=None, batch=None, now=0.0, outside=None):
         self.request = request
         self.config_error = config_error       # first config error, or None
         self.scan = scan                       # ScanView | ScanFailure | None (nothing to inspect)
         self.is_dismissed = is_dismissed or (lambda _key: False)
         # still_written(key): an agent line with this key's code is still in the file
         self.still_written = still_written or (lambda _key: False)
+        # outside(key): the agent line with this key's code changed outside its tools
+        self.outside = outside or (lambda _key: False)
         self.cycle_verdicts = cycle_verdicts   # what the open cycle's reviewer recorded, or None
         self.batch = batch                     # BatchSlot
         self.now = float(now)
@@ -188,6 +202,7 @@ class Block:
 
     def __init__(self, form, args):
         self.form, self.args = form, args
+        self.notes = []         # for the user's systemMessage only, never the agent's reason
 
     def __repr__(self):
         return 'Block(%r)' % self.form
@@ -249,11 +264,12 @@ def lint_entry(fail):
 class Outcome:
     def __init__(self):
         self.fixed, self.dismissed, self.still, self.new = {}, {}, {}, {}
-        self.reported, self.dropped = {}, {}
+        self.reported, self.dropped, self.outside = {}, {}, {}
 
     def counts(self):
         return {FIXED: len(self.fixed), DISMISSED: len(self.dismissed), DROPPED: len(self.dropped),
-                STILL: len(self.still), NEW: len(self.new), REPORTED: len(self.reported)}
+                STILL: len(self.still), NEW: len(self.new), REPORTED: len(self.reported),
+                OUTSIDE: len(self.outside)}
 
     def blocking(self):
         """STILL and NEW entries that are worth another block -- not one whose
@@ -268,7 +284,8 @@ class Outcome:
         return dict(self.still, **self.new)
 
 
-def classify(cycle, current, is_dismissed, unconfirmed=(), still_written=lambda _key: False):
+def classify(cycle, current, is_dismissed, unconfirmed=(), still_written=lambda _key: False,
+             outside=lambda _key: False):
     """current: {key: entry} for every candidate (and blocking lint failure)
     the re-scan found. is_dismissed(key) -> bool. unconfirmed: lint keys whose
     linter did not finish -- gone from `current` is not fixed for them (R17).
@@ -276,7 +293,8 @@ def classify(cycle, current, is_dismissed, unconfirmed=(), still_written=lambda 
     `current` left the scan, not the file -- dropped, not fixed. Not for a
     judged rule: its fix is in the context around the line (an eager load
     above the loop). A match that spans lines never matches one line's code,
-    so it counts as fixed as before."""
+    so it counts as fixed as before. outside(key) -> bool: the line left
+    because someone changed it outside the agent's tools -- outside, not fixed."""
     out = Outcome()
     for key, meta in cycle['opened'].items():
         if key in current:
@@ -287,6 +305,8 @@ def classify(cycle, current, is_dismissed, unconfirmed=(), still_written=lambda 
             out.dismissed[key] = meta
         elif not (key.startswith('lint:') or meta.get('semantic')) and still_written(key):
             out.dropped[key] = meta
+        elif not key.startswith('lint:') and outside(key):
+            out.outside[key] = meta
         else:
             out.fixed[key] = meta
     seen = set(cycle.get('seen') or ()) | set(cycle['opened'])
@@ -368,6 +388,7 @@ class _Run:
     what the Decision carries."""
 
     def __init__(self, state, obs, cfg):
+        self.input = state
         self.state = normalized(state)
         self.obs = obs
         self.cfg = cfg
@@ -375,6 +396,9 @@ class _Run:
         self.events = []
         self.batch = None
         self.saved = None
+        self.notes = []         # said to the user once, whatever the action
+        self.waiting = None     # a block's interval: 'fix' or 'review'
+        self.clock = _tick(self.state.get('request'), obs.request, obs.now)
 
     # -- bookkeeping
 
@@ -385,6 +409,27 @@ class _Run:
         self.events.append(record)
 
     def _done(self, action):
+        if self.notes:
+            if action.kind == 'block':
+                action.notes = self.notes
+            elif action.kind == 'notice':
+                action.parts += self.notes
+            elif action.kind == 'silent':
+                action = Notice('기록', self.notes, 'warn')
+        clock = self.clock
+        stop = {'event': 'stop', 'outcome': action.kind, 'prompt': self.request.prompt_id}
+        if action.kind == 'block':
+            self.saved['request'] = dict(clock, waiting=self.waiting)
+        else:
+            elapsed = self.obs.now - clock['first']
+            stop.update(wait_s=round(elapsed - clock['fix_s'], 3), fix_s=round(clock['fix_s'], 3),
+                        review_s=round(clock['review_s'], 3), stops=clock['stops'])
+            if self.saved is None and self.state.get('request'):
+                # nothing else is stored (a config error), but the clock must stop
+                self.saved = dict(normalized(self.input), request=None)
+            elif self.saved is not None:
+                self.saved['request'] = None
+        self.events.append(stop)
         return Decision(self.saved, action, self.events, self.batch)
 
     def _quiet(self, rule):
@@ -491,7 +536,8 @@ class _Run:
             current = self._current(scan)
         unfinished = scan.lint_unfinished if scan is not None else ()
         unconfirmed = {lint_key({'key': key, 'cmd': ''}) for key in unfinished}
-        out = classify(cycle, current, self.obs.is_dismissed, unconfirmed, self.obs.still_written)
+        out = classify(cycle, current, self.obs.is_dismissed, unconfirmed, self.obs.still_written,
+                       self.obs.outside)
         # the same unit, VALID earlier in this cycle and VIOLATION now: the
         # model changed its mind, not the code -- said, not blocked
         cleared = set(cycle.get('cleared') or ())
@@ -533,8 +579,10 @@ class _Run:
     # -- closing and asking
 
     def _log_outcome(self, cycle, outcome, abandoned=False):
+        if outcome.outside:
+            self.notes.append(outside_part(outcome.outside))
         for label, items in ((FIXED, outcome.fixed), (DISMISSED, outcome.dismissed),
-                             (DROPPED, outcome.dropped),
+                             (DROPPED, outcome.dropped), (OUTSIDE, outcome.outside),
                              (STILL, outcome.still), (NEW, outcome.new),
                              (REPORTED, outcome.reported)):
             for key, meta in items.items():
@@ -557,6 +605,7 @@ class _Run:
         settled = {m['rule_id'] for m in outcome.fixed.values()}
         unsettled = {m['rule_id'] for m in outcome.remaining().values()}
         unsettled |= {m['rule_id'] for m in outcome.dismissed.values()}
+        unsettled |= {m['rule_id'] for m in outcome.outside.values()}
         # a rule with anything left -- shown or not -- is not settled (R3)
         unsettled |= {m['rule_id'] for m in current.values()}
         state['fired_rules'] = sorted(set(state.get('fired_rules') or [])
@@ -669,6 +718,7 @@ class _Run:
         self.state['cycle'] = cycle
         self.state['consecutive_blocks'] = streak + (0 if free else 1)
         self.state['blocks'] = int(self.state.get('blocks', 0)) + 1
+        self.waiting = 'fix' if outcome.blocking() else 'review'
         self._save()
         self._event({'event': 'block', 'cycle': cycle['id'], 'attempt': cycle['attempt'],
                      'kind': 'verify', 'keys': sorted(outcome.blocking()),
@@ -774,6 +824,7 @@ class _Run:
         state['unresolved'] = []
         state['consecutive_blocks'] = streak + 1
         state['blocks'] = int(state.get('blocks', 0)) + 1
+        self.waiting = 'fix' if opened else 'review'
         self._save()
         self._event({'event': 'block', 'cycle': cycle['id'], 'attempt': 0, 'kind': 'open',
                      'keys': sorted(opened), 'review': bool(review)})
@@ -782,6 +833,28 @@ class _Run:
             'errors': errors, 'warns': warns, 'repeats': repeats, 'review': review,
             'warnings': scan_warnings, 'lint_count': lint_count, 'info_count': len(infos),
             'more': more, 'hidden_rules': hidden_rules}))
+
+
+def _tick(clock, request, now):
+    """The request's clock at this Stop: the interval since the last Stop
+    goes to fix_s or review_s by what that Stop's block asked for (a block
+    that asked for both counts as fixing). A new request starts its own."""
+    if not clock or belongs_to_new_request(request, clock):
+        return {'prompt_id': request.prompt_id, 'first': now, 'last': now, 'waiting': None,
+                'fix_s': 0.0, 'review_s': 0.0, 'stops': 1}
+    out = dict(clock, last=now, stops=int(clock.get('stops', 0)) + 1)
+    spent = 'review_s' if clock.get('waiting') == 'review' else 'fix_s'
+    out[spent] = float(out.get(spent) or 0) + max(0.0, now - float(clock.get('last') or now))
+    return out
+
+
+def outside_part(items):
+    """What the user hears about lines changed outside the agent's tools."""
+    where = sorted('%s:%s' % (m['file'], m['line']) if m.get('line') else m['file']
+                   for m in items.values())
+    shown = ', '.join(where[:3]) + (' 외 %d개' % (len(where) - 3) if len(where) > 3 else '')
+    return '지적한 줄이 에이전트 도구 밖에서 바뀜 %d — 위반이 남았는지 확인하세요 (%s)' % (
+        len(items), shown)
 
 
 def _violated(cycle):

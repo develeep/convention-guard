@@ -73,6 +73,41 @@ def case_fixed_passes(repo, data):
     check('no further verification is logged', outcomes(s) == ['fixed'], s.events('verify'))
 
 
+def case_changed_outside_is_not_fixed(repo, data):
+    s = Session(repo, data, 'outside')
+    first = s.turn(A, body(), 'p1')
+    check('the finding blocks first', first['decision'] == 'block', first)
+    write(repo, A, body('return 2;'))           # a person, in an editor
+    done = s.stop('p1', stop_hook_active=True)
+    check('a flagged line changed outside the tools does not block again',
+          done['decision'] is None, done)
+    check('the user is told to check it, with where',
+          '지적한 줄이 에이전트 도구 밖에서 바뀜 1' in done['summary']
+          and '%s:4' % A in done['summary'] and '고쳐짐 0' in done['summary'], done['summary'])
+    check('it is logged outside, not fixed', outcomes(s) == ['outside'], s.events('verify'))
+
+
+def case_every_stop_is_logged(repo, data):
+    s = Session(repo, data, 'stops')
+    s.edit(A, body('return 2;'))
+    s.stop('p0')
+    s.turn(A, body(), 'p1')
+    s.turn(A, body('return 3;'), 'p1', stop_hook_active=True)
+    stops = s.events('stop')
+    check('every Stop leaves one stop record', [r['outcome'] for r in stops]
+          == ['silent', 'block', 'notice'], stops)
+    check('each with its own runtime and request',
+          all(isinstance(r.get('hook_ms'), int) and r.get('session') == 'stops' for r in stops)
+          and [r['prompt'] for r in stops] == ['p0', 'p1', 'p1'], stops)
+    last = stops[-1]
+    check('the Stop that ends the request says how long it waited',
+          last['stops'] == 2 and last['fix_s'] > 0 and last['review_s'] == 0
+          and 0 < last['wait_s'] < last['fix_s'] + 60, last)
+    broken = run_script('check.py', [], stdin='[]', env=s.env, cwd=repo)
+    check('a payload that is not an object prints nothing', not broken.stdout.strip(),
+          broken.stdout)
+
+
 def case_still_blocks_once_more(repo, data):
     s = Session(repo, data, 'still')
     s.turn(A, body(), 'p1')
@@ -653,6 +688,8 @@ def case_unit_rules_verify_scope(repo, data):
 
 CASES = [
     (case_fixed_passes, ''),
+    (case_changed_outside_is_not_fixed, ''),
+    (case_every_stop_is_logged, 'once_per_session: false\n'),
     (case_still_blocks_once_more, 'once_per_session: false\n'),
     (case_new_violation_from_fix, 'once_per_session: false\n'),
     (case_settled_rule_can_come_back, ''),

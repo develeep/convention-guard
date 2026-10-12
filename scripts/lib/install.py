@@ -240,14 +240,16 @@ def check_user_config(rep, session_dir, repo_root, key):
 
 
 def check_log_dir(rep, repo_root, raw):
-    """A relative log_dir resolves against the hook's cwd, i.e. inside each repo."""
+    """A relative log_dir is ignored (it would resolve inside each repo): the
+    log stays in the data dir, which is not what the setting asked for."""
     if not isinstance(raw, str) or not raw:
         return                                  # unset: the engine uses the data dir
     path = os.path.expanduser(raw)
     if not os.path.isabs(path):
-        rep.add('B5', 'FAIL', 'log_dir=%r 는 상대경로입니다 — 훅이 레포마다 그 레포 안에 로그를 '
-                '씁니다 (여기서는 %s)' % (raw, os.path.normpath(os.path.join(repo_root, path))),
-                '레포 밖의 절대경로로 바꾸세요 (예: ~/convention-guard-logs)')
+        rep.add('B5', 'FAIL', 'log_dir=%r 는 상대경로라 무시됩니다 — 로그는 플러그인 데이터 '
+                '디렉터리에 씁니다' % raw,
+                '그 위치를 쓰려면 비우고, 옮기려면 레포 밖의 절대경로로 바꾸세요 '
+                '(예: ~/convention-guard-logs)')
         return
     real, top = os.path.realpath(path), os.path.realpath(repo_root)
     if real == top or real.startswith(top + os.sep):

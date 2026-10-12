@@ -111,7 +111,7 @@ Values chosen when installing the plugin.
 |---|---|
 | `report_only` | `true` → `mode: report`, `false` → `mode: fix`. If not chosen, the plugin default (`report`). If the repo config has `mode`, that wins |
 | `semantic_review` | `semantic_review.enabled` |
-| `log_dir` | Location of `firings.jsonl` (do not choose a repo path — git picks it up) |
+| `log_dir` | Location of `firings.jsonl`, an absolute path (do not choose a repo path — git picks it up; a relative path is ignored and the data directory is used) |
 
 4.0 has no setting that widens the hook's check scope (3.x `scope.base_ref`) and no list of MCP tools to collect
 (3.x `collect.edit_tools`). The hook checks only the **lines the agent wrote**, as recorded by the edit-event ledger.

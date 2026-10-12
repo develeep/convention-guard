@@ -65,7 +65,7 @@ Stop                   check.py → lib/stop.py (셸) → lib/decide.py (순수 
 | `observe.py` | stat 서명, git 방식 줄 읽기, `git status` 한 번으로 HEAD 와 dirty 경로, blob 읽기 |
 | `store.py` | sqlite 저장소 (`convention-guard.db`): 스키마, 트랜잭션, GC |
 | `state.py` | Stop 의 사이클 상태 읽기·쓰기 |
-| `decide.py` | 사이클 전이를 모은 순수 함수 `decide()`, 분류(fixed/dismissed/dropped/still/new/reported) |
+| `decide.py` | 사이클 전이를 모은 순수 함수 `decide()`, 분류(fixed/dismissed/dropped/outside/still/new/reported), 요청별 대기 시간 시계 |
 | `stop.py` | Stop 셸: 관찰 → decide → 저장·로그·렌더, 알림 붙이기 |
 | `scope.py` | ChangeScope — 원장(`from_ledger`) 또는 git(working tree / staged / range / files / all) |
 | `gitdiff.py` | CLI 범위의 배치 git diff, 남의 커밋이 들여온 줄 |
@@ -110,7 +110,7 @@ Stop                   check.py → lib/stop.py (셸) → lib/decide.py (순수 
 | 관찰 누락 — 실행 후 기록 없음 | Pre 만 있고 Post 가 오지 않은 사건, 그 사이 파일이 바뀜 | 바뀐 줄을 에이전트 것으로 검사 |
 | (알리지 않음) | Pre 만 있고 파일이 그대로 — 권한 거부나 PreToolUse 차단으로 실행되지 않은 도구 | — |
 | 관찰 누락 — 실행 전 기록 없음 | Pre 없이 온 Post | 바뀐 줄을 에이전트 것으로 검사 |
-| 출처 미확인 변경 | 원장 파일이 도구 밖에서 바뀜, 또는 원장 밖 dirty 경로가 지난 Stop 이후 바뀜 | 안 함 |
+| 출처 미확인 변경 | 원장 파일이 도구 밖에서 바뀜, 또는 원장 밖 dirty 경로가 지난 Stop 이후 바뀜. Bash Pre 가 원장 밖 dirty 경로를 원장에 들일 때도, 세션이 기억한 `git status` 와 다르면(세션 시작 뒤 도구 밖에서 바뀜) 들이기 전에 알림 — 세션 전부터 dirty 였던 것은 조용히 들임 | 안 함 |
 | 작업 트리 관찰 실패 | `git status` 가 실패해 Bash 호출이 바꾼 파일을 모름 | — |
 | 검사되지 않음 (레포 밖) | 작업 트리 밖 경로를 쓴 도구 | — |
 | git 레포가 아니라 검사하지 않음 | 프로젝트가 git 작업 트리가 아님 | — |
@@ -174,8 +174,11 @@ scope → stacks → rules (프리셋 → 비활성 규칙 제외 → 적용 가
 | still | 그대로 남음 (제자리 재포맷·통째 이동도 still) |
 | new | 사이클을 열 때 없던 후보 — 대개 수정이 만든 것 |
 | reported | `when_code_added` 규칙이 재검증 중 새로 낸 위반 — 보고만, 차단하지 않음 ("보고만 N") |
+| outside | 지적한 줄이 고쳐지기 전에 에이전트 도구 밖에서 바뀜(밖에서 바뀜) — 고쳐짐으로 세지 않고(once_per_session 도 소진하지 않음) 다시 차단하지 않음. 에이전트가 아니라 사용자에게 `systemMessage` 로 한 번 "지적한 줄이 에이전트 도구 밖에서 바뀜 N — 위반이 남았는지 확인하세요 (파일:줄)". 판단 근거: 원장이 도구 밖 변경(`_catch_up`)을 기록할 때 그 변경이 없앤 에이전트 줄의 텍스트를 `unknown_change` 이슈에 함께 남기고, Stop 이 그 텍스트의 지문이 후보 키의 지문과 같은지 본다 (줄 번호가 밀려도 맞음). 여러 줄에 걸친 매치는 해당 없음 |
 
 still 이나 new 중 error 가 있으면 `limits.max_verify_attempts` 까지 다시 차단하고(차단하지 않는 still·new 는 본문의 "■ 참고 — 차단하지 않습니다" 에), 그다음에는 남은 것을 기록만 하고 닫습니다. `limits.max_consecutive_blocks` 가 요청마다 루프를 묶습니다. 표시 예산 밖의 error 는 차단하지 않지만 통과로 닫지도 않습니다("미표시 N"). 사용자가 요청을 중단하고 새 요청을 보내면 열린 사이클은 abandoned 로 닫힙니다.
+
+대기 시간: 요청의 시계(`state['request']`, decide 가 관리)는 그 요청의 첫 Stop 시작에서 턴을 끝내는 Stop 까지 잽니다. 위반 수정을 요구한 차단 뒤의 구간은 `fix_s`, 리뷰어 판정만 요청한 차단 뒤의 구간은 `review_s` 이고 `wait_s` = 전체 − `fix_s` + 마지막 Stop 의 `hook_ms` 입니다. 수정과 판정을 함께 요구한 차단 뒤 구간은 `fix_s` 로 셉니다(도구의 대기를 부풀리지 않는 쪽). 다른 훅이 이어 간 요청은 대기 기록이 둘 이상일 수 있습니다.
 
 후보 식별은 `규칙:파일:코드 지문` 키입니다 (줄 전체를 공백 정규화한 sha1 앞 10자리). 위쪽에 줄이 추가돼도 같은 후보이고, 줄 자체가 바뀌면 다른 후보입니다.
 
@@ -185,14 +188,14 @@ still 이나 new 중 error 가 있으면 `limits.max_verify_attempts` 까지 다
 |---|---|
 | `${CLAUDE_PLUGIN_DATA}/convention-guard.db` | sqlite 하나: 원장(`ledger_*`), 관찰 누락(`observe_issue`), 사이클 상태, 판정 캐시, 판정 배치, 파싱 캐시. 스키마 버전이 다르면 이관하지 않고 다시 만듭니다 |
 | `${CLAUDE_PLUGIN_DATA}/engine/` | 구조 엔진 설치와 `status.json`(마지막 설치 시도) |
-| `firings.jsonl` | 발동 로그 (schema 2). `userConfig.log_dir` 로 옮길 수 있음 |
+| `firings.jsonl` | 발동 로그 (schema 2). `userConfig.log_dir`(절대경로)로 옮길 수 있음 — 상대경로는 훅의 작업 디렉터리마다 흩어지므로 무시하고 데이터 디렉터리를 씀. Stop 마다 `stop` 이벤트 하나: `outcome`(block/notice/silent/config_error/error)·`hook_ms`·`prompt`, 턴을 끝내는 Stop 은 요청의 `wait_s`·`fix_s`·`review_s`·`stops` 도 (아래) |
 
 레포 쪽 파일은 `.claude/convention-guard/` 의 `config.yaml`, `dismissed.yaml`(`version: 4`), `rules/` 뿐이고 모두 커밋 대상입니다.
 
 ## 검사 범위의 한계
 
 - 도구 호출 구간(Pre → Post) 안에서 사람이 같은 파일을 고치면 에이전트 줄로 봅니다. 구간이 도구 실행 시간뿐이라 받아들입니다.
-- 사람이 에이전트가 쓴 줄을 다시 고치면 그 줄은 `u` 가 되어 검사에서 빠집니다 (이름은 남습니다).
+- 사람이 에이전트가 쓴 줄을 다시 고치면 그 줄은 `u` 가 되어 검사에서 빠집니다 (이름은 남습니다). 지적한 줄이었다면 재검증 결과는 outside(밖에서 바뀜)입니다.
 - 남의 커밋을 들여오는 바로 그 Bash 호출 안에서 에이전트가 그 커밋과 똑같은 줄을 쓰면 `o` 로 봅니다.
 - `.gitignore` 에 걸린 파일, 400KB 를 넘는 파일(이름 붙여 알림), 바이너리, 설정 `generated` 목록(`config.GENERATED`)에 든 경로는 검사하지 않습니다. `generated` 는 검사 대상에만 적용되고(규칙이 `applies_to.include_generated: true` 면 적용하지 않음), paired 규칙의 `require_changed` 근거(예: 테스트가 함께 바뀜)로는 여전히 셉니다.
 - Bash Pre 는 원장이 모르는 dirty 파일의 내용을 세션당 한 번 읽습니다. 무시되지 않는 거대한 미추적 트리는 비용입니다.

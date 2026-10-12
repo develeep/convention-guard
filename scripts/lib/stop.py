@@ -13,6 +13,7 @@ every decision that matters through the pipeline, and the cycle's
 transitions are tested without a repo (tests/unit/test_decide.py).
 """
 
+import json
 import time
 
 from . import (autofix, config as configlib, decide, dismiss as dismisslib, fmt, ledger, lint,
@@ -69,7 +70,8 @@ def render(action):
             reason = report.verify_reason(**action.args)
         else:
             reason = report.hook_reason(**action.args)
-        return block(reason, reason.split('\n', 1)[0])     # the user sees the header (D11)
+        # the user sees the header (D11) and what is for them alone
+        return block(reason, ' · '.join([reason.split('\n', 1)[0]] + action.notes))
     return None
 
 
@@ -182,7 +184,29 @@ def _written_predicate(written):
     return still_written
 
 
-def on_stop(payload):
+def _outside_predicate(issues):
+    """key -> its agent line was taken away by a change outside every tool
+    call (the ledger lists those lines in the unknown_change detail)."""
+    gone = set()
+    for kind, path, detail in issues:
+        if kind == ledger.UNKNOWN_CHANGE and detail:
+            gone |= {(path, fingerprint(text)) for text in json.loads(detail)}
+
+    def outside(key):
+        try:
+            _rule_id, relpath, digest = parse_key(key)
+        except ValueError:
+            return False
+        return (relpath, digest) in gone
+    return outside
+
+
+def hook_ms(started):
+    return int((time.time() - started) * 1000)
+
+
+def on_stop(payload, started=None):
+    started = time.time() if started is None else started
     if not isinstance(payload, dict):
         return None
     shell = Shell(payload)
@@ -202,10 +226,11 @@ def on_stop(payload):
         request, config_error=config_error_text, scan=view_of(scan),
         is_dismissed=_dismissed_predicate(shell.root) if cycle else None,
         still_written=_written_predicate(shell.written),
+        outside=_outside_predicate(shell.ledger.issues),
         cycle_verdicts=semantic.read_verdicts(review['batch']) if review.get('batch') else None,
         batch=decide.BatchSlot(semantic.new_batch_id(), store.path(), shell.root, shell.session,
                                log.log_path()),
-        now=time.time())
+        now=started)
     decision = decide.decide(state, obs, shell.cfg)
     _install_engine_if_missing(shell.scan)
 
@@ -214,6 +239,11 @@ def on_stop(payload):
     if decision.state is not None:
         statelib.save(shell.session, decision.state)
     for record in decision.events:
+        if record['event'] == 'stop':
+            # this hook's own runtime; the wait to the end of the turn includes it
+            record = dict(record, hook_ms=hook_ms(started))
+            if 'wait_s' in record:
+                record['wait_s'] = round(record['wait_s'] + record['hook_ms'] / 1000, 3)
         shell.event(record)
     out = render(decision.action)
     return with_notes(with_autofix_note(out, shell.autofixed), shell.scan, shell.ledger.issues)

@@ -50,8 +50,8 @@ def view(*hits, **kw):
 
 def obs(scan=None, prompt='p1', continuing=False, question=False, **kw):
     kw.setdefault('batch', decide.BatchSlot('b1', '/data/cg.db', '/repo', 's', '/data/log'))
-    return decide.Observation(decide.Request(prompt, continuing, question), scan=scan,
-                              now=1000.0, **kw)
+    kw.setdefault('now', 1000.0)
+    return decide.Observation(decide.Request(prompt, continuing, question), scan=scan, **kw)
 
 
 DD = rule()
@@ -94,7 +94,8 @@ def case_open():
     check('and opens a cycle on its key', list(d.state['cycle']['opened']) == [X.key],
           d.state['cycle'])
     check('the streak counts it', d.state['consecutive_blocks'] == 1)
-    check('the block is logged', [e['event'] for e in d.events][-1] == 'block', d.events)
+    check('the block is logged, then the stop', [e['event'] for e in d.events][-2:]
+          == ['block', 'stop'], d.events)
     check('the input state is untouched', state == {'unresolved': []}, state)
 
     d = decide.decide({}, obs(view((WARN, [X]))), cfg())
@@ -370,6 +371,98 @@ def case_dropped_is_not_fixed():
           out.counts())
 
 
+def stop_events(d):
+    return [e for e in d.events if e['event'] == 'stop']
+
+
+def case_every_stop_is_logged():
+    print('case_every_stop_is_logged:')
+    d = decide.decide({}, obs(scan=None), cfg())
+    stops = stop_events(d)
+    check('a Stop with nothing to inspect is logged once', len(stops) == 1
+          and stops[0]['outcome'] == 'silent' and stops[0]['prompt'] == 'p1', d.events)
+    check('and, ending the turn on its own, waited no extra interval',
+          stops[0]['wait_s'] == 0 and stops[0]['stops'] == 1
+          and stops[0]['fix_s'] == 0 and stops[0]['review_s'] == 0, stops)
+    d = decide.decide({}, obs(view((DD, [X]))), cfg())
+    stops = stop_events(d)
+    check('a block is logged as a stop too, with no wait yet',
+          [s['outcome'] for s in stops] == ['block'] and 'wait_s' not in stops[0], stops)
+    d = decide.decide({}, obs(view((WARN, [X]))), cfg())
+    check('a notice is logged', [s['outcome'] for s in stop_events(d)] == ['notice'])
+    d = decide.decide({}, decide.Observation(decide.Request('p1'), config_error='bad'), cfg())
+    check('a config error is logged', [s['outcome'] for s in stop_events(d)] == ['config_error'])
+
+
+def case_wait_time():
+    print('case_wait_time:')
+    opened = decide.decide({}, obs(view((DD, [X])), now=1000.0), cfg())
+    done = decide.decide(opened.state, obs(view(), continuing=True, now=1012.0), cfg())
+    stop = stop_events(done)[0]
+    check('the time the agent spent fixing is not wait',
+          stop['wait_s'] == 0 and stop['fix_s'] == 12 and stop['review_s'] == 0
+          and stop['stops'] == 2, stop)
+    check('the clock is cleared when the turn ends', done.state['request'] is None,
+          done.state)
+
+    reviewed = rule('core/n1', 'warn', review={'instruction': 'n+1?'})
+    c = cand('core/n1', 'foreach ($a as $b) {')
+    asked = decide.decide({}, obs(view(pending=[(reviewed, c, Pack())]), now=1000.0), cfg())
+    judged = decide.decide(asked.state, obs(view(), continuing=True, now=1030.0,
+                                            cycle_verdicts={c.review_key: {'verdict': 'VALID'}}),
+                           cfg())
+    stop = stop_events(judged)[0]
+    check('the time the reviewer took is wait', stop['wait_s'] == 30
+          and stop['review_s'] == 30 and stop['fix_s'] == 0, stop)
+
+    mixed = decide.decide({}, obs(view((DD, [X]), pending=[(reviewed, c, Pack())]),
+                                  now=1000.0), cfg())
+    stop = stop_events(decide.decide(mixed.state, obs(view(), continuing=True, now=1020.0,
+                                                      cycle_verdicts={c.review_key:
+                                                                      {'verdict': 'VALID'}}),
+                                     cfg()))[0]
+    check('a block that asks a review and demands a fix counts as fixing',
+          stop['fix_s'] == 20 and stop['wait_s'] == 0, stop)
+
+    other = decide.decide(opened.state, obs(view(), prompt='p2', now=1050.0), cfg())
+    stop = stop_events(other)[0]
+    check('a new request starts its own clock', stop['stops'] == 1 and stop['wait_s'] == 0
+          and stop['prompt'] == 'p2', stop)
+
+    broken = decide.decide(opened.state, decide.Observation(
+        decide.Request('p1', continuing=True), config_error='bad', now=1010.0), cfg())
+    check('a config error that ends the turn still clears the clock',
+          broken.state is not None and broken.state['request'] is None
+          and broken.state['cycle'] == opened.state['cycle'], broken.state)
+    check('and logs the wait', stop_events(broken)[0]['fix_s'] == 10, broken.events)
+
+
+def case_outside():
+    print('case_outside:')
+    state = opened_by({}, X)
+    d = decide.decide(state, obs(view(), continuing=True, outside=lambda key: key == X.key),
+                      cfg())
+    outcomes = [e['outcome'] for e in d.events if e['event'] == 'verify']
+    check('a flagged line changed outside the tools is outside, not fixed',
+          outcomes == ['outside'], outcomes)
+    check('it does not block again', d.action.kind == 'notice', d.action)
+    check('the user is told to check it',
+          any('지적한 줄이 에이전트 도구 밖에서 바뀜' in p and 'a.php:3' in p
+              for p in d.action.parts), d.action)
+    check('and it is not a fix', '고쳐짐 0' in d.action.parts
+          and d.state['fired_rules'] == [], (d.action, d.state))
+
+    d = decide.decide(state, obs(view((DD, [Y])), continuing=True,
+                                 outside=lambda key: key == X.key), cfg())
+    check('beside a new error it is still told -- to the user, not the agent',
+          d.action.kind == 'block' and any('밖에서 바뀜' in n for n in d.action.notes)
+          and '밖에서' not in str(d.action.args), d.action)
+
+    d = decide.decide(state, obs(view(), continuing=True, outside=lambda _k: True,
+                                 still_written=lambda _k: True), cfg())
+    check('code still written is dropped, whatever else changed',
+          [e['outcome'] for e in d.events if e['event'] == 'verify'] == ['dropped'], d.events)
+
 
 def case_pure():
     print('case_pure:')
@@ -393,6 +486,7 @@ if __name__ == '__main__':
                  case_r3_hidden_is_not_a_pass, case_r17_unfinished_linter, case_abandoned,
                  case_semantic, case_unit_pages, case_unit_verify_scope, case_unit_asked_twice,
                  case_unit_not_quiet,
-                 case_classify_reports_new_units, case_dropped_is_not_fixed, case_pure):
+                 case_classify_reports_new_units, case_dropped_is_not_fixed,
+                 case_every_stop_is_logged, case_wait_time, case_outside, case_pure):
         case()
     sys.exit(finish('decide 전이 표'))

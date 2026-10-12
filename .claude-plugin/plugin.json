@@ -41,7 +41,7 @@
     "log_dir": {
       "type": "directory",
       "title": "발동 로그 위치",
-      "description": "비워두면 플러그인 데이터 디렉터리에 firings.jsonl 을 씁니다. 레포 경로는 고르지 마세요 — git 에 잡힙니다.",
+      "description": "비워두면 플러그인 데이터 디렉터리에 firings.jsonl 을 씁니다. 절대경로만 쓰입니다(상대경로는 무시하고 데이터 디렉터리). 레포 경로는 고르지 마세요 — git 에 잡힙니다.",
       "required": false
     }
   }

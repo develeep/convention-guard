@@ -13,6 +13,8 @@ Per rule:
     still        flagged, still there when the cycle closed
     dismissed    declined as a false positive (dismiss.py)
     new          introduced by a fix (the fix broke this rule)
+                 (dropped and outside -- the line changed outside the agent's
+                 tools -- are neither fixed nor still, and are not counted)
     verdicts     reviewer VIOLATION / VALID / FALSE_POSITIVE, counted apart:
                  VALID means the gate was fair but the code is fine,
                  FALSE_POSITIVE means the gate itself caught the wrong code

@@ -131,6 +131,28 @@ def case_parallel_hooks(tmp):
           (sorted(set(paths) - got), errors))
 
 
+def case_log_dir(tmp):
+    from lib import log
+    data, logs = os.path.join(tmp, 'data'), os.path.join(tmp, 'team-logs')
+    saved = dict(os.environ)
+    cwd = os.getcwd()
+    try:
+        os.environ['CLAUDE_PLUGIN_DATA'] = data
+        os.chdir(tmp)
+        os.environ['CLAUDE_PLUGIN_OPTION_LOG_DIR'] = logs
+        check('an absolute log_dir moves the log',
+              log.log_path() == os.path.join(logs, 'firings.jsonl'), log.log_path())
+        os.environ['CLAUDE_PLUGIN_OPTION_LOG_DIR'] = './logs'
+        check('a relative log_dir is ignored: the log stays in the data dir',
+              log.log_path() == os.path.join(data, 'firings.jsonl')
+              and not os.path.exists(os.path.join(tmp, 'logs')), log.log_path())
+    finally:
+        os.chdir(cwd)
+        os.environ.clear()
+        os.environ.update(saved)
+
+
 if __name__ == '__main__':
     sys.exit(run_cases([case_one_database, case_legacy_files_cleared,
-                        case_other_schema_is_rebuilt, case_parallel_hooks], '상태 저장소'))
+                        case_other_schema_is_rebuilt, case_parallel_hooks, case_log_dir],
+                       '상태 저장소'))

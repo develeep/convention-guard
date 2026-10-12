@@ -105,7 +105,7 @@ This plugin has one core safety principle — **something that was not checked m
   - Why: The values chosen at install time are kept in `pluginConfigs["convention-guard@…"].options` of the settings for each scope.
   - Expect:
     - `report_only` and `semantic_review` are true/false.
-    - `log_dir` is an **absolute path outside the repo**. A relative path (`./logs`) resolves against the hook's working directory, i.e. **inside each repo**, so logs scatter across repos and may be picked up by git.
+    - `log_dir` is an **absolute path outside the repo**. A relative path (`./logs`) is **ignored** and the log stays in the plugin data directory (so it does not scatter across each hook's working directory). The setting is not honored, so it is reported as FAIL.
   - Note: `mode` and `semantic_review` in the repo `config.yaml` always take precedence over userConfig (C2).
 
 - [ ] **B6. The 6 skills and the reviewer agent are present** [auto][sandbox][manual]

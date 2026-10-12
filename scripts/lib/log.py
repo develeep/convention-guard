@@ -11,17 +11,22 @@ from .paths import data_dir, user_option
 MAX_BYTES = 5 * 1024 * 1024
 
 # 2 = 1.0 events: candidate / block / verify / verdict / review_requested /
-# dismissed / lint / autofix / abandoned. Readers skip rows without it.
+# dismissed / lint / autofix / abandoned, and one `stop` per Stop
+# (outcome, hook_ms, prompt; wait_s/fix_s/review_s/stops on the Stop that ends
+# the turn). New event types are additive -- readers ignore events they do not
+# know -- so they do not bump the schema. Readers skip rows without it.
 SCHEMA = 2
 
 
 def log_path():
     """Where firings.jsonl lives. The log_dir option moves only this file --
     session state stays in the plugin data dir, so a shared team log never
-    collides with another machine's in-flight session."""
+    collides with another machine's in-flight session. A relative log_dir is
+    ignored: it would resolve against each hook's cwd and scatter the log
+    into every repo, so the data dir keeps it in one place."""
     override = user_option('log_dir')
-    if isinstance(override, str) and override:
-        path = os.path.expanduser(override)
+    path = os.path.expanduser(override) if isinstance(override, str) and override else ''
+    if os.path.isabs(path):
         try:
             os.makedirs(path, exist_ok=True)
             return os.path.join(path, 'firings.jsonl')

@@ -90,11 +90,11 @@ Before turning it on, to confirm it really works as intended in this repo, run t
 |---|---|---|
 | `report_only` | `true` | `true` means `mode: report` (record only), `false` means `mode: fix` (block) |
 | `semantic_review` | `false` | Turns on semantic review (the convention-reviewer subagent) |
-| `log_dir` | (empty) | Location of the firing log `firings.jsonl`. If empty, the plugin data directory |
+| `log_dir` | (empty) | Location of the firing log `firings.jsonl` (an absolute path). If empty or relative, the plugin data directory |
 
 If the repo's `config.yaml` has the same key (`mode`, `semantic_review.enabled`), **the repo setting wins.** This way, a personal setting cannot quietly lower the team standard.
 
-Use an absolute path outside the repo for `log_dir`. A relative path like `./logs` resolves inside each repo, so logs scatter across repos and git picks them up.
+Use an absolute path outside the repo for `log_dir`. A relative path like `./logs` would resolve inside each repo and scatter the logs, so it is ignored and the log goes to the plugin data directory.
 
 All setting keys are in [configuration.md](configuration.md).
 

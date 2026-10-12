@@ -105,7 +105,7 @@ python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/.claude/plugin
   - 왜: 설치할 때 고른 값은 범위별 settings 의 `pluginConfigs["convention-guard@…"].options` 에 남습니다.
   - 기대:
     - `report_only`·`semantic_review` 가 true/false 다.
-    - `log_dir` 이 **레포 밖의 절대경로**다. 상대경로(`./logs`)는 훅의 작업 디렉터리, 즉 **각 레포 안**으로 풀려 레포마다 로그가 흩어지고 git 에 잡힐 수 있습니다.
+    - `log_dir` 이 **레포 밖의 절대경로**다. 상대경로(`./logs`)는 **무시되고** 로그는 플러그인 데이터 디렉터리에 남습니다 (훅의 작업 디렉터리마다 흩어지지 않게). 설정한 위치가 쓰이지 않으므로 FAIL 로 알립니다.
   - 참고: 레포 `config.yaml` 의 `mode`·`semantic_review` 가 항상 userConfig 보다 우선합니다 (C2).
 
 - [ ] **B6. 스킬 6개와 리뷰어 에이전트가 있다** [자동][샌드박스][수동]

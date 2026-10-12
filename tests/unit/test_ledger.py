@@ -6,12 +6,13 @@ marks a seam (the agent removed lines right after it), a leading ^ a seam
 before line 1.
 """
 
+import json
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from helpers import check, finish  # noqa: E402
+from helpers import check, finish, make_repo, tempdir, write  # noqa: E402
 from lib import ledger  # noqa: E402
 from lib.observe import Snapshot, split_lines  # noqa: E402
 
@@ -91,8 +92,75 @@ def case_lines():
               ledger._unpack(packed, len(lines)) == lines, ledger._unpack(packed, len(lines)))
 
 
+def _bash(root, event, ident='b1'):
+    ledger.collect({'session_id': 's', 'cwd': root, 'hook_event_name': event,
+                    'tool_use_id': ident, 'tool_name': 'Bash', 'tool_input': {'command': 'x'}})
+
+
+def _edit(root, rel, body):
+    payload = {'session_id': 's', 'cwd': root, 'tool_name': 'Edit',
+               'tool_input': {'file_path': rel}}
+    ledger.collect(dict(payload, hook_event_name='PreToolUse'))
+    write(root, rel, body)
+    ledger.collect(dict(payload, hook_event_name='PostToolUse'))
+
+
+def in_store(case):
+    """Run `case(repo)` against its own data dir, in this process."""
+    from lib import store
+    saved = dict(os.environ)
+    with tempdir() as tmp:
+        repo = os.path.join(tmp, 'repo')
+        make_repo(repo, {'a.txt': 'one\n', 'b.txt': 'one\n'})
+        os.environ['CLAUDE_PLUGIN_DATA'] = os.path.join(tmp, 'data')
+        os.environ['CLAUDE_PROJECT_DIR'] = repo
+        try:
+            case(repo)
+        finally:
+            store.close_all()
+            os.environ.clear()
+            os.environ.update(saved)
+
+
+def case_bash_does_not_swallow_unknown():
+    print('case_bash_does_not_swallow_unknown:')
+
+    def changed_after_start(repo):
+        write(repo, 'a.txt', 'dirt\n')         # dirty before the session
+        _bash(repo, 'PreToolUse', 'b1')
+        _bash(repo, 'PostToolUse', 'b1')
+        write(repo, 'b.txt', 'person\n')       # outside every call, after it started
+        write(repo, 'a.txt', 'more dirt\n')
+        _bash(repo, 'PreToolUse', 'b2')
+        _bash(repo, 'PostToolUse', 'b2')
+        kinds = sorted((k, p) for k, p, _d in ledger.at_stop('s', repo).issues)
+        check('a file changed outside the tools before a Bash call is named, not absorbed',
+              kinds == [(ledger.UNKNOWN_CHANGE, 'a.txt'), (ledger.UNKNOWN_CHANGE, 'b.txt')],
+              kinds)
+
+    def dirt_before_start(repo):
+        write(repo, 'a.txt', 'dirt\n')
+        _bash(repo, 'PreToolUse', 'b1')
+        _bash(repo, 'PostToolUse', 'b1')
+        issues = ledger.at_stop('s', repo).issues
+        check('dirt from before the session is absorbed silently', issues == [], issues)
+
+    def agent_lines_named(repo):
+        _edit(repo, 'a.txt', 'one\nagent();\nkept();\n')
+        write(repo, 'a.txt', 'one\nperson();\nkept();\n')
+        issues = ledger.at_stop('s', repo).issues
+        details = [json.loads(d) for k, p, d in issues if k == ledger.UNKNOWN_CHANGE and d]
+        check('an out-of-tool change names the agent lines it took away',
+              details == [['agent();']], issues)
+
+    in_store(changed_after_start)
+    in_store(dirt_before_start)
+    in_store(agent_lines_named)
+
+
 if __name__ == '__main__':
     case_apply_table()
     case_entry()
     case_lines()
+    case_bash_does_not_swallow_unknown()
     sys.exit(finish('원장 출처 연산'))

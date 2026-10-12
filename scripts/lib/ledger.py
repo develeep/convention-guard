@@ -368,10 +368,23 @@ def _take_event(conn, session, key):
 
 def _catch_up(conn, session, root, entry):
     """Before a call starts, a file that changed since we last looked changed
-    outside every call: `u`, and named."""
+    outside every call: `u`, and named. The detail lists the agent lines the
+    change took away, so the Stop can tell a flagged line someone else
+    rewrote from one the agent fixed (밖에서 바뀜)."""
     snap = observe.read(root, entry.path)
+    had = [text for _n, text in entry.agent_lines()]
     if entry.update(snap, UNKNOWN):
-        issue(conn, session, root, UNKNOWN_CHANGE, entry.path)
+        left = {}
+        for text in entry.lines or ():
+            left[text] = left.get(text, 0) + 1
+        gone = []
+        for text in had:
+            if left.get(text):
+                left[text] -= 1
+            else:
+                gone.append(text)
+        issue(conn, session, root, UNKNOWN_CHANGE, entry.path,
+              json.dumps(gone, ensure_ascii=False) if gone else '')
     else:
         entry.sig = snap.sig                # touched, not changed
     _save(conn, session, root, entry)
@@ -408,19 +421,29 @@ def _tree_pre(conn, session, root, key, tool, status):
     for rel, entry in entries.items():
         if observe.signature(root, rel) != entry.sig:
             _catch_up(conn, session, root, entry)
-    for rel in dirty:
+    tree = _tree(conn, session, root)
+    for rel, sig in dirty.items():
         if rel not in entries:
-            # dirty before the agent's call: whatever is in it is not the agent's
+            # dirty before the agent's call: whatever is in it is not the agent's.
+            # Changed since the session last looked, it changed outside every
+            # call -- named before the ledger takes it in, or no Stop ever would
+            if tree.get(rel) != sig:
+                issue(conn, session, root, UNKNOWN_CHANGE, rel)
             _save(conn, session, root, Entry.first(rel, observe.read(root, rel)))
-    _forget_tree(conn, session, root, dirty)
+    _forget_tree(conn, session, root, dirty, tree)
     _open_event(conn, session, key, root, tool, 'tree', head=head)
 
 
-def _forget_tree(conn, session, root, rels):
-    """Paths the ledger now follows leave the session's dirty-path memory."""
+def _tree(conn, session, root):
+    """The session's dirty-path memory: {path: git status signature}."""
     row = conn.execute('SELECT tree FROM ledger_session WHERE session = ? AND root = ?',
                        (session, root)).fetchone()
-    tree = json.loads(row[0]) if row and row[0] else {}
+    return json.loads(row[0]) if row and row[0] else {}
+
+
+def _forget_tree(conn, session, root, rels, tree=None):
+    """Paths the ledger now follows leave the session's dirty-path memory."""
+    tree = _tree(conn, session, root) if tree is None else tree
     left = {k: v for k, v in tree.items() if k not in rels}
     if left != tree:
         conn.execute('UPDATE ledger_session SET tree = ? WHERE session = ? AND root = ?',

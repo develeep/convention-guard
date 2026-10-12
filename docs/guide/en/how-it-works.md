@@ -84,6 +84,7 @@ A block opens a verification cycle. When the agent fixes things and ends the tur
 | dropped (`검사에서 빠짐`) | The candidate is gone but its code is still on the agent's line — the structure engine was installed mid-cycle, or the rule was turned off or `exclude`d. It is not counted as fixed, so it stays out of rule-tune's fix rate. Semantic-review rules are excluded, since they are fixed in the surrounding code. Not shown when 0 |
 | still | Still there (reformatting in place or moving it as a whole also counts as still) |
 | new | A candidate that was not there at first — usually created by the fix just made |
+| changed outside (`밖에서 바뀜`) | The flagged line changed outside the agent's tools (a person, an editor) before it was fixed. It is not counted as fixed and does not block again. The user is told `지적한 줄이 에이전트 도구 밖에서 바뀜 N — 위반이 남았는지 확인하세요 (file:line)` ("the flagged line changed outside the agent's tools — check whether the violation remains") |
 
 Blocking still and new items (errors) appear under `■ 남음` (still) and `■ 새로 생김` (new); non-blocking ones (warn, info) appear under `■ 참고 — 차단하지 않습니다` (note — not blocking) when it blocks again. If there is a blocking one, it blocks once more, up to `limits.max_verify_attempts` (default 1). After that, it only records what is left and closes. `limits.max_consecutive_blocks` (default 3) caps consecutive blocks within one request to prevent an infinite loop.
 
@@ -144,7 +145,7 @@ For rules that a regex cannot decide, such as N+1 queries or layer boundaries, t
 | `<repo>/.claude/convention-guard/rules/` | Repo-only rules, core rule overrides | Yes |
 | `convention-guard.db` in the data directory | Ledger, cycle state, verdict cache, verdict batches (sqlite) | No |
 | `engine/` in the data directory | Structure engine | No |
-| `firings.jsonl` in the data directory | Firing log (can be moved with `log_dir`) | No |
+| `firings.jsonl` in the data directory | Firing log (can be moved with an absolute `log_dir`; a relative one is ignored) | No |
 
 The data directory location is in [installation.md](installation.md#install-location-and-data-directory). The log rotates once at 5MB, and session state, the ledger, and verdict batches are cleaned up after 7 days. If a plugin version change alters the storage format, the store is not migrated. It is created again.
 

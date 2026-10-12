@@ -111,7 +111,7 @@ lint:
 |---|---|
 | `report_only` | `true` → `mode: report`, `false` → `mode: fix`. 고르지 않으면 플러그인 기본값(`report`). 레포 config 에 `mode` 가 있으면 그쪽이 이깁니다 |
 | `semantic_review` | `semantic_review.enabled` |
-| `log_dir` | `firings.jsonl` 위치 (레포 경로는 고르지 마세요 — git 에 잡힘) |
+| `log_dir` | `firings.jsonl` 위치, 절대경로 (레포 경로는 고르지 마세요 — git 에 잡힘. 상대경로는 무시하고 데이터 디렉터리를 씀) |
 
 4.0 에는 훅의 검사 범위를 넓히는 설정(3.x 의 `scope.base_ref`)과 수집할 MCP 도구 목록
 (3.x 의 `collect.edit_tools`)이 없습니다. 훅은 편집 사건 원장이 기록한 **에이전트가 쓴 줄**만

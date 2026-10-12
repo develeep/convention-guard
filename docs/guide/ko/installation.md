@@ -90,11 +90,11 @@ claude --plugin-dir ./convention-guard
 |---|---|---|
 | `report_only` | `true` | `true` 면 `mode: report`(기록만), `false` 면 `mode: fix`(차단) |
 | `semantic_review` | `false` | 의미 판정(convention-reviewer 서브에이전트)을 켭니다 |
-| `log_dir` | (비움) | 발동 로그 `firings.jsonl` 위치. 비우면 플러그인 데이터 디렉터리 |
+| `log_dir` | (비움) | 발동 로그 `firings.jsonl` 위치(절대경로). 비우거나 상대경로면 플러그인 데이터 디렉터리 |
 
 레포의 `config.yaml` 에 같은 키(`mode`, `semantic_review.enabled`)가 있으면 **레포 설정이 이깁니다.** 개인 설정으로 팀 표준을 조용히 낮출 수 없게 하기 위해서입니다.
 
-`log_dir` 에는 레포 밖의 절대 경로를 쓰세요. `./logs` 같은 상대 경로는 각 레포 안으로 풀려 로그가 레포마다 흩어지고 git 에 잡힙니다.
+`log_dir` 에는 레포 밖의 절대 경로를 쓰세요. `./logs` 같은 상대 경로는 각 레포 안으로 풀려 로그가 흩어지므로 무시하고 플러그인 데이터 디렉터리에 씁니다.
 
 전체 설정 키는 [configuration.md](configuration.md)에 있습니다.
 
