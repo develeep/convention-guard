@@ -432,6 +432,45 @@ def case_block_names_lines_changed_outside(repo, data):
     check('and does not check them', '$h = 1;' not in out['reason'].split('■')[1], out['reason'])
 
 
+FILE_RULE = """id: two-lines
+title: two-lines
+severity: error
+applies_to:
+  stacks: [laravel]
+  files: ["app/**/*.php"]
+detect:
+  file_regex: 'mark\\(\\);\\s*\\n\\s*mark\\(\\);'
+message: 고치세요
+tests:
+  match: ["mark();\\n mark();"]
+"""
+
+
+def case_new_file_outside_lines_are_not_the_agents(repo, data):
+    """A file the agent created is its own -- except the lines someone else
+    changed in it afterwards. A whole-file match on those alone is not the
+    agent's to fix."""
+    write(repo, '.claude/convention-guard/rules/two-lines.yaml', FILE_RULE)
+    commit(repo, 'rule')
+    s = Session(repo, data, 'new-outside')
+    s.edit(A, method_file('return 1;'))                                 # the agent creates A
+    write(repo, A, method_file('mark();', 'mark();', 'return 1;'))      # someone else adds two
+    s.edit(A, method_file('mark();', 'mark();', 'return 2;'))           # the agent edits elsewhere
+    out = s.stop('p1')
+    check("a match on outside lines in the agent's new file does not block",
+          out['decision'] is None, out)
+    s.edit('app/Svc/C.php', method_file('return 1;').replace('class A', 'class C'))
+    write(repo, 'app/Svc/C.php',
+          method_file('mark();', 'mark();', 'return 1;').replace('class A', 'class C'))
+    last = s.stop('p3')
+    check('nor when the outside change comes right before the Stop', last['decision'] is None,
+          last)
+    s.edit('app/Svc/B.php', method_file('mark();', 'mark();').replace('class A', 'class B'))
+    own = s.stop('p2')
+    check('the same match on lines the agent wrote blocks (control)',
+          own['decision'] == 'block' and 'two-lines' in own['reason'], own)
+
+
 def case_same_line_twice_is_counted(repo, data):
     write(repo, A, method_file('dd($x);', 'return 1;'))
     s = Session(repo, data, 'counted')
@@ -750,6 +789,7 @@ CASES = [
     (case_nested_repo_file_is_checked, ''),
     (case_human_lines_are_not_the_agents, 'once_per_session: false\n'),
     (case_block_names_lines_changed_outside, ''),
+    (case_new_file_outside_lines_are_not_the_agents, ''),
     (case_same_line_twice_is_counted, ''),
     (case_bash_keeps_human_lines_out, ''),
     (case_pulled_commits_are_not_the_agents, 'once_per_session: false\n'),

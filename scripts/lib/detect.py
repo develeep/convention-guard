@@ -293,18 +293,18 @@ def scan(rule, scope, reach, cap, is_dismissed=_never_dismissed, unchecked=None)
                 continue
             touched_lines = scope.changed_linenos(relpath)
             seams = scope.seams_of(relpath)
-            is_new = scope.is_new(relpath)
             source = (lambda text=body: text) if wants else None
             for match in rule['compiled_file'].finditer(body):
                 lo, hi = _trimmed(match)
                 start = body.count('\n', 0, lo) + 1
                 end = body.count('\n', 0, hi) + 1
-                if not is_new:
-                    first, last = _window(rule, relpath, body, match, start, end, unchecked)
-                    # an added line inside, or a removal between two lines inside
-                    if not (any(first <= n <= last for n in touched_lines)
-                            or any(first <= n < last for n in seams)):
-                        continue
+                # an added line inside, or a removal between two lines inside. A new
+                # file is the agent's too, but not the lines changed outside its
+                # tools after it was created: those are not in touched_lines
+                first, last = _window(rule, relpath, body, match, start, end, unchecked)
+                if not (any(first <= n <= last for n in touched_lines)
+                        or any(first <= n < last for n in seams)):
+                    continue
                 # a file match is already in file coordinates -- nothing to convert
                 spans = [Span(match.start(), match.end())] if wants else None
                 code = body[lo:hi]
