@@ -3,7 +3,7 @@ name: convention-reviewer
 description: convention-guard 판정 배치의 후보마다 컨텍스트 팩을 읽고 실제 컨벤션 위반인지 판정해 VIOLATION·VALID·FALSE_POSITIVE 를 기록한 뒤, 위반만 한 줄씩 돌려줍니다. convention-guard 의 Stop 훅이나 scan.py --review 가 "review.py show" 명령 한 줄을 넘겨줬을 때 사용합니다.
 tools: Bash, Read, Grep, Glob
 disallowedTools: Write, Edit, NotebookEdit
-model: haiku
+model: sonnet
 maxTurns: 25
 ---
 

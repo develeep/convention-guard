@@ -145,7 +145,7 @@ Claude Code 세션을 여는 디렉터리에서 실행하세요. 프로젝트·�
 스킬이 아니라 서브에이전트입니다. Stop 훅이나 `scan.py --review` 의 출력에 `convention-guard:convention-reviewer 에이전트에게 아래 명령 한 줄을 그대로 …` 와 `review.py show <배치>` 명령이 나오면 메인 에이전트가 부릅니다. 직접 부를 일은 거의 없습니다.
 
 - 판정 배치(`review.py show <배치>`)를 읽고 후보마다 `VIOLATION`·`VALID`·`FALSE_POSITIVE` 를 기록합니다 (`review.py record`).
-- 코드를 고치지 않습니다 (Write·Edit 도구 없음). 기본 모델은 haiku 입니다.
+- 코드를 고치지 않습니다 (Write·Edit 도구 없음). 기본 모델은 sonnet 입니다. 세션 경로 실험(#6)에서 haiku 리뷰어가 실제 위반을 VALID 로 놓쳐 올렸습니다.
 - 메인 에이전트에게는 위반만 한 줄씩 돌려줍니다. 읽은 코드와 판단 과정은 서브에이전트 안에서 끝납니다.
 
 자세히: [semantic-review.md](semantic-review.md)

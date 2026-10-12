@@ -145,7 +145,7 @@ When narrowing a condition, fix **the fixture first**. Add the real code that wa
 This is a subagent, not a skill. When the Stop hook or `scan.py --review` prints `convention-guard:convention-reviewer 에이전트에게 아래 명령 한 줄을 그대로 …` ("pass the one-line command below to the convention-guard:convention-reviewer agent as is …") followed by a `review.py show <batch>` command, the main agent calls it. You rarely need to call it yourself.
 
 - It reads a verdict batch (`review.py show <batch>`) and records `VIOLATION`, `VALID` or `FALSE_POSITIVE` for each candidate (`review.py record`).
-- It does not modify code (no Write or Edit tools). The default model is haiku.
+- It does not modify code (no Write or Edit tools). The default model is sonnet. It was raised from haiku after the haiku reviewer passed real violations as VALID in the session-path experiment (#6).
 - It returns only violations to the main agent, one line each. The code it read and its reasoning stay inside the subagent.
 
 More: [semantic-review.md](semantic-review.md)
