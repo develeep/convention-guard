@@ -18,6 +18,7 @@ The reviewer subagent's whole contract is `review.py show` then
 import json
 import os
 import re
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -134,6 +135,25 @@ def case_violation_fix_rejudge(repo, data):
     done = s.stop('p1', stop_hook_active=True)
     check('with the new verdict VALID the turn passes', done['decision'] is None, done)
     check('verdicts are logged', len(s.events('verdict')) == 2, s.events('verdict'))
+
+
+def case_record_command_runs_as_shown(repo, data):
+    """The reviewer pastes the command show prints. A heredoc there trips
+    Claude Code's Bash safety check (an approval prompt, or a denial when
+    nobody is there to answer), so it must be one plain command."""
+    s = Session(repo, data, 'paste')
+    batch = batch_of(s.turn(CTRL, controller(), 'p1'))
+    shown = run_script('review.py', ['show', batch], env=s.env, cwd=repo).stdout
+    block = re.search(r'```bash\n(.*?)\n```', shown, re.S)
+    check('show ends with one bash block', block is not None, shown[-600:])
+    command = block.group(1)
+    check('without a heredoc', '<<' not in command.replace('<<<', ''), command)
+    filled = command.replace('"reason": "…"', '"reason": "with 없이 반복"').replace(
+        '"verdict": "…"', '"verdict": "VALID"')
+    proc = subprocess.run(['bash', '-c', filled], env=s.env, cwd=repo,
+                          capture_output=True, text=True)
+    check('the pasted command records', proc.returncode == 0, proc.stdout + proc.stderr)
+    check('and the verdicts are stored', len(recorded(data, batch)) == 1, recorded(data, batch))
 
 
 def case_valid_is_cached(repo, data):
@@ -325,7 +345,8 @@ def case_one_question_shows_every_candidate(repo, data):
 
 
 
-CASES = [case_no_candidate_no_ai, case_violation_fix_rejudge, case_valid_is_cached,
+CASES = [case_no_candidate_no_ai, case_violation_fix_rejudge, case_record_command_runs_as_shown,
+         case_valid_is_cached,
          case_reviewer_skipped, case_record_validation, case_report_mode,
          case_deferred_batches_continue, case_scan_review,
          case_scan_review_without_candidates, case_verdicts_stay_distinct,

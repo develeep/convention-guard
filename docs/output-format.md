@@ -558,12 +558,12 @@ convention-guard scan — 워킹 트리 · 파일 5개 · 스택 laravel, php ·
 ## 다음
 판정을 모두 적어 한 번에 기록하세요:
 
-(```bash 펜스) python3 "…/scripts/review.py" record "…/convention-guard.db#3f2a9c…" <<'JSON'
-[{"id": 1, "reason": "…", "verdict": "…"}, …]
-JSON
+(```bash 펜스) python3 "…/scripts/review.py" record "…/convention-guard.db#3f2a9c…" <<< '[{"id": 1, "reason": "…", "verdict": "…"},
+ …]'
 ```
 
-- 기록 명령은 들여 쓰지 않고 ` ```bash ` 펜스로 감쌉니다. 들여 쓴 `JSON` 줄은 heredoc 을 끝내지 못해 그대로 붙여 넣으면 명령이 깨지기 때문입니다(구현 중 결정, 2026-09-28).
+- 기록 명령은 ` ```bash ` 펜스로 감싼 명령 하나이고, 판정은 here-string(`<<< '[…]'`)으로 넘깁니다. heredoc(`<<'JSON'`)은 Claude Code 의 Bash 안전 검사에 걸려 대화형 세션에서는 승인을 묻고, 무인 실행에서는 거부되어 판정이 기록되지 않았습니다(2026-10-12, #6 파일럿).
+- 뒤따르는 안내에 `reason 에는 작은따옴표(')를 쓰지 마세요` 줄이 있습니다.
 - 같은 규칙의 VIOLATION 이 여럿이면 머리 하나 아래 위치 줄과 `= 이유:` 를 후보마다 둡니다(D5).
 
 - 컨텍스트 절 줄 번호 폭은 절 안에서 같게 맞춥니다.
