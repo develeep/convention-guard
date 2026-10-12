@@ -1,0 +1,27 @@
+rule: core/php-no-var-keyword
+stacks: [laravel, php]
+cases:
+  - name: Blade 안 <script> 의 JS 는 PHP 규칙 대상이 아님 (#9)
+    before:
+      resources/views/a.blade.php: |
+        <div></div>
+    after:
+      resources/views/a.blade.php: |
+        <div></div>
+        <script>
+        var $el = $('#popup');
+        </script>
+    expect: []
+
+  - name: 레거시 PHP 파일은 조용함
+    before:
+      app/A.php: |
+        <?php
+        class A {
+        }
+    after:
+      app/A.php: |
+        <?php
+        class A {
+        }
+    expect: []

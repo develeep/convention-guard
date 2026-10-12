@@ -441,6 +441,18 @@ def case_version_constraints():
                      'applies_to.version')
 
 
+def case_fixture_language():
+    print('case_fixture_language:')
+    from lib.rules import fixtures
+    check('a *.blade.php glob reads fixtures as Blade, not PHP (#9)',
+          fixtures.fixture_language({'files': ['resources/**/*.blade.php']}) == 'blade',
+          fixtures.fixture_language({'files': ['resources/**/*.blade.php']}))
+    check('a *.php glob still reads PHP',
+          fixtures.fixture_language({'files': ['app/**/*.php']}) == 'php')
+    check('brace lists still open up',
+          fixtures.fixture_language({'files': ['src/**/*.{ts,tsx}']}) in ('ts', 'tsx'))
+
+
 if __name__ == '__main__':
     case_schema()
     case_globs()
@@ -452,4 +464,5 @@ if __name__ == '__main__':
     case_config_layers()
     case_presets_and_overrides()
     case_stack_parse_errors()
+    case_fixture_language()
     sys.exit(finish('설정·프리셋·오버라이드·스키마'))

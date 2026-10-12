@@ -5,7 +5,8 @@ superseded_by: [pint.json, .php-cs-fixer.php, .php-cs-fixer.dist.php]
 applies_to:
   stacks: [php]
   files: ["**/*.php"]
-  exclude: ["**/vendor/**"]
+  # Blade 의 <script> 안 JS 를 PHP 로 읽어 오탐한다 (#9)
+  exclude: ["**/vendor/**", "**/*.blade.php"]
 detect:
   when_line_added: '\belse\s+if\s*\('
 message: |

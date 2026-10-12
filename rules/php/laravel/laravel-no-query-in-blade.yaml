@@ -6,7 +6,8 @@ applies_to:
   files: ["**/*.blade.php"]
   exclude: ["**/vendor/**"]
 detect:
-  when_line_added: '(\{\{|@php|@if|@foreach).{0,80}\b[A-Z]\w+::(where|all|find|first|get|count|pluck)\s*\('
+  # Arr::get · Cache::get 처럼 쿼리가 아닌 정적 헬퍼·파사드는 뺀다 (#9: 한 레포 3개월 변경에서 779줄 오탐)
+  when_line_added: '(\{\{|@php|@if|@foreach).{0,80}\b(?!(?:Arr|Str|Collection|Number|Js|Carbon|Date|Cache|Config|Session|Request|Cookie|Lang|Route|URL|Auth|Storage|Http|Gate|Vite)::)[A-Z]\w+::(where|all|find|first|get|count|pluck)\s*\('
 message: |
   뷰에서 쿼리하면 N+1과 테스트 불가 문제가 생깁니다.
   컨트롤러나 뷰모델에서 조회해 뷰에는 결과만 전달하세요.
@@ -17,3 +18,7 @@ tests:
   no_match:
     - "{{ $user->name }}"
     - "@foreach ($posts as $post)"
+    - "{{ Arr::get($item, 'title') }}"
+    - "{{ Str::limit($post->body, 20) }}"
+    - "@if (Session::get('notice'))"
+    - "{{ Cache::get('banner') }}"

@@ -35,6 +35,13 @@ def fixture_language(rule):
     if declared:
         return declared
     for pattern in rule.get('files') or ():
+        # a compound extension names its language whole: *.blade.php is Blade,
+        # though its last extension alone would say PHP
+        tail = str(pattern).rsplit('/', 1)[-1]
+        if '{' not in tail and tail.count('.') > 1:
+            language = structure.language_of('x' + tail[tail.index('.'):])
+            if language:
+                return language
         for dotted, braced in EXTENSIONS.findall(str(pattern)):
             for extension in (braced.split(',') if braced else [dotted]):
                 language = structure.language_of('x.%s' % extension.strip())

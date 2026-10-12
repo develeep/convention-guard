@@ -6,7 +6,8 @@ applies_to:
   files: ["app/**/*.php", "routes/**/*.php", "**/*.blade.php"]
   exclude: ["config/**", "**/vendor/**"]
 detect:
-  when_line_added: '(?<![\w$>:])env\s*\('
+  # @env(...) 는 Blade 디렉티브 (#9)
+  when_line_added: '(?<![\w$>:@])env\s*\('
 message: |
   config 캐시가 켜지면 config/ 밖의 env() 는 null 이 됩니다.
   config/*.php 에 키를 정의하고 config('...') 로 읽으세요.
@@ -16,3 +17,4 @@ tests:
   no_match:
     - "$key = config('services.stripe.key');"
     - "$this->env('x');"
+    - "@env('local')"
