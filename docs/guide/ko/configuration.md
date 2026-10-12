@@ -62,7 +62,7 @@
 
 ## presets
 
-`auto` 는 `common`, `security`, 그리고 감지된 스택 태그와 겹치는 프리셋입니다. `architecture`, `performance`, `layering` 은 명시해야 켜집니다. 목록: [rules.md](rules.md#프리셋)
+`auto` 는 `common` 과 감지된 스택 태그와 겹치는 프리셋입니다. `security`, `architecture`, `performance`, `layering` 은 명시해야 켜집니다. 이 플러그인은 팀 컨벤션만 다루므로 보안 검사는 Semgrep·SonarQube 같은 전용 도구에 맡기기를 권합니다 ([ADR 0001](../../adr/0001-team-conventions-only.md)). 목록: [rules.md](rules.md#프리셋)
 
 ```yaml
 presets: [auto, architecture]     # auto + 계층 경계 의미 판정

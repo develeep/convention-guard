@@ -173,7 +173,7 @@ rules:
 | Preset | auto condition | Contents |
 |---|---|---|
 | common | always | TODO without an owner |
-| security | always | Hardcoded secrets, `$request->all()` without validation |
+| security | explicit only | Hardcoded secrets, `$request->all()` without validation |
 | php | php | Debug output, empty catch |
 | psr12 | php | 12 PSR-12 style rules (9 step aside when a formatter is present) |
 | laravel | laravel | Validation, migrations, Blade queries, env, route tests, N+1 |

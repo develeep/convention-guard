@@ -256,6 +256,8 @@ def case_presets_and_overrides():
         ids = {r['id'] for r in auto.rules}
         check('auto enables the stack presets', 'core/php-no-debug-output' in ids)
         check('auto leaves opt-in presets off', 'core/layer-boundary' not in ids)
+        check('auto leaves security off (team conventions only, ADR 0001)',
+              'core/no-hardcoded-secret' not in ids, sorted(ids)[:8])
         check('an opt-in rule is listed as inactive with its reason',
               ('core/layer-boundary', 'preset 비활성') in
               {(r['id'], why) for r, why in auto.inactive})

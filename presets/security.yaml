@@ -1,7 +1,8 @@
 name: security
 description: "자격증명 노출·검증 없는 입력 등 보안 규칙"
-# 이 태그 중 하나가 감지되면 presets: auto 에서 켜집니다. 비어 있으면 명시해야 켜집니다.
-stacks: ["*"]
+# 명시해야 켜집니다 (presets: [auto, security]). 이 플러그인은 팀 컨벤션만 다루고
+# 보안 검사는 전용 도구에 맡깁니다: docs/adr/0001-team-conventions-only.md
+stacks: []
 rules:
   - core/no-hardcoded-secret
   - core/laravel-no-request-all

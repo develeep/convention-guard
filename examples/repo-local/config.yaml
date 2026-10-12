@@ -4,7 +4,7 @@
 # 도입 초기 2~3주는 report 로 기록만 쌓고, 로그를 본 뒤 fix 로 올리세요.
 mode: fix
 
-# auto = common + security + 감지된 스택 프리셋. 구조·성능 규칙은 명시해서 켭니다.
+# auto = common + 감지된 스택 프리셋 (security 는 명시해야 켜짐). 구조·성능 규칙은 명시해서 켭니다.
 presets: [auto, architecture]
 
 # 감지가 빗나갈 때만 강제 지정 (보통은 비워둡니다)

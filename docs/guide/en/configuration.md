@@ -62,7 +62,7 @@ For the first 2–3 weeks of adoption, we recommend `report` to collect logs, ch
 
 ## presets
 
-`auto` means `common`, `security`, and the presets that overlap the detected stack tags. `architecture`, `performance` and `layering` turn on only when listed explicitly. List: [rules.md](rules.md#presets)
+`auto` means `common` and the presets that overlap the detected stack tags. `security`, `architecture`, `performance` and `layering` turn on only when listed explicitly. This plugin covers team conventions only, so leave security checks to a dedicated tool such as Semgrep or SonarQube ([ADR 0001](../../adr/0001-team-conventions-only.md)). List: [rules.md](rules.md#presets)
 
 ```yaml
 presets: [auto, architecture]     # auto + layer-boundary semantic review

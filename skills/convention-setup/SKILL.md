@@ -101,7 +101,7 @@ AGENTS.md 가 기본입니다. 레포가 `.claude/rules/` 를 쓰고 있을 때�
 ### 7. 보고
 
 ```
-스택: laravel, php · 프리셋: common, laravel, php, psr12, security · 적용 규칙 23개
+스택: laravel, php · 프리셋: common, laravel, php, psr12 · 적용 규칙 21개
 설정: 새로 작성 (기존 config.yaml 덮어씀)
 구조 엔진: 설치됨
 모드: fix

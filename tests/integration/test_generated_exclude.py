@@ -65,7 +65,7 @@ def case_repo_can_empty_the_list(tmp):
 
 
 def case_lock_file_is_not_checked(tmp):
-    repo, data = js_repo(tmp)
+    repo, data = js_repo(tmp, 'presets: [auto, security]\n')   # the secret rule is opt-in
     write(repo, 'package-lock.json', SECRET)
     write(repo, 'src/config.js', SECRET)
     _, result = scan(repo, data)

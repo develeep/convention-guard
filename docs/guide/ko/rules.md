@@ -173,7 +173,7 @@ rules:
 | 프리셋 | auto 조건 | 내용 |
 |---|---|---|
 | common | 항상 | 담당자 없는 TODO |
-| security | 항상 | 하드코딩 시크릿, 검증 없는 `$request->all()` |
+| security | 명시해야 켜짐 | 하드코딩 시크릿, 검증 없는 `$request->all()` |
 | php | php | 디버그 출력, 빈 catch |
 | psr12 | php | PSR-12 스타일 12개 (포맷터가 있으면 9개가 물러남) |
 | laravel | laravel | 검증·마이그레이션·Blade 쿼리·env·라우트 테스트·N+1 |

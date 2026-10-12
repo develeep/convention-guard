@@ -75,6 +75,7 @@ def case_severity_filter_does_not_hide_exit_code(tmp):
 
 def case_all_includes_rules_without_globs(tmp):
     repo, data = laravel(tmp)
+    write(repo, '.claude/convention-guard/config.yaml', 'presets: [auto, security]\n')   # opt-in
     write(repo, 'notes.txt', 'api_key = "abcdefgh12345"\n')
     commit(repo, 'notes')
     proc = scan(repo, data, '--all', '--json', '--fail-on', 'never')
@@ -210,7 +211,8 @@ def path_report(repo, data, *paths):
 def case_detect_stack_explains_a_path(tmp):
     repo = os.path.join(tmp, 'repo')
     make_repo(repo, {'package.json': '{"name": "x"}\n',
-                     '.claude/convention-guard/config.yaml': 'exclude: ["legacy/**"]\n'})
+                     '.claude/convention-guard/config.yaml':
+                         'presets: [auto, security]\nexclude: ["legacy/**"]\n'})
     data = os.path.join(tmp, 'data')
     proc, by_path = path_report(repo, data, 'src/a.js', 'dist/app.min.js', 'tests/x.test.js',
                                 'app/Foo.php', 'legacy/a.js')

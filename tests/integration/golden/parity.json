@@ -8,7 +8,6 @@
     "core/laravel-no-request-all app/Legacy/OldController.php:8",
     "core/laravel-route-needs-test routes/api.php",
     "core/laravel-route-needs-test routes/web.php",
-    "core/no-hardcoded-secret app/Http/Controllers/UserController.php:8",
     "core/no-orphan-todo app/Http/Controllers/UserController.php:10",
     "core/php-cast-spacing app/Http/Controllers/UserController.php:9",
     "core/php-line-too-long app/Http/Controllers/UserController.php:21",
@@ -29,7 +28,6 @@
     "core/laravel-no-query-in-blade resources/views/home.blade.php:1",
     "core/laravel-no-request-all app/Http/Controllers/UserController.php:23",
     "core/laravel-route-needs-test routes/api.php",
-    "core/no-hardcoded-secret app/Http/Controllers/UserController.php:8",
     "core/no-orphan-todo app/Http/Controllers/UserController.php:10",
     "core/php-cast-spacing app/Http/Controllers/UserController.php:9",
     "core/php-line-too-long app/Http/Controllers/UserController.php:21",
@@ -54,7 +52,6 @@
     "core/js-no-empty-catch app/page.tsx:11",
     "core/next-client-hook-needs-directive app/page.tsx:6",
     "core/next-no-img-tag app/page.tsx:13",
-    "core/no-hardcoded-secret app/page.tsx:3",
     "core/react-no-index-key app/page.tsx:13",
     "core/ts-no-any app/legacy.tsx:5",
     "core/ts-no-any app/page.tsx:7"
@@ -64,7 +61,6 @@
     "core/js-no-empty-catch app/page.tsx:11",
     "core/next-client-hook-needs-directive app/page.tsx:6",
     "core/next-no-img-tag app/page.tsx:13",
-    "core/no-hardcoded-secret app/page.tsx:3",
     "core/react-no-index-key app/page.tsx:13",
     "core/ts-no-any app/legacy.tsx:5",
     "core/ts-no-any app/page.tsx:7"

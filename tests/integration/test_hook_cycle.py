@@ -714,7 +714,7 @@ CASES = [
     (case_every_stop_is_logged, 'once_per_session: false\n'),
     (case_still_blocks_once_more, 'once_per_session: false\n'),
     (case_new_violation_from_fix, 'once_per_session: false\n'),
-    (case_settled_rule_can_come_back, ''),
+    (case_settled_rule_can_come_back, 'presets: [auto, security]\n'),   # the second rule is the secret one
     (case_over_budget_is_not_new, ''),
     (case_dismissed_in_cycle, ''),
     (case_dropped_from_scan_is_not_fixed, ''),
