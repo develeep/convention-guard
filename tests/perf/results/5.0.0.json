@@ -1,0 +1,31 @@
+{
+ "stage": "perf-4.0",
+ "files": 60,
+ "env": {
+  "python": "3.12.3",
+  "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "commit": "441b895"
+ },
+ "targets": {
+  "stop": 60.0,
+  "edit_pre": 25.0,
+  "edit_post": 25.0,
+  "bash_pre": 35.0,
+  "bash_post": 35.0
+ },
+ "rows": {
+  "stop": 66.9,
+  "edit_pre": 28.6,
+  "edit_post": 26.9,
+  "bash_pre": 30.3,
+  "bash_post": 29.4,
+  "stop_gated": 132.9,
+  "gate": 84.8,
+  "engine": true,
+  "engine_import": 22.6,
+  "analyze_php_1000": 9.2,
+  "analyze_js_1000": 6.4,
+  "analyze_py_1000": 4.6
+ },
+ "gate_output": "{\"decision\": \"block\", \"reason\": \"convention-guard ✖ 차단 — error 1 · warn 0\\n\\n■ 지적 — 고치거나 기각하세요\\n✖ error[core/php-no-debug-output]: 디버그 출력 잔여물\\n  app/Gen59.php:145  dd($x);\\n  = 안내: 디버그 출력이 남아 있습니다. 제거"
+}
