@@ -202,7 +202,8 @@ def case_config_layers():
     print('case_config_layers:')
     with tempdir() as repo:
         cfg = config.load(repo, ROOT)
-        check('defaults load with no repo config', cfg['mode'] == 'report' and not cfg.notes,
+        check('defaults load with no repo config and block (mode fix)',
+              cfg['mode'] == 'fix' and not cfg.notes,
               cfg.notes)
 
         write(repo, '.claude/convention-guard/config.yaml',

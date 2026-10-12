@@ -71,8 +71,8 @@ The same candidate is handled differently depending on `mode`.
 
 | mode | error candidate | warn candidate |
 |---|---|---|
-| `report` (default) | Record it and show a one-line notice. Do not block | Record it and show a one-line notice |
-| `fix` | **Block** the turn and pass the location, guidance, and dismiss command to the agent | Does not block on its own. Passed along when something else blocks |
+| `report` | Record it and show a one-line notice. Do not block | Record it and show a one-line notice |
+| `fix` (default) | **Block** the turn and pass the location, guidance, and dismiss command to the agent | Does not block on its own. Passed along when something else blocks |
 | `auto-fix` | Same as `fix`, but rules with `fix.auto` are fixed automatically first | Same as `fix` |
 
 A block opens a verification cycle. When the agent fixes things and ends the turn again, the same scope is checked again and the results are grouped.

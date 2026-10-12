@@ -109,7 +109,7 @@ Values chosen when installing the plugin.
 
 | Key | Effect |
 |---|---|
-| `report_only` | `true` → `mode: report`, `false` → `mode: fix`. If not chosen, the plugin default (`report`). If the repo config has `mode`, that wins |
+| `report_only` | `true` → `mode: report`, `false` → `mode: fix`. If not chosen, the plugin default (`fix`). If the repo config has `mode`, that wins |
 | `semantic_review` | `semantic_review.enabled` |
 | `log_dir` | Location of `firings.jsonl`, an absolute path (do not choose a repo path — git picks it up; a relative path is ignored and the data directory is used) |
 

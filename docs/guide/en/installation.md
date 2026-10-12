@@ -46,7 +46,7 @@ claude plugin install convention-guard@develeep-convention-guard            # de
 claude plugin install convention-guard@develeep-convention-guard --scope local   # this repo only
 ```
 
-A terminal install does not ask for userConfig. It prints `3 userConfig options not yet set`. If you leave them empty, the plugin runs with its defaults (`mode: report`). To set values, pass them at install, like `--config report_only=true`, or run `/plugin configure convention-guard@develeep-convention-guard` in Claude Code.
+A terminal install does not ask for userConfig. It prints `3 userConfig options not yet set`. If you leave them empty, the plugin runs with its defaults (`mode: fix`, which blocks on a violation). To set values, pass them at install, like `--config report_only=true`, or run `/plugin configure convention-guard@develeep-convention-guard` in Claude Code.
 
 **Try it from a local checkout** (to modify the plugin, or to try it without installing):
 

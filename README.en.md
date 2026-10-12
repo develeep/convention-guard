@@ -68,7 +68,7 @@ echo '{"name":"cg-demo","private":true}' > package.json     # detected as a JS r
 printf 'console.log("legacy");\n' > legacy.js                # an existing legacy line
 mkdir -p .claude/convention-guard
 cat > .claude/convention-guard/config.yaml <<'EOF'
-mode: fix                     # block the turn on a violation (default is report: record only)
+mode: fix                     # block the turn on a violation (default). report records only
 severity:
   core/js-no-console: error   # for this demo: raise a warn rule to blocking strength
 EOF

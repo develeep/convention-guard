@@ -57,7 +57,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" init --stdout   # 확인
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" init            # 1단계에서 덮어쓰기로 했으면 --force
 ```
 
-초안은 `mode: report` 입니다. 도입 초기에는 차단 없이 기록만 쌓는 것이 기본값입니다.
+초안은 `mode: fix` 입니다. `error` 위반이면 턴을 막고 에이전트가 고칩니다. 5단계 측정에서 지적이 많아 막기 부담스러우면 그 규칙을 `warn` 으로 낮추거나 exclude 하고, 레포 전체를 `report` 로 내리는 것은 마지막 수단입니다 (`report` 로 둔 팀은 실사용에서 한 번도 막지 않았습니다, #6).
 
 `init` 이 종료 코드 1 로 "이미 있습니다" 하고 멈추면 config.yaml 이 이미 있는 것입니다. 1단계에서 덮어쓰기로 정하지 않았다면 사용자에게 알리고 멈춥니다.
 
@@ -104,7 +104,7 @@ AGENTS.md 가 기본입니다. 레포가 `.claude/rules/` 를 쓰고 있을 때�
 스택: laravel, php · 프리셋: common, laravel, php, psr12, security · 적용 규칙 23개
 설정: 새로 작성 (기존 config.yaml 덮어씀)
 구조 엔진: 설치됨
-모드: report — 2~3주 뒤 rule-tune 으로 fix 전환 검토
+모드: fix
 조정:
 - core/php-line-too-long → warn (최근 20커밋 14건, 체이닝 관례)
 - exclude "app/Legacy/**" (전수조사 error 의 80%)

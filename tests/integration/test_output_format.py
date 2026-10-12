@@ -430,6 +430,10 @@ def case_setup(tmp):
     init = run('setup.py', ['init', '--cwd', repo], env)
     ok('init: 공통 문법', outfmt.text_output(init.stdout, 'setup init'))
     check('init: 다음 명령', outfmt.has_command(init.stdout, 'detect_stack.py"'), init.stdout)
+    with open(os.path.join(repo, '.claude/convention-guard/config.yaml'), encoding='utf-8') as fh:
+        draft = fh.read()
+    check('init: 초안은 차단하는 mode: fix (기록만 하는 report 로 두면 셋업한 팀이 막지 않음)',
+          re.search(r'^mode: fix\b', draft, re.M) is not None, draft[:600])
     again = run('setup.py', ['init', '--cwd', repo], env)
     check('init 이미 있음: 종료 1', again.returncode == 1, again.returncode)
     ok('init 이미 있음: stderr', outfmt.stderr_lines(again.stderr))

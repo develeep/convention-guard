@@ -37,7 +37,7 @@ GENERATED = [
 ]
 
 DEFAULTS = {
-    'mode': 'report',
+    'mode': 'fix',
     'presets': 'auto',
     'stacks': [],
     'disable': [],

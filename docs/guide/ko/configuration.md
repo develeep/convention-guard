@@ -109,7 +109,7 @@ lint:
 
 | 키 | 효과 |
 |---|---|
-| `report_only` | `true` → `mode: report`, `false` → `mode: fix`. 고르지 않으면 플러그인 기본값(`report`). 레포 config 에 `mode` 가 있으면 그쪽이 이깁니다 |
+| `report_only` | `true` → `mode: report`, `false` → `mode: fix`. 고르지 않으면 플러그인 기본값(`fix`). 레포 config 에 `mode` 가 있으면 그쪽이 이깁니다 |
 | `semantic_review` | `semantic_review.enabled` |
 | `log_dir` | `firings.jsonl` 위치, 절대경로 (레포 경로는 고르지 마세요 — git 에 잡힘. 상대경로는 무시하고 데이터 디렉터리를 씀) |
 

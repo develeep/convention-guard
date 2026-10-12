@@ -295,8 +295,8 @@ def draft_config(root):
     elif any(t in stacks.tags for t in ('php', 'js')):
         out.append('# 포맷터 설정  : 없음 — examples/formatters 의 설정을 먼저 들이는 편이 낫습니다')
     out += ['',
-            '# 도입 첫 2~3주는 report 로 기록만 쌓고, log_report.py 로 확인한 뒤 fix 로 올리세요.',
-            'mode: report',
+            '# fix = error 위반이면 턴을 막고 에이전트가 고칩니다. 기록만 하려면 report.',
+            'mode: fix',
             '',
             '# 구조·성능 규칙(의미 판정)까지 켜려면: [auto, architecture, performance]',
             'presets: auto',

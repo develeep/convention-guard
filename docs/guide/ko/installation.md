@@ -46,7 +46,7 @@ claude plugin install convention-guard@develeep-convention-guard            # �
 claude plugin install convention-guard@develeep-convention-guard --scope local   # 이 레포에서만
 ```
 
-터미널 설치는 userConfig 를 묻지 않고 `3 userConfig options not yet set` 이라고 알립니다. 비워 두면 플러그인 기본값(`mode: report`)으로 동작합니다. 값을 정하려면 `--config report_only=true` 처럼 설치할 때 넘기거나, Claude Code 에서 `/plugin configure convention-guard@develeep-convention-guard` 를 실행하세요.
+터미널 설치는 userConfig 를 묻지 않고 `3 userConfig options not yet set` 이라고 알립니다. 비워 두면 플러그인 기본값(`mode: fix`, 위반이면 차단)으로 동작합니다. 값을 정하려면 `--config report_only=true` 처럼 설치할 때 넘기거나, Claude Code 에서 `/plugin configure convention-guard@develeep-convention-guard` 를 실행하세요.
 
 **로컬 체크아웃으로 시험** (플러그인을 고치거나 설치 없이 써 볼 때):
 

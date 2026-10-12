@@ -64,7 +64,7 @@ echo '{"name":"cg-demo","private":true}' > package.json     # JS 레포로 감�
 printf 'console.log("legacy");\n' > legacy.js                # 원래 있던 레거시 줄
 mkdir -p .claude/convention-guard
 cat > .claude/convention-guard/config.yaml <<'EOF'
-mode: fix                     # 위반이면 턴을 차단 (기본값은 기록만 하는 report)
+mode: fix                     # 위반이면 턴을 차단 (기본값). 기록만 하려면 report
 severity:
   core/js-no-console: error   # 체험용: 경고 규칙을 차단 강도로 올림
 EOF
