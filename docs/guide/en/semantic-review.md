@@ -82,7 +82,7 @@ The cache key is `rule:file:review_hash`, and `review_hash` is a fingerprint tha
 
 | Piece | Contents | When it changes |
 |---|---|---|
-| `definition_hash` | The rule's `detect` gate + `semantic_review` (instruction, context, max_context_lines) | The question itself changed, so re-judge |
+| `definition_hash` | The rule's `detect` gate + `semantic_review` (instruction, context, max_context_lines, units) | The question itself changed, so re-judge |
 | `context_hash` | Main region — the enclosing function body (or the window around the candidate if none) | The code under judgment changed, so re-judge |
 | `related_hash` | Related files in the pack (the **whole file**, not the head shown) and the import section (sorted text without line numbers) | The evidence changed, so re-judge |
 
@@ -118,6 +118,7 @@ detect:
   when_code_added: true
 semantic_review:                                # required
   context: [imports]
+  units: [function]                             # default [function, header]
   instruction: |
     One question: does this unit bring business logic into the controller?
     VIOLATION: picks values by branching, computes prices, queries or saves models directly ...
@@ -134,6 +135,7 @@ Ask about one rule only, narrowly. An open question such as "find problems in th
 | file head | The lines added outside functions (imports, namespace, class declaration, properties), one per file. Shown as the file skeleton with function bodies folded |
 | whole file | When the structure engine is missing or the file could not be read to the end (a syntax error included). Marked `함수 경계 미확인` ("function boundaries unknown") |
 
+- `units` picks which units are asked. The default is `[function, header]`. A rule whose answer for the file head is always VALID (no logic in controllers, where an import or a class declaration cannot violate it) sets `[function]`. In the session-path experiment (#6), 22 of 36 review requests for such rules were file heads, all VALID. Keep the default when the file head is what the rule judges, such as infrastructure imports in a domain file. A whole-file unit is judged regardless of `units`
 - A unit needs at least one added line with a letter or digit in it. A legacy function where only a closing brace or a blank line changed is not judged
 - While the unit's code stays the same, the cached verdict is used. Any line in the unit changing sends it for judgment again
 - Up to 50 units per rule are collected at a time. Past that, it says "<rule>: 판정 단위가 상한 N개에 닿아 나머지는 이번에 판정하지 못했습니다" ("units reached the cap of N, the rest were not judged this time"). If `scan.py --max-hits` is above 50, that value is the cap

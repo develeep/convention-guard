@@ -264,6 +264,8 @@ def scan(rule, scope, reach, cap, is_dismissed=_never_dismissed, unchecked=None)
             if not body:
                 continue
             for item in units.of(body, structure.language_of(relpath), added):
+                if item.kind != 'file' and item.kind not in rule['review']['units']:
+                    continue
                 cand = Candidate(rule['id'], relpath, item.lines[0], clip(item.label),
                                  code=item.code, unit=item)
                 if is_dismissed(rule['id'], relpath, cand.code_hash):

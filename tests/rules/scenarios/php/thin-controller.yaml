@@ -48,7 +48,7 @@ cases:
 
     expect: ["app/Http/Controllers/OrderController.php:17"]
 
-  - name: 함수 밖에 추가한 use 는 파일 머리 하나
+  - name: 함수 밖에 추가한 use 는 묻지 않음 (units [function], 파일 머리는 늘 VALID)
     before:
       app/Http/Controllers/OrderController.php: |
         <?php
@@ -88,7 +88,7 @@ cases:
             }
         }
 
-    expect: ["app/Http/Controllers/OrderController.php:6"]
+    expect: []
 
   - name: 레거시 액션 옆에 닫는 괄호만 추가되면 조용함
     before:

@@ -12,6 +12,8 @@ detect:
   when_code_added: true
 semantic_review:
   context: [imports]
+  # 파일 머리(import·생성자 주입)는 이 규칙에서 늘 VALID 라 묻지 않는다 (#6 실험: 컨트롤러 규칙 리뷰 요청 36건 중 22건이 파일 머리, 모두 VALID)
+  units: [function]
   max_context_lines: 120
   instruction: |
     질문은 하나입니다: 이 판정 단위가 컨트롤러에 비즈니스 로직이나 데이터 접근을 들여오는가?

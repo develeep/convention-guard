@@ -79,6 +79,21 @@ def case_code_added_anchor():
                                        semantic_review=review), 'x.yaml', 'local')
     check('when_code_added loads as a unit rule', unit['kind'] == 'unit', unit.get('kind'))
     check('and is reviewed', bool(unit['review']) and unit['definition_hash'])
+    check('every unit kind is judged unless the rule narrows it',
+          unit['review']['units'] == ['function', 'header'], unit['review'])
+    narrowed = rulelib.normalize(rule_yaml(applies_to=files, detect={'when_code_added': True},
+                                           semantic_review=dict(review, units=['function'])),
+                                 'x.yaml', 'local')
+    check('units narrows what is asked', narrowed['review']['units'] == ['function'],
+          narrowed['review'])
+    check('and changes the definition hash',
+          narrowed['definition_hash'] != unit['definition_hash'])
+    expect_error('units takes known unit kinds only',
+                 rule_yaml(applies_to=files, detect={'when_code_added': True},
+                           semantic_review=dict(review, units=['class'])), 'units')
+    expect_error('units cannot be empty',
+                 rule_yaml(applies_to=files, detect={'when_code_added': True},
+                           semantic_review=dict(review, units=[])), 'units')
     expect_error('when_code_added must be true',
                  rule_yaml(applies_to=files, detect={'when_code_added': 'x'},
                            semantic_review=review), 'when_code_added 는 true')

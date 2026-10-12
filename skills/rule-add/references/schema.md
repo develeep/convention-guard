@@ -95,12 +95,15 @@ semantic_review:
         glob: 'app/Models/{1}.php'      #   {1} 에 심볼이 들어감
         max: 2
   max_context_lines: 150
+  units: [function, header]             # when_code_added 만: 물을 판정 단위 (기본 둘 다)
   instruction: |
     무엇을 보고 VIOLATION / VALID 를 가를지.
     VIOLATION: <구체 조건>
     VALID: <구체 조건>
     판단할 수 없으면 VALID 입니다.
 ```
+
+`units` 는 `when_code_added` 규칙에서 물을 판정 단위입니다. 파일 머리(import·클래스 선언)가 위반일 수 없는 규칙은 `[function]` 으로 둡니다. 파일 머리가 판정 대상인 규칙(도메인 파일의 인프라 import)은 생략합니다.
 
 instruction 에는 반드시 "판단할 수 없으면 VALID" 를 넣습니다. 레포 전체를 탐색하라는 지시는 넣지 않습니다 — 컨텍스트 팩으로 판정할 수 있는 규칙만 의미 판정으로 만듭니다.
 

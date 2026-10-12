@@ -82,7 +82,7 @@ Stop
 
 | 조각 | 내용 | 바뀌면 |
 |---|---|---|
-| `definition_hash` | 규칙의 `detect` 게이트 + `semantic_review` (instruction, context, max_context_lines) | 질문 자체가 달라졌으므로 재판정 |
+| `definition_hash` | 규칙의 `detect` 게이트 + `semantic_review` (instruction, context, max_context_lines, units) | 질문 자체가 달라졌으므로 재판정 |
 | `context_hash` | 주 영역 — 감싸는 함수 본문 (없으면 후보 주변 창) | 판정 대상 코드가 달라졌으므로 재판정 |
 | `related_hash` | 팩에 실린 관련 파일(보여 준 앞부분이 아니라 **파일 전체**)과 import 구역(줄 번호를 뺀 정렬한 텍스트) | 판정 근거가 달라졌으므로 재판정 |
 
@@ -118,6 +118,7 @@ detect:
   when_code_added: true
 semantic_review:                                # 필수
   context: [imports]
+  units: [function]                             # 생략하면 [function, header]
   instruction: |
     질문은 하나입니다: 이 판정 단위가 컨트롤러에 비즈니스 로직을 들여오는가?
     VIOLATION: 분기로 값을 정함, 가격 계산, 모델 직접 조회·저장 ...
@@ -134,6 +135,7 @@ semantic_review:                                # 필수
 | 파일 머리 | 함수 밖에 추가된 줄(import, namespace, 클래스 선언, 프로퍼티)을 파일마다 하나로 모읍니다. 함수 본문을 접은 파일 골격을 보여 줍니다 |
 | 파일 전체 | 구조 엔진이 없거나 파일을 끝까지 읽지 못했을 때(구문 오류 포함). `함수 경계 미확인` 으로 표시합니다 |
 
+- `units` 로 물을 단위를 고릅니다. 기본은 `[function, header]` 입니다. 파일 머리의 답이 늘 VALID 인 규칙(컨트롤러에 로직 금지처럼 import·클래스 선언이 위반일 수 없는 규칙)은 `[function]` 으로 둡니다. 세션 경로 실험(#6)에서 이런 규칙의 리뷰 요청 36건 중 22건이 파일 머리였고 모두 VALID 였습니다. 도메인 파일에 인프라 import 가 들어오는지 보는 규칙처럼 파일 머리가 판정 대상이면 기본값을 둡니다. 파일 전체 단위는 `units` 와 상관없이 판정합니다
 - 글자나 숫자가 있는 추가 줄이 하나 이상 있어야 단위가 됩니다. 닫는 괄호나 빈 줄만 바뀐 레거시 함수는 판정하지 않습니다
 - 단위의 코드가 그대로면 캐시된 판정을 씁니다. 단위 안의 어느 줄이든 바뀌면 다시 판정합니다
 - 한 번에 규칙당 50개 단위까지 모읍니다. 넘으면 "<규칙>: 판정 단위가 상한 N개에 닿아 나머지는 이번에 판정하지 못했습니다"로 알립니다 (`scan.py --max-hits` 가 50 보다 크면 그 값이 상한)

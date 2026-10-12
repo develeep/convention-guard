@@ -71,8 +71,14 @@ def has_requirement(rule, sample):
 
 def structure_dependent(rule):
     """Does what this rule reports depend on reading structure? Its structure
-    conditions do, and so does a requirement, which must not sit in a comment."""
+    conditions do, a requirement does (it must not sit in a comment), and so
+    does a unit rule that skips the file head."""
     if conditions.has_conditions(rule):
+        return True
+    # telling a file head from a function needs the parse: unread, the unit is
+    # the whole file and is asked whatever `units` says
+    review = rule.get('review') or {}
+    if rule['kind'] == 'unit' and 'header' not in (review.get('units') or ('header',)):
         return True
     if rule['kind'] in ('absent', 'requires'):
         detect = rule.get('detect') or {}

@@ -295,12 +295,15 @@ def _detect(rule, spec):
     rule['detect'] = dict(spec)
 
 
+UNIT_KINDS = ('function', 'header')
+
+
 def _review(spec):
     if spec is None:
         return None
     if not isinstance(spec, dict):
         raise RuleError('semantic_review 는 매핑이어야 합니다')
-    unknown = sorted(set(spec) - {'instruction', 'context', 'max_context_lines'})
+    unknown = sorted(set(spec) - {'instruction', 'context', 'max_context_lines', 'units'})
     if unknown:
         raise RuleError('semantic_review 의 알 수 없는 키: %s' % ', '.join(unknown))
     instruction = str(spec.get('instruction') or '').strip()
@@ -323,7 +326,15 @@ def _review(spec):
         limit = int(spec.get('max_context_lines') or DEFAULT_MAX_CONTEXT_LINES)
     except (TypeError, ValueError):
         raise RuleError('max_context_lines 는 정수여야 합니다')
-    return {'instruction': instruction, 'context': context, 'max_context_lines': limit}
+    # which judgment units of a when_code_added rule are asked (lib/units.py).
+    # A rule whose answer for the file head is always VALID drops `header`;
+    # a whole-file unit (structure unread) is asked regardless
+    units = spec.get('units', list(UNIT_KINDS))
+    if not isinstance(units, list) or not units or set(units) - set(UNIT_KINDS):
+        raise RuleError('semantic_review.units 는 %s 중 하나 이상의 목록이어야 합니다'
+                        % ', '.join(UNIT_KINDS))
+    return {'instruction': instruction, 'context': context, 'max_context_lines': limit,
+            'units': [kind for kind in UNIT_KINDS if kind in units]}
 
 
 def definition_hash(rule):

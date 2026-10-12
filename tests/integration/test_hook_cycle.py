@@ -686,6 +686,28 @@ def case_unit_rules_verify_scope(repo, data):
           outcomes(s) == ['fixed', 'reported'], s.events('verify'))
 
 
+def case_unit_rule_can_skip_header(repo, data):
+    """A rule whose answer for the file head is always VALID says so with
+    `units: [function]` -- an import or a decorator is then no question."""
+    if not needs_engine('판정 단위 사이클'):
+        return
+    rule = UNIT_RULE % {'id': 'thin', 'glob': 'app/Http/Controllers/**/*.php'}
+    rule = rule.replace('semantic_review:\n', 'semantic_review:\n  units: [function]\n')
+    write(repo, '.claude/convention-guard/rules/thin.yaml', rule)
+    write(repo, CTRL, ctrl(''))
+    commit(repo, 'legacy controller')
+    s = Session(repo, data, 'head')
+    s.edit(CTRL, ctrl('').replace(HDR, HDR + 'use App\\Models\\Order;\n'))
+    head_only = s.stop('p1')
+    check('an import alone asks nothing', head_only['decision'] is None, head_only)
+    s.edit(CTRL, ctrl('return $this->orders->place();').replace(
+        HDR, HDR + 'use App\\Models\\Order;\n'))
+    both = s.stop('p2')
+    _batch, items = unit_items(s, both)
+    check('a function still asks, the head does not',
+          both['decision'] == 'block' and len(items) == 1 and '파일 머리' not in items[0][2], items)
+
+
 CASES = [
     (case_fixed_passes, ''),
     (case_changed_outside_is_not_fixed, ''),
@@ -724,6 +746,7 @@ CASES = [
     (case_verify_cap_is_not_new, 'once_per_session: false\n'),
     (case_reformat_and_move_are_still, 'once_per_session: false\n'),
     (case_unit_rules_verify_scope, 'semantic_review:\n  enabled: true\n'),
+    (case_unit_rule_can_skip_header, 'semantic_review:\n  enabled: true\n'),
 ]
 
 
